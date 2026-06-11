@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 55,
+  "critical_mismatches": [
+    "Adds/linguistically alters location: prefixes \"russische Rosendal\" (hallucinated) instead of simply 'Rosendahl'.",
+    "Misrenders delivery/plant location: 'Gronau' is transcribed as 'Kronau'/'Grunau' (wrong place name).",
+    "Introduces technical machine/filling details (‚75er Durchmesser', '150–125 g', 'amman 1317', 'Sahnekefir') that do not appear in the reference (hallucination).",
+    "Omits important cheese-processing details from the reference (description of the red‑cut cheese: ~4 weeks in Rosendahl, affinage/smearing, coated rind and handling) which are meaning‑bearing and absent in the candidate.",
+    "Misrecognizes 'Dessert' as 'gissern' (changes a product category)."
+  ],
+  "rationale": "The candidate preserves several high‑level elements from the reference (the 20,000 t/yr figure, production in Rosendahl, ~1,100 t/yr cheese, collaboration with Passendale, and mentions of trainings), but it contains multiple material errors and hallucinations. Wrong place names (Gronau→Kronau/Grunau, insertion of 'russische' before Rosendahl) change key factual information. The candidate also omits central process details about the red‑cut cheese aging/coating/handling and introduces unrelated machine specifications that are not in the reference. These errors and omissions materially affect the meaning and factual accuracy, so the transcript is not fully faithful.",
+  "cache_key": "b6b5e9fcf39e08e229e6aeb520584ea9533836d9111949326b21ab03af090f16",
+  "cache_path": "benchmark-results/semantic-cache/b6b5e9fcf39e08e229e6aeb520584ea9533836d9111949326b21ab03af090f16.json",
+  "cache_hit": false
+}

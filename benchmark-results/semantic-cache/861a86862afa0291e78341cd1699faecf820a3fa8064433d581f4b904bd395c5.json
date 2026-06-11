@@ -1,0 +1,21 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 0,
+  "critical_mismatches": [
+    "Candidate transcript is unrelated and contains only repeated phrases ('gracias por ver el video'), omitting the entire substantive content of the reference.",
+    "Packaging and design details (premium blue packaging) are missing.",
+    "Product endorsement/tests are missing (comments that the product is a 'productazo' and surprised reaction in trials).",
+    "New product line description is missing (high-protein line including UHT flavored milks: chocolate, vanilla, and the caramel product).",
+    "Protein content and numeric details are omitted (e.g., grams per liter/pack/pot such as 50 g per liter, 15 g, 11 g, etc.).",
+    "Production and sourcing details are omitted (UHT produced at Planta Frank, use of UF concentrate from Frank for cheese production).",
+    "Format and pack-size details are omitted (yogurt drink formats 200 g, 330 g, 500 g; mock-up at 150 g).",
+    "Target audience and positioning are omitted (adolescents, family, communication strategy, niche vs. broad positioning).",
+    "Market and regulatory context is omitted (comparisons to competitors, being pioneers, planned research/legal study).",
+    "Candidate introduces no factual content from reference and thus omits all meaning-bearing elements."
+  ],
+  "rationale": "The candidate transcript is essentially unrelated repetition and fails to convey any of the reference's meaning-bearing content, including names, numeric facts, production details, target audience, product formats, and market/regulatory context. Per the rubric, omissions of numbers, names, and substantive content are heavily penalized. Therefore semantic accuracy is effectively zero.",
+  "cache_key": "861a86862afa0291e78341cd1699faecf820a3fa8064433d581f4b904bd395c5",
+  "cache_path": "benchmark-results/semantic-cache/861a86862afa0291e78341cd1699faecf820a3fa8064433d581f4b904bd395c5.json",
+  "cache_hit": false
+}

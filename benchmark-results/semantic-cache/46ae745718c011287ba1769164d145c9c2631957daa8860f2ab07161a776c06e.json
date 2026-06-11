@@ -1,0 +1,17 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 60,
+  "critical_mismatches": [
+    "Conflation of speakers and biographies: the candidate attributes Annick's Heineken biography and family/move details to Ludovic, changing who said what.",
+    "Wrong company name: candidate renders 'Heineken' as 'ainecon', a significant proper‑noun error.",
+    "Place name error: 'Nancy' (reference) is transcribed as 'mancy' in the candidate.",
+    "Historical/company names garbled: the reference's historical names (e.g. 'fromagère Juryn' / 'Faucon') are misrendered as 'fourniture jurine' / 'fourniture à montfaucon', altering meaning.",
+    "Inserted or inconsistent safety/operational statistics and procedures: the candidate introduces detailed VSC counts, night‑VSC practices and staffing/shift figures not present or conflicting with the reference, amounting to hallucinated or misplaced content.",
+    "Numerous garbled proper nouns and phrases (e.g. 'particule' vs reference's phrase) and omissions of meaning‑bearing segments that change or obscure the original information."
+  ],
+  "rationale": "The candidate preserves the overall topics (visit plan, site tour, safety, company history, brand/packaging and RSE issues) but frequently misattributes statements to the wrong speakers, misrenders key proper nouns (companies, places, historical names) and introduces or alters numeric/statistical details. Those errors (speaker conflation, wrong company/place names, invented safety metrics and corrupted historical names) materially change the meaning and reduce fidelity. Many smaller garblings and omissions further degrade accuracy, though the high‑level themes remain recognizable.",
+  "cache_key": "46ae745718c011287ba1769164d145c9c2631957daa8860f2ab07161a776c06e",
+  "cache_path": "benchmark-results/semantic-cache/46ae745718c011287ba1769164d145c9c2631957daa8860f2ab07161a776c06e.json",
+  "cache_hit": false
+}

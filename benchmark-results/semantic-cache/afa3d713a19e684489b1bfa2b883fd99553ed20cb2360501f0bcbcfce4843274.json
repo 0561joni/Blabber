@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 55,
+  "critical_mismatches": [
+    "Place name errors: candidate repeatedly renders 'Gronau' as 'Kronau' (wrong location).",
+    "Added/incorrect qualifier: candidate inserts 'der russische Rosendahl' — 'russische' is not in reference (hallucination).",
+    "Fabricated technical details: candidate introduces a machine description (becher machine, diameters, 'amman 1317') that does not appear in the reference (hallucination).",
+    "Product name / praise altered: reference mentions 'Messier Champagner' / a liked fresh cheese; candidate replaces/garbles this with nonsense ('kappenbier', 'bellar'), changing meaning.",
+    "Training / procedural section degraded: candidate produces long garbled/repetitive passages about trainings (Salvencia/karriere) that do not match the reference, causing loss of meaning and omissions."
+  ],
+  "rationale": "The candidate preserves many high-level facts (20,000 t/yr milk products, Rosendahl ~30 km, ~1,100 t/yr cheese, outsourcing cutting to a third party, collaboration with Passendale, storage at external warehouse near Epe), but introduces several material errors and hallucinations (wrong town name 'Kronau' for 'Gronau', spurious qualifier 'russische', invented machine/packaging details, and corrupted product/training passages). These changes sometimes alter meaning or add unsupported content, and parts of the reference are omitted or garbled. Taking into account preserved correct content versus the critical hallucinations and omissions, the semantic fidelity is moderate but notably flawed.",
+  "cache_key": "afa3d713a19e684489b1bfa2b883fd99553ed20cb2360501f0bcbcfce4843274",
+  "cache_path": "benchmark-results/semantic-cache/afa3d713a19e684489b1bfa2b883fd99553ed20cb2360501f0bcbcfce4843274.json",
+  "cache_hit": false
+}

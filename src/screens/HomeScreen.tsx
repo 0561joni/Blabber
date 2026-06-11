@@ -1,0 +1,603 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { dictatePress, dictateRelease } from "../lib/api";
+import { formatDuration, formatShortcutForDisplay } from "../lib/formatting";
+import type {
+  AppSettings,
+  FileQueueItem,
+  ManualTranscriptionUiState,
+  QuickDictationStatusResponse,
+  RecordingStatusResponse,
+  TranscriptionPreviewResponse,
+} from "../types/domain";
+
+interface HomeScreenProps {
+  settings: AppSettings | null;
+  platform: string | null;
+  preview: TranscriptionPreviewResponse | null;
+  recordingStatus: RecordingStatusResponse | null;
+  manualTranscriptionState: ManualTranscriptionUiState;
+  quickDictationStatus: QuickDictationStatusResponse | null;
+  fileQueueItems: FileQueueItem[];
+  isFileDragActive: boolean;
+  onStartRecording: () => void;
+  onStopAndTranscribeRecording: () => void;
+  onCancelRecording: () => void;
+  onPickFiles: () => void;
+  onDropFiles: (files: FileList) => void;
+  onSetFileDragActive: (active: boolean) => void;
+  onToggleFileTranscript: (itemId: string) => void;
+  onCopyFileTranscript: (itemId: string, text: string) => void;
+}
+
+export function HomeScreen({
+  settings,
+  platform,
+  preview,
+  recordingStatus,
+  manualTranscriptionState,
+  quickDictationStatus,
+  fileQueueItems,
+  isFileDragActive,
+  onStartRecording,
+  onStopAndTranscribeRecording,
+  onCancelRecording,
+  onPickFiles,
+  onDropFiles,
+  onSetFileDragActive,
+  onToggleFileTranscript,
+  onCopyFileTranscript,
+}: HomeScreenProps) {
+  const isListening = recordingStatus?.state === "listening";
+  const isPaused = recordingStatus?.state === "paused";
+  const isManualProcessing = manualTranscriptionState.stage === "processing";
+  const isBusy = recordingStatus?.state === "processing" || isManualProcessing;
+  const shouldDisableRecordButton = isBusy && !isManualProcessing;
+  const canStop = isListening || isPaused;
+  const [isPttActive, setIsPttActive] = useState(false);
+  const pttActiveRef = useRef(false);
+  pttActiveRef.current = isPttActive;
+  const dictationState = quickDictationStatus?.state ?? "idle";
+  const isShortcutDictating =
+    dictationState === "listening" || dictationState === "processing";
+  // Disable the PTT button when the global shortcut is mid-dictation, so the
+  // user can't accidentally cut someone off. While we're holding it ourselves,
+  // it stays enabled so we can release.
+  const pttDisabled =
+    (!isPttActive && isShortcutDictating) || isBusy || canStop;
+
+  const handlePttPress = useCallback(
+    async (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (pttActiveRef.current || pttDisabled) return;
+      // Capture pointer so pointerup fires even if the cursor leaves the button.
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Some platforms (or pointer types) reject capture; ignore.
+      }
+      setIsPttActive(true);
+      try {
+        await dictatePress();
+      } catch {
+        setIsPttActive(false);
+      }
+    },
+    [pttDisabled],
+  );
+
+  const handlePttRelease = useCallback(async () => {
+    if (!pttActiveRef.current) return;
+    setIsPttActive(false);
+    try {
+      await dictateRelease();
+    } catch {
+      // Swallow; the controller will time out / reset on its own.
+    }
+  }, []);
+  const shortcut = formatShortcutForDisplay(
+    quickDictationStatus?.registeredShortcut ?? settings?.shortcut ?? "Not configured",
+    platform,
+  );
+  const hasShortcutResult =
+    !!quickDictationStatus?.lastTranscriptText &&
+    (!!quickDictationStatus?.lastTranscriptId || !!quickDictationStatus?.lastInsertOutcome);
+  const liveState =
+    quickDictationStatus && quickDictationStatus.state !== "idle"
+      ? quickDictationStatus.state
+      : recordingStatus?.state ?? "idle";
+
+  const liveTitle =
+    liveState === "listening"
+      ? "Listening for dictation"
+      : liveState === "paused"
+        ? "Recording paused"
+        : liveState === "processing"
+          ? "Transcribing locally"
+          : liveState === "success" || liveState === "inserted"
+            ? "Dictation delivered"
+            : liveState === "clipboard_only"
+              ? "Copied for manual paste"
+              : liveState === "error"
+                ? "Dictation needs attention"
+                : hasShortcutResult
+                  ? "Last shortcut dictation"
+                : "Background dictation is ready";
+
+  const liveCopy =
+    quickDictationStatus?.lastTranscriptText &&
+    (quickDictationStatus.state === "inserted" ||
+      quickDictationStatus.state === "clipboard_only" ||
+      quickDictationStatus.state === "error" ||
+      (quickDictationStatus.state === "idle" && hasShortcutResult))
+      ? quickDictationStatus.lastErrorMessage
+        ? `${quickDictationStatus.lastTranscriptText} ${quickDictationStatus.lastErrorMessage}`
+        : quickDictationStatus.lastTranscriptText
+      : quickDictationStatus?.lastErrorMessage ??
+        recordingStatus?.lastErrorMessage ??
+        (recordingStatus?.state === "paused"
+          ? "Manual recording is paused. Cancel and start again if needed."
+          : recordingStatus?.state === "listening"
+            ? "Press the same control again to stop and transcribe."
+            : recordingStatus?.state === "success"
+              ? "Transcript ready."
+              : `Use ${shortcut} or tap the record control to start manual dictation.`);
+
+  const showRecordingMeta =
+    recordingStatus?.state === "listening" ||
+    recordingStatus?.state === "paused" ||
+    recordingStatus?.state === "success" ||
+    recordingStatus?.state === "error";
+  const showManualTranscriptionCard = manualTranscriptionState.stage !== "idle";
+  const elapsedSeconds = useElapsedSeconds(
+    manualTranscriptionState.stage === "processing" ? manualTranscriptionState.startedAt : null,
+  );
+
+  // HTML5 drag-and-drop handlers for the capture panel.
+  // dragCounter ref tracks nested dragenter/dragleave events correctly.
+  const dragCounter = useRef(0);
+
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter.current += 1;
+      if (dragCounter.current === 1) {
+        onSetFileDragActive(true);
+      }
+    },
+    [onSetFileDragActive],
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDragLeave = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter.current -= 1;
+      if (dragCounter.current <= 0) {
+        dragCounter.current = 0;
+        onSetFileDragActive(false);
+      }
+    },
+    [onSetFileDragActive],
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter.current = 0;
+      onSetFileDragActive(false);
+      if (e.dataTransfer.files.length > 0) {
+        onDropFiles(e.dataTransfer.files);
+      }
+    },
+    [onSetFileDragActive, onDropFiles],
+  );
+
+  return (
+    <section className="screen home-screen">
+      <div className="home-stack">
+        <article
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={
+            isFileDragActive
+              ? "glass-panel primary-panel capture-panel apple-panel is-file-drop-target"
+              : "glass-panel primary-panel capture-panel apple-panel"
+          }
+        >
+          <div className="section-header section-header-compact">
+            <div>
+              <p className="eyebrow">Capture</p>
+              <h2>Quick Dictate</h2>
+              <p className="muted capture-subtitle">{shortcut}</p>
+            </div>
+          </div>
+
+          <div className="transport-cluster">
+            <div className="transport-controls" role="group" aria-label="Manual recording controls">
+              <button
+                className={
+                  isManualProcessing
+                    ? "record-button is-processing"
+                    : shouldDisableRecordButton
+                      ? "record-button is-inactive"
+                    : canStop
+                      ? "record-button is-recording"
+                      : "record-button"
+                }
+                disabled={shouldDisableRecordButton}
+                aria-disabled={isBusy ? "true" : undefined}
+                onClick={() => {
+                  if (isManualProcessing || shouldDisableRecordButton) {
+                    return;
+                  }
+                  if (canStop) {
+                    onStopAndTranscribeRecording();
+                    return;
+                  }
+                  onStartRecording();
+                }}
+                aria-label={
+                  isManualProcessing
+                    ? "Transcription in progress"
+                    : canStop
+                      ? "Stop recording and transcribe"
+                      : "Start recording"
+                }
+                title={
+                  isManualProcessing
+                    ? "Transcription in progress"
+                    : canStop
+                      ? "Stop recording and transcribe"
+                      : "Start recording"
+                }
+              >
+                <span className="record-button-shell">
+                  {isManualProcessing ? (
+                    <span className="record-processing-ring" aria-hidden="true">
+                      <span className="record-processing-core" />
+                    </span>
+                  ) : canStop ? (
+                    <span className="record-stop-core" aria-hidden="true" />
+                  ) : (
+                    <span className="record-start-core" aria-hidden="true" />
+                  )}
+                </span>
+              </button>
+
+              <button
+                className="upload-action-button"
+                type="button"
+                disabled={pttDisabled}
+                aria-pressed={isPttActive}
+                aria-label={
+                  isPttActive
+                    ? "Release to transcribe to clipboard"
+                    : "Hold to dictate to clipboard"
+                }
+                title={
+                  isPttActive
+                    ? "Release to transcribe — the result will be on your clipboard"
+                    : "Hold to dictate — release to copy the result to your clipboard"
+                }
+                style={
+                  isPttActive
+                    ? {
+                        background: "linear-gradient(180deg, #ff6258, #f23b30)",
+                        color: "#fff",
+                        borderColor: "#dc4338",
+                      }
+                    : undefined
+                }
+                onPointerDown={(event) => {
+                  void handlePttPress(event);
+                }}
+                onPointerUp={() => {
+                  void handlePttRelease();
+                }}
+                onPointerCancel={() => {
+                  void handlePttRelease();
+                }}
+                onPointerLeave={(event) => {
+                  // Only release on leave if the pointer was already captured
+                  // (i.e. user is dragging away while holding). Plain hover-out
+                  // when not pressed should not count.
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    void handlePttRelease();
+                  }
+                }}
+                onContextMenu={(event) => event.preventDefault()}
+              >
+                <span className="upload-action-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 1v22" />
+                    <path d="M5 7a7 7 0 0 0 14 0" />
+                    <path d="M9 22h6" />
+                  </svg>
+                </span>
+                <span>{isPttActive ? "Release" : "Hold to dictate"}</span>
+              </button>
+
+              <button
+                className="upload-action-button"
+                type="button"
+                onClick={onPickFiles}
+                aria-label="Upload audio files"
+                title="Upload audio files"
+              >
+                <span className="upload-action-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 16V7" />
+                    <path d="m8.5 10.5 3.5-3.5 3.5 3.5" />
+                    <path d="M6.5 17.5h11" />
+                  </svg>
+                </span>
+                <span>Upload</span>
+              </button>
+            </div>
+
+            <div className="transport-secondary-actions">
+              <button
+                className="secondary-inline-button"
+                disabled={!canStop || isBusy}
+                onClick={onCancelRecording}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+
+          <div
+            className={`drop-pill ${isFileDragActive ? "drop-pill-expanded" : ""}`}
+            role="status"
+            aria-live="polite"
+          >
+            <div className="drop-pill-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <rect x="3" y="3" width="18" height="18" rx="3" strokeDasharray="4 3" />
+                <path d="M12 8v8" />
+                <path d="m8.5 12.5 3.5 3.5 3.5-3.5" />
+              </svg>
+            </div>
+            <span className="drop-pill-label">
+              {isFileDragActive ? "Drop to transcribe" : "Drop files here"}
+            </span>
+            <span className="drop-pill-hint">WAV, MP3, M4A, or OPUS</span>
+          </div>
+
+          {showRecordingMeta ? (
+            <dl className="meta-list capture-meta-list">
+              <div>
+                <dt>Input device</dt>
+                <dd>{recordingStatus?.activeInputDevice ?? "Unavailable"}</dd>
+              </div>
+              <div>
+                <dt>Duration</dt>
+                <dd>
+                  {recordingStatus?.durationMs
+                    ? `${(recordingStatus.durationMs / 1000).toFixed(1)}s`
+                    : "0.0s"}
+                </dd>
+              </div>
+            </dl>
+          ) : null}
+
+          {preview ? (
+            <div className="preview-result glass-subtle">
+              {preview.error ? (
+                <p className="muted">
+                  {preview.error.code}: {preview.error.message}
+                </p>
+              ) : (
+                <>
+                  <p className="muted">{preview.result?.plainText}</p>
+                  <p className="preview-model-footer muted">
+                    Model: {preview.resolvedModel?.modelName ?? preview.result?.modelName ?? "Missing model"}
+                  </p>
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {showManualTranscriptionCard ? (
+            <div className="file-queue-card glass-subtle manual-transcription-card">
+              <div className="file-queue-header">
+                <div>
+                  <p className="eyebrow">Manual dictation</p>
+                  <p className="transcript-title">
+                    {manualTranscriptionState.stage === "failed"
+                      ? "Transcription failed"
+                      : "Transcribing locally"}
+                  </p>
+                </div>
+                <span
+                  className={`status-pill progress-pill stage-${
+                    manualTranscriptionState.stage === "failed" ? "failed" : "saving"
+                  }`}
+                >
+                  {manualTranscriptionState.stage === "failed" ? "Failed" : "Processing"}
+                </span>
+              </div>
+
+              {manualTranscriptionState.stage === "processing" ? (
+                <>
+                  <p className="progress-copy">{manualTranscriptionState.statusText}</p>
+                  <div className="progress-track" aria-hidden="true">
+                    <div className="progress-fill indeterminate" />
+                  </div>
+                  <div className="progress-meta">
+                    <span>{manualTranscriptionState.statusText}</span>
+                    <span>Elapsed {formatDuration(elapsedSeconds)}</span>
+                    <span>Working</span>
+                  </div>
+                </>
+              ) : null}
+
+              {manualTranscriptionState.errorMessage ? (
+                <p className="error-text">{manualTranscriptionState.errorMessage}</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {fileQueueItems.length > 0 ? (
+            <div className="file-queue-list">
+              {fileQueueItems.map((item) => (
+                <div className="file-queue-card glass-subtle" key={item.id}>
+                  <div className="file-queue-header">
+                    <div>
+                      <p className="eyebrow">Upload</p>
+                      <p className="transcript-title">{item.sourceFile.originalName}</p>
+                    </div>
+                    <span className={`status-pill progress-pill stage-${item.stage}`}>
+                      {fileStageLabel(item.stage)}
+                    </span>
+                  </div>
+
+                  {isFileQueueWorking(item.stage) ? (
+                    <>
+                      <p className="progress-copy">{item.statusText}</p>
+                      <div className="progress-track" aria-hidden="true">
+                        <div
+                          className={
+                            item.stage === "queued" || item.stage === "preparing"
+                              ? "progress-fill indeterminate"
+                              : "progress-fill"
+                          }
+                          style={
+                            item.stage === "queued" || item.stage === "preparing"
+                              ? undefined
+                              : { width: `${progressPercent(item)}%` }
+                          }
+                        />
+                      </div>
+                      <div className="progress-meta">
+                        <span>ETA {item.etaSeconds != null ? formatDuration(item.etaSeconds) : "Estimating..."}</span>
+                        <span>
+                          {item.progressPercent != null
+                            ? `${Math.round(progressPercent(item))}% complete`
+                            : "Waiting"}
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {item.errorMessage ? <p className="error-text">{item.errorMessage}</p> : null}
+
+                  {item.result ? (
+                    <>
+                      <div className="text-surface compact-text-surface">
+                        <p className={item.isExpanded ? undefined : "clamped-text"}>
+                          {item.result.result.plainText}
+                        </p>
+                      </div>
+                      <div className="toolbar">
+                        <button
+                          className="icon-toolbar-button"
+                          type="button"
+                          onClick={() => onCopyFileTranscript(item.id, item.result!.result.plainText)}
+                          aria-label={
+                            item.copyState === "copied"
+                              ? "Transcript copied"
+                              : item.copyState === "error"
+                                ? "Copy failed"
+                                : "Copy transcript"
+                          }
+                          title={
+                            item.copyState === "copied"
+                              ? "Copied"
+                              : item.copyState === "error"
+                                ? "Copy failed"
+                                : "Copy transcript"
+                          }
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <rect x="9" y="9" width="10" height="10" rx="2" />
+                            <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        </button>
+                        <button type="button" onClick={() => onToggleFileTranscript(item.id)}>
+                          {item.isExpanded ? "Show less" : "Show full text"}
+                        </button>
+                        <span className="language-chip">
+                          {item.result.result.detectedLanguages.join(", ") || "No language tags"}
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </article>
+
+        <div className={`live-banner glass-subtle home-status-panel state-${liveState}`}>
+          <div className="live-banner-copy">
+            <p className="eyebrow">Live status</p>
+            <strong>{liveTitle}</strong>
+            <p className="muted">{liveCopy}</p>
+          </div>
+          <span className={`status-pill status-pill-${liveState}`}>{liveState}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
+function useElapsedSeconds(startedAt: number | null) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!startedAt) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const update = () => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    };
+    update();
+    const intervalId = window.setInterval(update, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [startedAt]);
+
+  return elapsedSeconds;
+}
+
+function isFileQueueWorking(stage: FileQueueItem["stage"]) {
+  return stage === "queued" || stage === "preparing" || stage === "transcribing" || stage === "saving";
+}
+
+function progressPercent(item: FileQueueItem) {
+  if (item.stage === "saving" || item.stage === "completed") {
+    return 100;
+  }
+  if (item.stage === "failed") {
+    return Math.max(item.progressPercent ?? 0, 0);
+  }
+  return Math.min(Math.max(item.progressPercent ?? 0, 0), 100);
+}
+
+
+function fileStageLabel(stage: FileQueueItem["stage"]) {
+  switch (stage) {
+    case "queued":
+      return "Queued";
+    case "preparing":
+      return "Preparing";
+    case "transcribing":
+      return "Transcribing";
+    case "saving":
+      return "Saving";
+    case "completed":
+      return "Done";
+    case "failed":
+      return "Failed";
+  }
+}

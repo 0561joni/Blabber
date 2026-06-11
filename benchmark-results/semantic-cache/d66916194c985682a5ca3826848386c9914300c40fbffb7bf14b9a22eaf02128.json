@@ -1,0 +1,14 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 85,
+  "critical_mismatches": [
+    "Hallucinated descriptor: candidate inserts “russische Rosendahl” (implies Russian), which is not in the reference.",
+    "Supplier/product name garbling: reference 'messier champagner' / 'tourlier' rendered as 'messias champrenat' / 'der tullier' — wrong names.",
+    "Facility name misrecognition: reference 'Brückerei Nebel' rendered as 'brokkerei nebel' (changes the facility name)."
+  ],
+  "rationale": "The candidate transcript preserves the main factual content: quantities (20,000 t/yr milk products, ~1,100 t cheese), logistic flow (milk delivered to Gronau, processed and driven to Käserei in Rosendahl, external cheese warehouse near Epe ~6 km, ~2–3 week storage), outsourcing of cutting, occasional in-house Gouda blocks, collaboration with Passendale, and the described production lines. However, there are multiple name/label errors and several hallucinated or garbled phrases (notably 'russische Rosendahl', misrendered supplier/product names, and a misrecognized facility name). Per the rubric, wrong names and hallucinations are material and penalized. Overall comprehension is good but degraded by these incorrect proper nouns and occasional garbles, so the semantic fidelity is high but not perfect.",
+  "cache_key": "d66916194c985682a5ca3826848386c9914300c40fbffb7bf14b9a22eaf02128",
+  "cache_path": "benchmark-results/semantic-cache/d66916194c985682a5ca3826848386c9914300c40fbffb7bf14b9a22eaf02128.json",
+  "cache_hit": false
+}

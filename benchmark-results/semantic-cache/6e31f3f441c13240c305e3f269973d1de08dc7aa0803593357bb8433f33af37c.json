@@ -1,0 +1,15 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 82,
+  "critical_mismatches": [
+    "Adds erroneous qualifier 'russische Rosendahl' (introduces incorrect nationality/attribute not in reference).",
+    "'rot geschmierte Käse' vs reference 'rot geschnittene Käse' (alters the described cheese characteristic).",
+    "Several supplier/place names are garbled (reference mentions 'Messier Champagner' / 'Tourlier' and 'Brückerei Nebel'; candidate renders these as 'messias champrenat'/'der tullier' and 'brokkerei nebel'), changing proper names.",
+    "Some other proper names slightly altered (e.g. 'Backers Heimes' vs candidate 'Backes und Heimes'), which can confuse identification of partners."
+  ],
+  "rationale": "The candidate preserves the main factual content and numbers (20,000 t/yr milk products; ~1,100 t/yr cheese; ~30 km to Rosendahl; milk flow via Gronau; external warehouse near Epe ~6 km; use of external cutter, Gouda block production, collaboration with Passendale, etc.). However, several misrendered proper names and at least one incorrect adjectival insertion ('russische') and a change in cheese description ('geschmierte' vs 'geschnittene') materially change meaning in places. These name and descriptor errors are the primary sources of reduced semantic fidelity.",
+  "cache_key": "6e31f3f441c13240c305e3f269973d1de08dc7aa0803593357bb8433f33af37c",
+  "cache_path": "benchmark-results/semantic-cache/6e31f3f441c13240c305e3f269973d1de08dc7aa0803593357bb8433f33af37c.json",
+  "cache_hit": false
+}

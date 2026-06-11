@@ -1,0 +1,18 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 30,
+  "critical_mismatches": [
+    "Adds hallucinated repeated opening 'gracias por ver el video' that does not appear in the reference.",
+    "Omits the reference's opening discussion about packaging, premium blue design and the strong product endorsement ('productazo').",
+    "Misstates product size: candidate says '30' ml for a bottle where reference indicates 330 ml (330 → 30), changing product specification.",
+    "Garbles and/or changes key nutrition numbers for flavored milks and packs (e.g. candidate's '11 gramos de 5 5' and other conflicting figures), making the nutritional facts unreliable.",
+    "Muddles manufacturing/source details: the origin and use of the UF concentrate and the plant assignments (Frank/Gigi) are incorrect or unclear compared with the reference.",
+    "Omits important marketing/positioning nuances from the reference (distinction between 'performático' vs common audience, adolescent vs family targeting) and the discussion about campaign/media strategy.",
+    "Omits the reference's note about legal/research follow‑up and registration/assessment that was stated at the end."
+  ],
+  "rationale": "The candidate preserves a few high‑level points from the reference (mention of flavored milks, testing with adolescents, some protein talk) but introduces hallucinated material (repeated video greeting), omits the packaging/premium opening and many strategic points, and—critically—misstates numerical/product details (bottle size, several protein/pack numbers) and manufacturing source information. Those numeric and source errors plus omitted marketing and legal follow‑ups materially change the meaning and reliability of the transcript, so the candidate is only partially accurate.",
+  "cache_key": "9fdb13fc821376141d276f7c76ef79f8ad7e941bb1be2af4c1091bd772d5a3e0",
+  "cache_path": "benchmark-results/semantic-cache/9fdb13fc821376141d276f7c76ef79f8ad7e941bb1be2af4c1091bd772d5a3e0.json",
+  "cache_hit": false
+}

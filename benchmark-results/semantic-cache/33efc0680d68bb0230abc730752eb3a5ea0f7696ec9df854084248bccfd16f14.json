@@ -1,0 +1,15 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 65,
+  "critical_mismatches": [
+    "Proper name error: reference 'Compagnie Fromagère de la Vallée de Lens' transcribed as 'compagnie de fromager dans la maladie de lance' (wrong words, changes meaning and location).",
+    "Organization name repeatedly mistranscribed: reference 'Alliance Fromagère' appears as 'alliance promagère' (wrong proper name).",
+    "Incorrect/contradictory years/tenure: reference indicates key dates (e.g., Ludovic mentions arrival/roles culminating with 'arrivé en 2019 / j'y suis depuis 2019' and Annick 'commençais en septembre 2022, il y a un an et demi'), but the candidate transcript swaps/garbles these (e.g. 'j'y suis depuis 2017'), altering factual timeline.",
+    "Several stamped factual/name distortions for people/places (e.g. 'les bosquets', station names and person names are repeatedly garbled), causing potential misidentification of locations and roles."
+  ],
+  "rationale": "The candidate preserves the overall structure and many thematic elements (safety briefing, tour logistics, speakers' backgrounds, brand/packaging and RSE issues around Saint Agur, and major operational and safety points). However, it contains multiple critical errors on proper nouns and key dates/tenures that materially change factual meaning (company and organization names, and timing of appointments). Proper names and dates are high-weight items per the rubric, so these are reported as critical mismatches. Other transcription inaccuracies are present (word substitutions, omissions, grammar), but many do not alter the core meaning; overall the document retains much content but with several serious factual distortions, so the semantic accuracy is assessed below.",
+  "cache_key": "33efc0680d68bb0230abc730752eb3a5ea0f7696ec9df854084248bccfd16f14",
+  "cache_path": "benchmark-results/semantic-cache/33efc0680d68bb0230abc730752eb3a5ea0f7696ec9df854084248bccfd16f14.json",
+  "cache_hit": false
+}

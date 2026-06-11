@@ -1,0 +1,15 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 55,
+  "critical_mismatches": [
+    "The candidate omits/contradicts the critical statement that if a cloud connection cannot be established the service will not be possible; instead the candidate says variations of 'it's not going to be a problem', which reverses a key conditional blocker.",
+    "The candidate omits the reference's emphasis that the technical solution must be combined with process knowledge and continuous follow-up by a process specialist (and that past attempts failed without this integration).",
+    "The role of the data protection team's technical validation as a gating factor and the proposed meeting/coordination between the data protection team and the client's IT are only partially preserved and are muddled in the candidate, losing an important approval/validation dependency.",
+    "The candidate contains repetitive/garbled lines (e.g., repeated 'PNID' statements) and inserted/altered phrases that change or obscure meaning, producing hallucinated or unclear content."
+  ],
+  "rationale": "The candidate preserves many surface details (receipt of technical spec, 'go anywhere' gateway testing, following VPN/remote connection procedures, timeline estimates ~15 days/2 weeks) but omits or reverses several meaning-bearing, critical points from the reference: notably the cloud-connection-as-blocker, the necessity of pairing technical work with process specialists, and the clear gating role of data protection approval. Additionally, the candidate has duplications and unclear insertions that distort intent. These omissions and semantic inversions materially change the message, so the transcript is only partially accurate.",
+  "cache_key": "0cf61fce149badab5c5c7779521d9cd4dc954d11b1703011451c0eaddd7e413a",
+  "cache_path": "benchmark-results/semantic-cache/0cf61fce149badab5c5c7779521d9cd4dc954d11b1703011451c0eaddd7e413a.json",
+  "cache_hit": false
+}

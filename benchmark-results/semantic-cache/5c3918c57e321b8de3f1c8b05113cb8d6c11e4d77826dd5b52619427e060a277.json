@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 65,
+  "critical_mismatches": [
+    "'Gronau' (reference) transcribed as 'Grunau' — wrong location name",
+    "'Brückerei Nebel' (reference) transcribed as 'Bronkerei Hebel' — wrong facility name",
+    "'Gouda' (reference) repeatedly transcribed as 'Gnauder'/'gnauder böcke' — wrong product name",
+    "Candidate adds extensive technical details about filling lines, UHT/desert lines and machine models not present in the reference (hallucinated/added content)",
+    "Supplier/product names around the French fresh cheese (reference: mentions 'messier champagner' / 'tourlier') are garbled in the candidate ('missilische champénard'), changing identifiable supplier names"
+  ],
+  "rationale": "The candidate preserves many high-level points (20,000 t/year milk products; cheese production moved to Rosendahl; Münster site closed; ~1,100 t/yr cheese; outsourcing cutting; collaboration with Passendale; buying a French fresh cheese) but contains several material errors and additions. Critical problems include multiple wrong place/facility/product names (Gronau, Brückerei Nebel, Gouda) which change identifiable entities, and significant hallucinated technical details about production/packaging lines that are not in the reference. There are also numerous smaller recognition errors and some omissions (e.g., coating/rind detail). These errors materially affect the transcript's fidelity to the reference.",
+  "cache_key": "5c3918c57e321b8de3f1c8b05113cb8d6c11e4d77826dd5b52619427e060a277",
+  "cache_path": "benchmark-results/semantic-cache/5c3918c57e321b8de3f1c8b05113cb8d6c11e4d77826dd5b52619427e060a277.json",
+  "cache_hit": false
+}

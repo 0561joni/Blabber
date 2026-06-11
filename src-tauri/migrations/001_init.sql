@@ -1,0 +1,99 @@
+CREATE TABLE IF NOT EXISTS settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  default_mode TEXT NOT NULL,
+  shortcut TEXT NOT NULL,
+  shortcut_mode TEXT NOT NULL,
+  language_mode TEXT NOT NULL,
+  fixed_language TEXT NULL,
+  preferred_input_device TEXT NULL,
+  insert_behavior TEXT NOT NULL,
+  launch_at_login_enabled INTEGER NOT NULL DEFAULT 0,
+  metal_enabled INTEGER NOT NULL DEFAULT 1,
+  model_profile TEXT NOT NULL,
+  selected_model_id TEXT NULL,
+  shortcut_dictation_model_profile TEXT NOT NULL DEFAULT 'balanced',
+  shortcut_dictation_selected_model_id TEXT NULL,
+  quick_dictate_model_profile TEXT NOT NULL DEFAULT 'balanced',
+  quick_dictate_selected_model_id TEXT NULL,
+  file_transcribe_model_profile TEXT NOT NULL DEFAULT 'balanced',
+  file_transcribe_selected_model_id TEXT NULL,
+  save_history INTEGER NOT NULL DEFAULT 1,
+  sounds_enabled INTEGER NOT NULL DEFAULT 1,
+  volume_ducking_enabled INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS transcripts (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  full_text TEXT NOT NULL,
+  plain_text TEXT NOT NULL,
+  timestamped_text TEXT NOT NULL,
+  detected_languages TEXT NOT NULL DEFAULT '[]',
+  duration_ms INTEGER NULL,
+  status TEXT NOT NULL,
+  model_name TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS transcript_segments (
+  id TEXT PRIMARY KEY,
+  transcript_id TEXT NOT NULL,
+  start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  language_code TEXT NULL,
+  speaker_label TEXT NULL,
+  confidence REAL NULL,
+  segment_order INTEGER NOT NULL,
+  FOREIGN KEY (transcript_id) REFERENCES transcripts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS source_files (
+  id TEXT PRIMARY KEY,
+  transcript_id TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  local_path TEXT NOT NULL,
+  duration_ms INTEGER NULL,
+  size_bytes INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  FOREIGN KEY (transcript_id) REFERENCES transcripts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS installed_models (
+  id TEXT PRIMARY KEY,
+  engine TEXT NOT NULL,
+  model_name TEXT NOT NULL,
+  variant TEXT NOT NULL,
+  local_path TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS custom_vocabulary_terms (
+  id TEXT PRIMARY KEY,
+  canonical TEXT NOT NULL,
+  normalized_canonical TEXT NOT NULL UNIQUE,
+  category TEXT NOT NULL,
+  language_hint TEXT NULL,
+  match_mode TEXT NOT NULL DEFAULT 'exact_and_fuzzy',
+  is_builtin INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS custom_vocabulary_aliases (
+  id TEXT PRIMARY KEY,
+  term_id TEXT NOT NULL,
+  alias TEXT NOT NULL,
+  normalized_alias TEXT NOT NULL UNIQUE,
+  FOREIGN KEY (term_id) REFERENCES custom_vocabulary_terms(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS file_transcription_model_performance (
+  model_id TEXT PRIMARY KEY,
+  avg_audio_ms_per_wall_ms REAL NOT NULL,
+  sample_count INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);

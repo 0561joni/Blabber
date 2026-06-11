@@ -1,0 +1,14 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 78,
+  "critical_mismatches": [
+    "Company name/location misrendered: reference 'compagnie fromagère de la vallée de Lens' vs candidate 'compagnie de fromager dans la madrid de lances' (changes key entity/location).",
+    "Key speaker name wrong: reference 'Annick Vincenti' (directrice générale) transcribed as 'yannick vincenty' (wrong first name, alters identity).",
+    "Several proper names (e.g., 'fromagère Juryn'/'Patrice Sarraud') are garbled in ways that could misidentify persons or entities."
+  ],
+  "rationale": "The candidate transcript preserves the overall structure, main topics (visit schedule, production not running, site/safety briefing, safety statistics, Saint Agur brand strategy, packaging/RSE issues) and most numeric facts, so the semantic content is largely present. However, multiple proper names and some place names are mistranscribed in ways that materially change or could confuse the identity of companies, locations, and speakers—these are critical per the rubric. There are numerous smaller transcription errors and garbled words, but they generally do not alter the main meaning. The score reflects mostly preserved meaning with notable critical errors on key named entities.",
+  "cache_key": "208593cca533016b2a52e8b7c238416a49bb4453ca2c075b4a063529fd20a99f",
+  "cache_path": "benchmark-results/semantic-cache/208593cca533016b2a52e8b7c238416a49bb4453ca2c075b4a063529fd20a99f.json",
+  "cache_hit": false
+}

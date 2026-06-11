@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 45,
+  "critical_mismatches": [
+    "Multiple proper names corrupted or wrong (e.g. reference 'fromagère Juryn' transcribed as 'fourniture jurine'; 'Heineken' transcribed as 'ainecon'; 'Nancy' as 'mansi'; other names mangled).",
+    "Key personnel introductions and roles omitted or conflated (Annick Vincenti's intro and roles are largely missing/misattributed).",
+    "Accident/safety statistics and timelines are misreported or garbled (reference cites specific figures and history like '28 jours sans accident' and record '78 jours en 2016'; candidate gives different/unclear numbers and contradictory statements).",
+    "Hallucinated/incoherent insertions appear in the candidate (repeated English 'i was going...' and many filler repetitions) that are not in the reference.",
+    "Several factual details about origins/history and product names are altered (e.g. 'fromagère Montfaucon' / site history phrasing changed), affecting meaning."
+  ],
+  "rationale": "The candidate preserves some high-level topics (site visit plan, safety, Saint Agur brand and packaging/RSE issues) but contains numerous material errors: several proper names and company/person identities are corrupted, key speaker introductions and roles are omitted or mixed up, accident statistics and other numeric facts are misreported, and there are clear hallucinated/incoherent insertions. These mistakes materially change factual content and reduce fidelity to the reference.",
+  "cache_key": "0b662a7bf7778bb241e685989956d8478d48044b70f25e88f128fe404d501e61",
+  "cache_path": "benchmark-results/semantic-cache/0b662a7bf7778bb241e685989956d8478d48044b70f25e88f128fe404d501e61.json",
+  "cache_hit": false
+}

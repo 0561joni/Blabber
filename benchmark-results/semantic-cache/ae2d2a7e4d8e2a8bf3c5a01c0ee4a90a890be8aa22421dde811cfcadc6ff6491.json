@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 0,
+  "critical_mismatches": [
+    "Candidate contains only repeated background/music and omits all spoken content from the reference.",
+    "All factual and numerical information is missing (protein amounts like 50 g/L, 15 g, 11 g, 35–40% protein from concentrate, fat % targets, pack sizes 200/330/500, etc.).",
+    "Key product and production details omitted (packaging/premium blue, product names, production plant 'Planta Frank', UF concentrate information).",
+    "Marketing/targeting and testing decisions are missing (adolescent vs family targets, test feedback, decision to sell the chocolate flavor, communication strategy).",
+    "Regulatory/research and next-step mentions (legal/research study, product registration) are absent."
+  ],
+  "rationale": "The candidate transcript contains only repeated instances of the word 'música' and therefore provides none of the semantic content, facts, numbers, or decisions present in the reference. This is a total omission of meaning-bearing content, so semantic accuracy is effectively zero.",
+  "cache_key": "ae2d2a7e4d8e2a8bf3c5a01c0ee4a90a890be8aa22421dde811cfcadc6ff6491",
+  "cache_path": "benchmark-results/semantic-cache/ae2d2a7e4d8e2a8bf3c5a01c0ee4a90a890be8aa22421dde811cfcadc6ff6491.json",
+  "cache_hit": false
+}

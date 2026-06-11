@@ -1,0 +1,15 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 45,
+  "critical_mismatches": [
+    "Removes the explicit statement that the service is not possible if a cloud connection cannot be established (reference: \"if technically we cannot establish the cloud connection unfortunately the service is not going to be possible\").",
+    "Omits the important point that the technical solution must be coordinated with process knowledge and a process specialist to avoid failure (reference: warnings about failing if technical solution is delivered without process knowledge).",
+    "Omits the discussion/details about the infrared sensor/photo and moisture measurement sampling frequency and serial number (reference: offer to send the photo and serial number and discussion of sampling frequency changes).",
+    "Alters/garbles the technical document request term: the reference asks for \"pniv\" (to ensure all technical data) while the candidate repeats/changes to \"pnid\" multiple times and introduces repeated/unclear statements about it."
+  ],
+  "rationale": "The candidate preserves some high-level elements (receiving technical specs, testing the \"go anywhere\" gateway, following VPN/remote-connection procedures, involving data protection and IT, and a ~2-week/15-day timeline), but it omits several meaning-bearing and actionable statements from the reference. Most notably, the candidate removes the decisive condition that the service cannot proceed without a cloud connection, drops the critical requirement to pair process knowledge with the technical solution (which changes the deployment risk and responsibilities), and omits technical/field details about the sensor and sampling that could affect implementation. It also misstates/duplicates the technical document term (pniv vs pnid). These omissions and alterations materially change the original intent and actionable content, so the semantic fidelity is significantly degraded.",
+  "cache_key": "469660aa9895c6668b7ab5bbb32a01a3d9f465c623cb5a027e27ce228e41ddea",
+  "cache_path": "benchmark-results/semantic-cache/469660aa9895c6668b7ab5bbb32a01a3d9f465c623cb5a027e27ce228e41ddea.json",
+  "cache_hit": false
+}

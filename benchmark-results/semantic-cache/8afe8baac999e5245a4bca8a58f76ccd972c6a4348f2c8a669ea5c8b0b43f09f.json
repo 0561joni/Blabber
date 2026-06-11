@@ -1,0 +1,17 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 20,
+  "critical_mismatches": [
+    "Flavored-milk protein numbers misreported (candidate gives '11 g' and '5.5 g' in pack) — reference communicates different protein values for flavored milks.",
+    "Drink sizes wrong: candidate says '30 y 500' (likely meant 330 y 500) instead of '330 y 500'.",
+    "Plant name and provenance errors: candidate uses 'plantafrán'/'spram' while reference repeatedly names 'planta Frank'.",
+    "Key technical detail omitted/misstated: origin and role of the UF concentrate (Frank vs Gigi) and its impact on protein concentration is garbled or missing.",
+    "Major omissions of meaning-bearing content: target audience and communication strategy (adolescents vs family), proteins-per-weight guidance, market context (comparison to other high-protein products) and planned legal/research follow-up are largely missing.",
+    "Transcript contains repetitions/gibberish and truncation at the end that discard substantive content and change overall meaning."
+  ],
+  "rationale": "The candidate transcript omits and alters many meaning-bearing elements from the reference. Critical numeric and packaging details are wrong (bottle size), key proper nouns are corrupted (planta Frank → spram/plantafrán), and important technical explanations about the UF concentrate and its effect on protein level are missing or garbled. The candidate also drops most of the marketing/targeting discussion and the notes about market context and legal/research follow-up. These errors materially change the content and intent of the original, so the semantic fidelity is low.",
+  "cache_key": "8afe8baac999e5245a4bca8a58f76ccd972c6a4348f2c8a669ea5c8b0b43f09f",
+  "cache_path": "benchmark-results/semantic-cache/8afe8baac999e5245a4bca8a58f76ccd972c6a4348f2c8a669ea5c8b0b43f09f.json",
+  "cache_hit": false
+}

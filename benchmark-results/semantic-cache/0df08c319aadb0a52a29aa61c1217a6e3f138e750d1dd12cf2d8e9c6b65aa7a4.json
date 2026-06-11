@@ -1,0 +1,17 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 65,
+  "critical_mismatches": [
+    "'Brückerei Nebel' (reference) transcribed as 'bronkerei hebel'/'bronkerie hebel' (candidate) — wrong facility name.",
+    "'Gouda' (reference) repeatedly transcribed as 'gnauder'/'gnauder böcke' (candidate) — wrong product name.",
+    "'Messier Champagner' / French supplier (reference) transcribed as 'missilische champénard' (candidate) — supplier name corrupted.",
+    "'Gronau' (reference) transcribed as 'grunau' (candidate) — site name error repeated.",
+    "'Rosendahl' (reference) transcribed as 'rosendal'/'rosendal' (candidate) — site name misspelled.",
+    "Candidate introduces extended, specific machinery/line descriptions and other details not present in the reference (added/hallucinated content)."
+  ],
+  "rationale": "The candidate preserves many high-level contents (volumes, that milk is prepared and driven to a separate cheesemaking site, that Münster was closed, production volumes, use of external slicer, cooperation with Passendale, and milk flows). However multiple critical proper names and product names are mistranscribed (Brückerei Nebel -> bronkerei hebel; Gouda -> gnauder; Messier Champagner -> missilische champénard; place names Gronau/Rosendahl misspelled). These misrecognitions alter meaning or make the referents unclear. The candidate also adds detailed abfüll/packaging-line descriptions that are not in the reference (hallucinated extra content). Taking into account preserved meaning vs. several material name/product errors and added hallucinations, I estimate semantic accuracy at 65%.",
+  "cache_key": "0df08c319aadb0a52a29aa61c1217a6e3f138e750d1dd12cf2d8e9c6b65aa7a4",
+  "cache_path": "benchmark-results/semantic-cache/0df08c319aadb0a52a29aa61c1217a6e3f138e750d1dd12cf2d8e9c6b65aa7a4.json",
+  "cache_hit": false
+}

@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 28,
+  "critical_mismatches": [
+    "Product terms garbled: 'dessert' -> 'pisseen' and 'schlagsahneprodukte' -> 'schlagzahnenprodukte', altering product meanings.",
+    "Place/name errors: 'Rosendahl' rendered as 'rosen da'/'rosenda', and 'Gronau' as 'Grona' — key location names distorted.",
+    "Major omissions of procedural details: cheese aging/affinage, external cheese warehouse near Epe, storage durations, turning/care of wheels — important operational content missing.",
+    "Omission of partners and sourcing details: third‑party cutting (Backers Heimes), Gouda block production rationale, collaboration with Passendale, and purchases (Messier/Champagner from France) are not present.",
+    "Severe garbling and unintelligible segments (repeated 'the the...' and phrases like 'hilsfonds') that break coherence and obscure meaning. "
+  ],
+  "rationale": "The candidate preserves only a few high‑level facts (approx. 20,000 t/yr milk products, mention of milk being prepared and sent to a cheesery, and the 1,100 t/yr cheese figure) but many product names, place names, and numerous crucial operational details are mistranscribed or omitted. Several sentences are garbled and unintelligible. Because multiple meaning‑bearing items are wrong or missing (locations, partners, process steps, and sourcing), the transcript fails to convey much of the reference content accurately.",
+  "cache_key": "3e91b8989e7cd83718a975f03327a77dbc27cdd8b354490d4652085221d858c8",
+  "cache_path": "benchmark-results/semantic-cache/3e91b8989e7cd83718a975f03327a77dbc27cdd8b354490d4652085221d858c8.json",
+  "cache_hit": false
+}

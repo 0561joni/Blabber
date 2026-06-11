@@ -1,0 +1,17 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 30,
+  "critical_mismatches": [
+    "'kälber' (calves) in candidate vs reference 'Käse' (cheese) — changes meaning",
+    "Candidate garbles location name 'rosen da' vs reference 'Rosendahl' (dairy location)",
+    "Candidate renders 'Dessert' as 'pisseen' (nonsensical/wrong product term)",
+    "Many substantive sections omitted: outsourcing to Backers Heimes (Schnittkäse), Gouda block production decisions, cooperation with Passendale, aging/affinage details and external ripening warehouse processes",
+    "Candidate inserts nonsense/filler ('the the the...') and garbled technical phrasing (e.g., 'der hilsfonds') that do not match reference content",
+    "Several process details and explanations about logistics, product flows, and purchased products (e.g., Messier/Champagner fresh cheese from France) are missing or misrepresented"
+  ],
+  "rationale": "The candidate preserves a few high-level facts (20,000 t/year, milk products category, milk sent to a cheesemaking site ~1,100 t in Rosendahl, milk delivered/processed in Gronau) but contains multiple critical transcription errors (wrong lexical items that change meaning), numerous omissions of important content (outsourcing, product/partner names, processing and storage details), and insertion of nonsensical fragments. These errors materially change or omit significant portions of the reference, so overall semantic fidelity is low.",
+  "cache_key": "dd188f63ee75aed34db4be59abaf61b95a8b781e1f89f68151439f3b6a9c56f0",
+  "cache_path": "benchmark-results/semantic-cache/dd188f63ee75aed34db4be59abaf61b95a8b781e1f89f68151439f3b6a9c56f0.json",
+  "cache_hit": false
+}

@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 20,
+  "critical_mismatches": [
+    "Massive omission/garbling of Ludovic’s biography and other speaker introductions — candidate repeats a nonsensical phrase (“je peux te présenter ton parcours d'embrou” many times) and drops all meaningful career details.",
+    "Company name/history mistranscribed — reference: “compagnie fromagère de la vallée de lens”; candidate: garbled/incorrect phrasing (“compagnie de fromagerie de la base de l'ornz” or similar).",
+    "Safety and evacuation instructions (alarm procedure, exits, defibrillator, circulation/glissade/risks) present in reference are largely missing from candidate transcript.",
+    "Packaging/RSE/Tesco discussion is corrupted and partly hallucinated — reference discusses polystyrène, polypropylène, Tesco and switch to carton pelliculé; candidate introduces “ups” repeatedly and misstates materials (polypropène) and repeats unrelated phrases (economy is in train of exploding).",
+    "Many numeric and factual details omitted or lost (years, number of children, accident-day counts, specific site projects and locations) which change or remove factual content."
+  ],
+  "rationale": "The candidate preserves only small, disjointed fragments of the original (opening about a short presentation and lunch time) but omits or garbles most meaningful content: speaker biographies, safety rules, historical/company facts, and detailed RSE/packaging discussion. It also inserts repetitive, nonsensical phrasing and several incorrect names/terms (e.g., ‘ups’ instead of Tesco/polystyrène), amounting to major semantic loss and some hallucinations. Therefore the transcript is largely inaccurate.",
+  "cache_key": "af89bd234e24f123f7dedc62ff877b35ae0d933a5e1320e1daf5a8c7169d60de",
+  "cache_path": "benchmark-results/semantic-cache/af89bd234e24f123f7dedc62ff877b35ae0d933a5e1320e1daf5a8c7169d60de.json",
+  "cache_hit": false
+}

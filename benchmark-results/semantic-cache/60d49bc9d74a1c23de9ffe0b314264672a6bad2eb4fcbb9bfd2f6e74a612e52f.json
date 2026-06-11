@@ -1,0 +1,14 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 80,
+  "critical_mismatches": [
+    "Reference requests the PNID (or technical PNIV) as required input; candidate transcript instead states they already have the PNID (contradicts the requested action).",
+    "Reference names the corporation 'Sabencia' (extending the solution to 'sabencia worldwide'); candidate omits or replaces this company name (missing/wrong named entity).",
+    "Reference says the speaker will send an email to Andres and Gustavo and asks to arrange a meeting next week; candidate omits the explicit action to email Andres/Gustavo and the meeting coordination (missing action item)."
+  ],
+  "rationale": "Most content and intent are preserved, including technical constraints, remote-connection procedures, timeline (15 days/2 weeks), and sampling-frequency discussion. However there are a few meaning-changing errors: (1) the PNID/P NIV status is contradicted (reference asks for it; candidate claims they already have it) which materially affects next steps; (2) omission of the customer/corporation name 'Sabencia' loses an important named entity; and (3) omission of the commitment to email Andres and Gustavo and arrange the meeting removes a practical action item. These errors alter responsibilities and follow-up, so the transcript is not fully accurate.",
+  "cache_key": "60d49bc9d74a1c23de9ffe0b314264672a6bad2eb4fcbb9bfd2f6e74a612e52f",
+  "cache_path": "benchmark-results/semantic-cache/60d49bc9d74a1c23de9ffe0b314264672a6bad2eb4fcbb9bfd2f6e74a612e52f.json",
+  "cache_hit": false
+}

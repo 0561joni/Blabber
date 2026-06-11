@@ -1,0 +1,13 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 80,
+  "critical_mismatches": [
+    "Incorrect person name: reference mentions \"Mariano\" (and also Gustavo later); candidate transcript renders \"Mariano\" as \"Maria\" and omits Gustavo.",
+    "Misrendered company/entity name omitted: reference mentions extending to \"Sabencia worldwide\"; candidate omits this."
+  ],
+  "rationale": "The candidate preserves the overall meaning and most key details (technical constraints, need for data/proposal timeline of ~15 days/2 weeks, reliance on data protection/IT alignment, sensor/serial number, sampling frequency discussion). However there are several notable transcription errors: a critical person name was changed (Mariano → Maria) and another contact (Gustavo) and the corporate name (Sabencia) were omitted. There are multiple smaller wording errors (e.g., \"order of magnitude\" → \"order of money\", garbled phrase about not having integrated the gateway) that slightly alter nuance but do not fundamentally change the core intent. Because wrong/omitted names are material per the rubric, the transcript is downgraded accordingly.",
+  "cache_key": "e13a3c673bbd04e49fdd31cfe80a167050da240905198c98f206590e3655f578",
+  "cache_path": "benchmark-results/semantic-cache/e13a3c673bbd04e49fdd31cfe80a167050da240905198c98f206590e3655f578.json",
+  "cache_hit": false
+}

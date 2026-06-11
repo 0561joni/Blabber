@@ -1,0 +1,10 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 95,
+  "critical_mismatches": [],
+  "rationale": "The candidate transcript preserves the full meaning and key facts of the reference: technical validation dependency on the data protection/IT teams, gateway/go-anywhere integration status, need for VPN/recommended connection procedures, inability to provide the service without a cloud connection and process knowledge, timeline (≈15 days / two weeks) for a first proposal, request for technical PID/PNIV data, sampling frequency discussion (three hours -> possibly two), and arranging follow-up (emails, packaging expert visit). Differences are minor wording/paraphrase changes (e.g., specification(s) vs specification, recommendation(s), slight rephrasings, small filler insertions, “corporation and sabencia worldwide” vs “all the corporations and sabencia worldwide”), and small non-substantive transcription variances (repeated fillers, “p id/pniv”, “skim/skin/whole milk” ambiguities). None materially change meaning.",
+  "cache_key": "6d4e8f3bf585a758d50885556417549cd88d463aac040d4b4acb27d10faddb5a",
+  "cache_path": "benchmark-results/semantic-cache/6d4e8f3bf585a758d50885556417549cd88d463aac040d4b4acb27d10faddb5a.json",
+  "cache_hit": false
+}

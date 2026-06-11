@@ -1,0 +1,17 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 60,
+  "critical_mismatches": [
+    "Omits the clear statement that if a cloud connection cannot be established, the service will not be possible (fundamental dependency/limitation).",
+    "Removes the explanation that the technical solution must be coordinated with process knowledge and continuously followed by a process specialist to avoid failure (important deployment constraint).",
+    "Garbles/omits the discussion about security risks, customer-specific protocols, and that this is the most critical issue—changing the emphasis on risk and technical constraints.",
+    "Significant omission of operational details about sensors, moisture-measurement sampling frequency changes, and the infrared sensor serial/photo—meaningful implementation details are missing.",
+    "Unclear/incorrect handling of the required technical document name (PNIV vs PNID): candidate repeats 'pnid' multiple times, losing the original requirement wording and creating ambiguity.",
+    "Ends abruptly and omits commitments to include contacts and email follow-ups (Mariano, Andrés, Gustavo) and the planned next steps for coordination."
+  ],
+  "rationale": "The candidate preserves high-level themes (technical spec received, GoAnywhere gateway being tested, follow IT/VPN procedures, timeline ~15 days/2 weeks, willingness to propose a meeting and follow up), but it omits several materially important statements and implementation constraints from the reference. The most critical omission is the explicit dependency that the service cannot proceed without a cloud connection; likewise, the need to pair the technical solution with process knowledge and continuous specialist follow-up is lost. Multiple concrete operational details (sensor data, sampling frequency, serial/photo, and contact/email commitments) are missing, and the required technical document name is rendered unclearly. These omissions and ambiguities change the practical obligations and risks described in the reference, so the transcript is only partially faithful.",
+  "cache_key": "2ee9ecdad759cdb20a0b2fb6b3cace2034a5765ad14fafff1a159e4aaf98af60",
+  "cache_path": "benchmark-results/semantic-cache/2ee9ecdad759cdb20a0b2fb6b3cace2034a5765ad14fafff1a159e4aaf98af60.json",
+  "cache_hit": false
+}

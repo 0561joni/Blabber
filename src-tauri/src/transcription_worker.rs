@@ -1,0 +1,152 @@
+use std::io::{self, BufRead, Read, Write};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+use anyhow::{anyhow, Context, Result};
+use serde::{Deserialize, Serialize};
+
+use crate::asr::{
+    discover_whisper_models, FileTranscriptionRequest, SharedWhisperEngine, TranscriptResult,
+    TranscriptionEngine,
+};
+
+pub const WORKER_ARG: &str = "--transcribe-worker";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerRequest {
+    pub models_dir: PathBuf,
+    pub request: FileTranscriptionRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WorkerOutput {
+    Progress { progress_percent: i32 },
+    Result { result: TranscriptResult },
+    Error { message: String },
+}
+
+pub fn run_stdio_worker() -> i32 {
+    match run_stdio_worker_inner() {
+        Ok(()) => 0,
+        Err(error) => {
+            let _ = emit_output(&WorkerOutput::Error {
+                message: error.to_string(),
+            });
+            1
+        }
+    }
+}
+
+fn run_stdio_worker_inner() -> Result<()> {
+    let mut input = String::new();
+    io::stdin()
+        .read_to_string(&mut input)
+        .context("failed to read transcription worker request")?;
+    let request: WorkerRequest =
+        serde_json::from_str(&input).context("failed to parse transcription worker request")?;
+
+    let models = discover_whisper_models(&request.models_dir)?;
+    let engine = SharedWhisperEngine::new(request.models_dir, models);
+    let progress = Arc::new(AtomicI32::new(-1));
+    let finished = Arc::new(AtomicBool::new(false));
+    let stdout = Arc::new(Mutex::new(io::stdout()));
+
+    let progress_thread = spawn_progress_emitter(
+        Arc::clone(&progress),
+        Arc::clone(&finished),
+        Arc::clone(&stdout),
+    );
+
+    let result = engine.transcribe_file(request.request, Some(progress));
+    finished.store(true, Ordering::SeqCst);
+    let _ = progress_thread.join();
+
+    let result = result?;
+    emit_output_to(&stdout, &WorkerOutput::Result { result })
+}
+
+fn spawn_progress_emitter(
+    progress: Arc<AtomicI32>,
+    finished: Arc<AtomicBool>,
+    stdout: Arc<Mutex<io::Stdout>>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let mut last_progress = -1;
+        while !finished.load(Ordering::SeqCst) {
+            let current = progress.load(Ordering::Relaxed);
+            if current >= 0 && current != last_progress {
+                let _ = emit_output_to(
+                    &stdout,
+                    &WorkerOutput::Progress {
+                        progress_percent: current,
+                    },
+                );
+                last_progress = current;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+    })
+}
+
+fn emit_output(output: &WorkerOutput) -> Result<()> {
+    let stdout = Arc::new(Mutex::new(io::stdout()));
+    emit_output_to(&stdout, output)
+}
+
+fn emit_output_to(stdout: &Arc<Mutex<io::Stdout>>, output: &WorkerOutput) -> Result<()> {
+    let mut stdout = stdout
+        .lock()
+        .map_err(|_| anyhow!("transcription worker stdout lock poisoned"))?;
+    serde_json::to_writer(&mut *stdout, output)?;
+    stdout.write_all(b"\n")?;
+    stdout.flush()?;
+    Ok(())
+}
+
+pub fn parse_worker_output_line(line: &str) -> Result<WorkerOutput> {
+    serde_json::from_str(line.trim()).context("failed to parse transcription worker output")
+}
+
+pub fn read_worker_output_lines<R: io::Read + Send + 'static>(
+    reader: R,
+    sender: std::sync::mpsc::Sender<Result<WorkerOutput, String>>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let reader = io::BufReader::new(reader);
+        for line in reader.lines() {
+            let output = match line {
+                Ok(line) => parse_worker_output_line(&line).map_err(|error| error.to_string()),
+                Err(error) => Err(error.to_string()),
+            };
+            if sender.send(output).is_err() {
+                break;
+            }
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_progress_output_line() {
+        let output = parse_worker_output_line(r#"{"type":"progress","progress_percent":42}"#)
+            .expect("progress output");
+        match output {
+            WorkerOutput::Progress { progress_percent } => assert_eq!(progress_percent, 42),
+            _ => panic!("expected progress"),
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_output_line() {
+        let output = parse_worker_output_line("not-json");
+        assert!(output.is_err());
+    }
+}

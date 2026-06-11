@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 40,
+  "critical_mismatches": [
+    "Place names mistranscribed repeatedly (reference 'Gronau' and 'Rosendahl' transcribed as 'Kronau', 'Grunau', 'kronen', 'krasnodig' and 'russische rosendal'), which materially changes location information.",
+    "Major omissions of the detailed cheese process and product information: the reference's sections about the red-cut cheese aging/affinage, rind coating, handling/winding, cutting outsourcing (Backers Heimes), Gouda block production reasoning and collaboration with Passendale are missing or largely absent in the candidate.",
+    "Hallucinated/added technical content not present in reference: the candidate adds extensive production-line details (separation, pasteurization flow, UHT dessert line, specific filling machines and formats, 'hamba' machines and model numbers) that do not appear in the reference.",
+    "Product/name errors: 'dessert' was mis-transcribed as 'gissern' and the French supplier 'Tourlier / messier champagner' and buy-in product mentions in the reference are omitted or altered in the candidate.",
+    "Inconsistent/contradictory statements about surplus situation: candidate adds 'hat sich jetzt wieder gedreht der überschuss ist weg' but omits the fuller contextual explanation about sale on spot market and cost reasoning present in the reference."
+  ],
+  "rationale": "The candidate preserves some high-level facts (20,000 t/year milk products; ~30 km distance to the cheese plant; ~1,100 t/year cheese produced in Rosendahl; milk is delivered and then sent to the cheesery; external warehouse near Epe) but introduces multiple incorrect place names (Gronau→Kronau/Kronen/etc., Rosendahl→'russische rosendal') which materially change location references. Crucially, large portions of meaning-bearing content in the reference are omitted (detailed aging/affinage and handling of the red-cut cheese, cutting arrangements with Backers Heimes, Gouda block production rationale, partnership with Passendale, mention of the purchased French fresh cheese), and the candidate inserts extensive technical production-line descriptions and machine details that are not in the reference (hallucinations). There are also smaller lexical errors ('dessert'→'gissern'). Because of these omissions, place-name errors, and hallucinated additions, the candidate does not faithfully preserve the reference's meaning.",
+  "cache_key": "08796f00c1e4432e1d00e95951adc9a2c0a2737e715c5b5744870df3e93c4f29",
+  "cache_path": "benchmark-results/semantic-cache/08796f00c1e4432e1d00e95951adc9a2c0a2737e715c5b5744870df3e93c4f29.json",
+  "cache_hit": false
+}

@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 60,
+  "critical_mismatches": [
+    "Wrong entity/name: reference refers to 'fromagère juryn' / 'compagnie fromagère de la vallée de Lens' but candidate renders these as 'fourniture de jurine' and 'compagnie de fromageurs de la vallée de lens' (incorrect names).",
+    "Incorrect date/sequence about Philippe Soulier and arrival: reference states Philippe Soulier retired in 2019 and the speaker has been in the role since 2019; candidate shifts/garbles this (mentions 2017 and other contradictory timing).",
+    "Wrong prior role for Annick: reference says her last post was 'direction générale d'Heineken en Belgique'; candidate reports 'direction générale de l'alliance fromagère' (changes employer/role).",
+    "Hallucinated/inserted material not present in reference: candidate adds a long passage describing a 'méthodologie' (5S/lean-like explanation), detailed VSC counts and procedures (e.g. '3 par tp', '600 ou 700 vsc par an', night VSCs), and other procedural details that do not appear in the reference.",
+    "Multiple numeric/name distortions and garbling in bios and locations (e.g. spellings and place names: 'inn ecum'/'man cy'/'samitia' etc.), which change or obscure important identity/location information."
+  ],
+  "rationale": "The candidate preserves a fair portion of the high-level content (visit plan, production not running, site/presentation flow, product/packaging and RSE discussion, Saint Agur market/usage points), but contains several material errors that alter meaning: key proper names and entities are mis-transcribed, a retirement/date sequence is incorrectly reported, a senior executive's prior employer/role is wrongly stated, and substantial extraneous/hallucinated text (detailed methodology and VSC statistics) is introduced. These mistakes affect identity, timelines, and factual claims that are meaning-bearing, so the transcript is not a faithful rendition of the reference.",
+  "cache_key": "fcd4a35230dc22567d9399ca29bd0332726f09ea4c20f47f1674616866b69cd4",
+  "cache_path": "benchmark-results/semantic-cache/fcd4a35230dc22567d9399ca29bd0332726f09ea4c20f47f1674616866b69cd4.json",
+  "cache_hit": false
+}

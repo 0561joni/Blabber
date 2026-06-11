@@ -1,0 +1,10 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 90,
+  "critical_mismatches": [],
+  "rationale": "The candidate preserves the overall meaning, sequence and most numeric facts (times, years, counts such as 12:30, 1999, 2015, 2019, five children, 28 days, record 78 days, 6 sites, €540M, volumes, etc.). Differences are primarily transcription errors, mis‑spellings or small lexical substitutions (e.g., cuves/culs, packaging wording, minor name variants and garbled words like “chiffre d'adresse” vs “chiffre d'affaires”), but these do not materially change the conveyed information. No major hallucinations, negation reversals, or critical numeric/name changes that alter meaning were found.",
+  "cache_key": "a0390264191dbb9232af739037ff68260fdd7f61b4814f843b5c27e13f6344c5",
+  "cache_path": "benchmark-results/semantic-cache/a0390264191dbb9232af739037ff68260fdd7f61b4814f843b5c27e13f6344c5.json",
+  "cache_hit": false
+}

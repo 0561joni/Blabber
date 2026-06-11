@@ -1,0 +1,18 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 25,
+  "critical_mismatches": [
+    "Candidate inserts repeated unrelated intro \"gracias por ver el video\" which is not in reference (hallucinated content).",
+    "Reference discusses packaging (premium blue) and product positioning at start; candidate omits this entire packaging/positioning segment.",
+    "Candidate misstates or garbles key numeric details for flavored milks and pack grams (e.g., \"11 gramos de 5 5 gramos\" vs. reference's protein/gram values), producing incorrect/confusing numbers.",
+    "Important production details omitted or altered: reference specifies UHT production at Planta Frank, use of UF concentrate from Frank with ~35–40% raise in protein; candidate largely omits or misrepresents these technical details.",
+    "Candidate adds substantial unrelated marketing/budget/TV-ad discussion (tel, 85, 62, budget approvals) that is not present in the reference (hallucination).",
+    "Target-audience and product positioning changed/condensed: reference contains detailed rationale about adolescents, families, and communication tone; candidate reduces and sometimes alters these audience-targeting statements.",
+    "Reference mentions planned legal/research review and prior group presentation; candidate does not preserve these specific process/approval details."
+  ],
+  "rationale": "The candidate transcript preserves a few isolated fragments from the reference (e.g., flavored milk flavors, that adolescent tests performed well, mention of 15 g for creamy yogurts, mock-up size ~150, and that Planta Frank is involved), but it omits many meaning-bearing passages, misreports several numeric values, and inserts large amounts of content not in the reference (repeated greetings and an invented marketing/budget discussion). Crucial technical and production details (use of UF concentrate and its ~35–40% protein impact), initial packaging/positioning, and legal/research follow-up are either missing or altered. Multiple wrong or garbled numbers further change meaning. Taken together, these omissions, misstatements, and hallucinations materially change the message and factual content of the original.",
+  "cache_key": "ce486a7d26d78cb535785600a1cc75347970f0a8fcebaa02b8f243646898624e",
+  "cache_path": "benchmark-results/semantic-cache/ce486a7d26d78cb535785600a1cc75347970f0a8fcebaa02b8f243646898624e.json",
+  "cache_hit": false
+}

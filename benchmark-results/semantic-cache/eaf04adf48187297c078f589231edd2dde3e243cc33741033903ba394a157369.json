@@ -1,0 +1,17 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 60,
+  "critical_mismatches": [
+    "Brand name 'Saint Agur' is repeatedly transcribed as 'staggur' (changes a key product/brand term).",
+    "'Compagnie fromagère de la Vallée de Lens' is rendered as 'compagnie de fromageurs de la vallée de lens' (incorrect name).",
+    "Historical name/item: reference 'fromagère Juryn' (and 'Faucon') is misrendered in candidate as 'fourniture de jurine' / 'fourniture à montfaucon' (distorts proper names/events).",
+    "Safety statistics and records are altered or omitted: reference gives '28 days without accident' and site record '78 days in 2016'—the candidate removes/changes these specific figures.",
+    "Place names and personal/company names are frequently garbled (e.g., 'Heineken'→'innecum', 'Nancy'→'mancy', 'Servas'/'Cervas' inconsistently), affecting factual accuracy.",
+    "Some safety- and site-specific details from the reference (exact evacuation route, defibrillator location at junction of workshops, parking/land parcel specifics) are omitted or significantly truncated, removing meaning-bearing content."
+  ],
+  "rationale": "The candidate preserves the general flow (intro, Ludovic and Annick bios, discussion of safety/accidents, brand positioning, packaging and RSE/packaging change) but makes numerous errors on proper nouns, brand names, and key numerical facts, and omits several site- and safety-specific details that materially change or remove factual information. Per the rubric, wrong names, misrendered brand ('Saint Agur'→'staggur'), and altered statistics are critical mismatches; overall semantic content is partially preserved but substantially degraded by these errors.",
+  "cache_key": "eaf04adf48187297c078f589231edd2dde3e243cc33741033903ba394a157369",
+  "cache_path": "benchmark-results/semantic-cache/eaf04adf48187297c078f589231edd2dde3e243cc33741033903ba394a157369.json",
+  "cache_hit": false
+}

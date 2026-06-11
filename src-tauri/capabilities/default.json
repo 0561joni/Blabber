@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "Default desktop capability set",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "dialog:default",
+    "clipboard-manager:default",
+    "global-shortcut:default"
+  ]
+}
+

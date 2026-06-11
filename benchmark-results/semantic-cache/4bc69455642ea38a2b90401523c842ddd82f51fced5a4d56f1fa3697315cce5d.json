@@ -1,0 +1,18 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 0,
+  "critical_mismatches": [
+    "Complete topical mismatch: candidate is only repeated phrase 'producción de video' and contains no of the reference's content about dairy products, packaging, or protein line.",
+    "Omission of key product information: missing details on packaging (premium blue), product claim ('productazo'), and launch decisions (chocolate flavor to be sold, yogurt plans).",
+    "Missing numeric and unit facts: reference includes many specific quantities (e.g., '50 gramos de proteína en el litro', protein counts like 15 g, pack sizes 150/180/190 g, bottle sizes 200/330/500 ml); none appear in candidate.",
+    "Missing manufacturing and ingredient details: reference discusses 'planta Frank', uso de concentrado UF, and sourcing distinctions; candidate has none of this.",
+    "Missing formulation and sensory trial outcomes: reference reports trials with adolescents, performance 'súper bien', tests with 0% fat and taste comments ('fea'); candidate omits these.",
+    "Missing target audience and marketing decisions: reference specifies targets (adolescents, family), communication approach, and campaign considerations; candidate provides no such information.",
+    "Missing regulatory/research follow-ups: reference mentions planned legal/research study and group registration feedback; candidate does not reflect this."
+  ],
+  "rationale": "The candidate transcript contains only a repeated unrelated phrase and fails to reproduce any meaning-bearing content from the reference. Critical factual elements (product attributes, numeric protein and package specifications, manufacturing/ingredient details, trial outcomes, target audiences, and planned studies) are entirely absent. Because none of the reference's substantive content is preserved, the semantic accuracy is 0%.",
+  "cache_key": "4bc69455642ea38a2b90401523c842ddd82f51fced5a4d56f1fa3697315cce5d",
+  "cache_path": "benchmark-results/semantic-cache/4bc69455642ea38a2b90401523c842ddd82f51fced5a4d56f1fa3697315cce5d.json",
+  "cache_hit": false
+}

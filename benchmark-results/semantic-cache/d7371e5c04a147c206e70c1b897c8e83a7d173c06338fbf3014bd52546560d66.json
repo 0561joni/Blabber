@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 86,
+  "critical_mismatches": [
+    "Company name mis-transcribed: reference 'sabencia worldwide' -> candidate 'salencia worldwild' (wrong).",
+    "Incorrect/missing proper names: reference 'mariano' transcribed as 'marianne' in candidate; reference mentions 'gustavo' at the end which is omitted/truncated in candidate.",
+    "Technical identifier altered: reference 'pniv' (or 'pniv just to ensure') rendered as 'p id' in candidate (potentially changes meaning).",
+    "Key concept wording changed: reference 'process knowledge' becomes 'process notice' in candidate (alters meaning regarding required expertise).",
+    "Ending/meeting details truncated/omitted: candidate cuts off and omits some closure about next-week meeting logistics and named attendees."
+  ],
+  "rationale": "The candidate preserves the overall topical content and most conversational intent (technical validation, remote connection, need for data and business case, timeline ~2 weeks/15 days, coordination between data protection and IT, need for process specialists). However it contains several material errors: wrong company and person names, an altered technical identifier, and a change in a crucial phrase ('process knowledge' -> 'process notice') that can change interpretation of requirements. There is also truncation/omission of meeting attendees and closure. These errors are meaningful for follow-up actions and contacts, so they are flagged as critical.",
+  "cache_key": "d7371e5c04a147c206e70c1b897c8e83a7d173c06338fbf3014bd52546560d66",
+  "cache_path": "benchmark-results/semantic-cache/d7371e5c04a147c206e70c1b897c8e83a7d173c06338fbf3014bd52546560d66.json",
+  "cache_hit": false
+}

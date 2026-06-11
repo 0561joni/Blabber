@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 55,
+  "critical_mismatches": [
+    "Hallucination: candidate adds \"der russische rosendal\" — the reference names the location as Rosendahl (no \"russische\").",
+    "Place-name errors: candidate repeatedly renders Gronau as \"kronau\"/\"grunau\" (incorrect and potentially misleading).",
+    "Omission: candidate omits key details about cutting being outsourced to Backers Heimes and the description of small blockware production (Mediterraneo, paprika/chili) and the rationale for producing Gouda blocks during the milk surplus (important semantic content).",
+    "Hallucination: candidate inserts technical machinery details (machine for beakers with \"75er Durchmesser\", gram sizes, \"amman 1317\") that do not appear in the reference.",
+    "Distortion of processing step: candidate renders \"eingestellt und erhitzt\" as garbled \"eingestellt unterhetzt\" which changes/obscures the intended meaning of the heat-treatment step."
+  ],
+  "rationale": "The candidate preserves the high-level structure (20,000 t/yr milk products, milk sent to the Rosendahl cheesemaking site, ~1,100 t/yr cheese, external warehouse near Epe ~6 km) but omits several meaning-bearing segments (notably the slicing/backers supplier and blockware/Gouda production explanation) and introduces multiple hallucinations (an incorrect qualifier for Rosendahl, fabricated machine specs) and place-name errors (Gronau misspelled/mistranscribed). Numbers that appear in the reference are mostly retained, but the added and distorted content and significant omissions materially reduce fidelity.",
+  "cache_key": "c72f21b4aeeab96df5afaab2aa7eca9e4fef9e7a0b7f1ed7a9f2bedd4a0eb6fb",
+  "cache_path": "benchmark-results/semantic-cache/c72f21b4aeeab96df5afaab2aa7eca9e4fef9e7a0b7f1ed7a9f2bedd4a0eb6fb.json",
+  "cache_hit": false
+}

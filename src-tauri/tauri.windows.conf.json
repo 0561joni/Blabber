@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "bundle/windows-cuda-runtime/*.dll": ""
+    }
+  }
+}

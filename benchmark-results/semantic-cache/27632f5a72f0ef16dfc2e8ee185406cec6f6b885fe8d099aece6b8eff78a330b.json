@@ -1,0 +1,17 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 30,
+  "critical_mismatches": [
+    "Introduces a price point (’5.900’) and Uruguay/logistics details that do not appear in the reference.",
+    "Adds media/TV budget, production-agency planning and a release date (16 de octubre) not present in the reference.",
+    "Omits core product specifications from the reference: explicit UHT inclusion, flavored SKUs (chocolate, vanilla), and many protein counts per SKU/pack (e.g., 50 g/L, 15 g cremosos) and yogurt bottle sizes (330/500).",
+    "Misrepresents or omits the plant/ingredient sourcing detail: reference specifies UF concentrate from planta Frank; candidate instead refers to ‘Francia’/registration and different sourcing/legal names.",
+    "Alters/introduces brand/legal names incorrectly (candidate mentions ‘ilolay’/different legal registration context vs reference’s mentions like ‘arla’/other names), changing meaning.",
+    "Adds long sections about marketing strategy, TV impact and budgeting that materially shift focus away from the product technical details emphasized in the reference."
+  ],
+  "rationale": "The candidate preserves a few high-level themes from the reference (premium packaging, ‘productazo’ tone, focus on adolescents/families, general protein positioning) but omits many meaning-bearing technical details (UHT inclusion, specific flavored SKUs, explicit protein grams per format, yogurt bottle sizes, 0% fat testing, and the UF concentrate provenance). It also introduces several substantial new items not in the reference (price, Uruguay logistics, TV/media budget, release date) and misnames key parties, which materially change meaning. Because of these omissions and hallucinations the candidate does not reliably reflect the reference.",
+  "cache_key": "27632f5a72f0ef16dfc2e8ee185406cec6f6b885fe8d099aece6b8eff78a330b",
+  "cache_path": "benchmark-results/semantic-cache/27632f5a72f0ef16dfc2e8ee185406cec6f6b885fe8d099aece6b8eff78a330b.json",
+  "cache_hit": false
+}

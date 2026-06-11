@@ -1,0 +1,15 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 65,
+  "critical_mismatches": [
+    "Company name/location severely misrepresented: reference 'compagnie fromagère de la vallée de Lens' vs candidate 'compagnie de fromageres de la base de l'orange'.",
+    "Ludovic's biographical timeline and roles are significantly altered or omitted (reference: arrival in 1999, studies, various site roles, 4 years in Poland, five children, etc.; candidate gives a brief, inconsistent account and wrong durations).",
+    "Omission/misreporting of site-specific safety/property details early in the reference (defibrillator location, exact site limits, parking project, mention of station d'épuration) which appear missing or changed in the candidate.",
+    "Accident/statistics presentation differs materially: reference mentions '28' days without accident and historic record '78 days en 2016'; candidate shifts/omits these figures and rewrites accidentology narrative (different counts/timelines)."
+  ],
+  "rationale": "The candidate transcript preserves large parts of the later brand/product discussion (Saint Agur, packaging, R&D, gas permeability, salting issues), but the opening and speaker-introduction sections contain multiple name/location errors and substantial omissions. Key factual items (company name/location, Ludovic's career timeline and family details, site safety/property specifics, and some accident statistics) are wrong or missing — these materially change factual meaning. Overall most thematic content about the brand and packaging is retained, but the early factual inaccuracies and omissions reduce semantic fidelity.",
+  "cache_key": "f10bf56e5630eefc1ab885e5cb3cebfc7dfb3a09611aefa30481a2470b61c326",
+  "cache_path": "benchmark-results/semantic-cache/f10bf56e5630eefc1ab885e5cb3cebfc7dfb3a09611aefa30481a2470b61c326.json",
+  "cache_hit": false
+}

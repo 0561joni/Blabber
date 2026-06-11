@@ -1,0 +1,16 @@
+{
+  "judge_model": "gpt-5-mini",
+  "rubric_version": "semantic-rubric-v1",
+  "semantic_accuracy_pct": 40,
+  "critical_mismatches": [
+    "Candidate inserts logistics/pricing details not present in the reference (price ‘5.900’, Uruguay buffer/distribution workflow) — hallucinated content that changes context.",
+    "Multiple brand/name errors or substitutions (reference: “flamás” / “planta frank” / “Arla” vs candidate: “promash”, repeated ‘francia’/‘ilolay’ usages) — wrong names change meaning and stakeholders.",
+    "Key numeric product specifications from the reference are omitted or altered: reference gives specific protein amounts (e.g. ~50 g protein per liter for one milk, 15 g for creamy products, stated package sizes 150/180/330/500 ml); candidate only mentions ‘11 gramos’ and omits the 50 g/L and many pack-size details.",
+    "Important formulation/production detail missing: reference explains use of UF concentrate from planta Frank (raising protein concentration); candidate fails to convey this technical sourcing detail.",
+    "Candidate adds long unrelated operational/marketing discussion (agency selection, media spend, launch dates) that reorders emphasis and omits several meaning-bearing passages from the reference."
+  ],
+  "rationale": "The candidate preserves some high-level themes from the reference (packaging → more premium; product well-received; positioning as protein-forward for adolescents/families; not elite performance sports product; registration/legal review planned). However it omits or alters many concrete, meaning-bearing details: specific protein amounts and packaging sizes, the technical note about UF concentrate from planta Frank, and several proper nouns/brands (some replaced or garbled). It also introduces hallucinated logistics and a price point (5.900) not in the reference. Per the rubric, wrong names, numbers, and hallucinated content are heavily penalized; omissions of technical/spec data are also material. Given the mix of preserved high-level intent but numerous critical factual errors and omissions, the semantic accuracy is low–moderate.",
+  "cache_key": "4641e87dd8636bb8e368dc1a835915a7932addd571ca415e04507de9a93e0dea",
+  "cache_path": "benchmark-results/semantic-cache/4641e87dd8636bb8e368dc1a835915a7932addd571ca415e04507de9a93e0dea.json",
+  "cache_hit": false
+}
