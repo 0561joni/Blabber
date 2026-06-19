@@ -29,6 +29,10 @@ export function formatShortcutForDisplay(shortcut: string, platform: string | nu
     .join("+");
 }
 
+export function formatPasteShortcutForDisplay(platform: string | null) {
+  return platform === "macos" ? "\u2318+V" : "Ctrl+V";
+}
+
 export function formatDuration(seconds: number) {
   if (seconds < 60) {
     return `${seconds}s`;

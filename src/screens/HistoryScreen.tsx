@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
-import { copyTextToClipboard } from "../lib/api";
 import type { TranscriptSummary } from "../types/domain";
 
 interface HistoryScreenProps {
   transcripts: TranscriptSummary[];
+  onCopyTranscript: (text: string) => Promise<void>;
   onDelete: (transcriptId: string) => Promise<void>;
   onDeleteAll: () => Promise<void>;
 }
 
 export function HistoryScreen({
   transcripts,
+  onCopyTranscript,
   onDelete,
   onDeleteAll,
 }: HistoryScreenProps) {
@@ -45,7 +46,7 @@ export function HistoryScreen({
 
   async function copyTranscript(id: string, text: string) {
     try {
-      await copyTextToClipboard(text);
+      await onCopyTranscript(text);
       setCopyStates({ [id]: "copied" });
     } catch {
       setCopyStates({ [id]: "error" });

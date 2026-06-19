@@ -107,10 +107,31 @@ pub trait TranscriptionEngine: Send + Sync {
     ) -> Result<TranscriptResult>;
 }
 
+/// A loaded Whisper context kept alive between transcriptions so we don't pay
+/// the (large) model-load + GPU-allocation cost on every dictation.
+struct CachedContext {
+    model_path: String,
+    use_gpu: bool,
+    context: Arc<WhisperContext>,
+}
+
 #[derive(Debug)]
 pub struct SharedWhisperEngine {
     models_dir: PathBuf,
     models: Mutex<Vec<InstalledModel>>,
+    // Single-slot cache: reused while the same (model, gpu) is requested,
+    // rebuilt on change. See `obtain_context`.
+    context_cache: Mutex<Option<CachedContext>>,
+}
+
+impl std::fmt::Debug for CachedContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CachedContext")
+            .field("model_path", &self.model_path)
+            .field("use_gpu", &self.use_gpu)
+            .finish()
+    }
 }
 
 impl SharedWhisperEngine {
@@ -118,6 +139,41 @@ impl SharedWhisperEngine {
         Self {
             models_dir,
             models: Mutex::new(models),
+            context_cache: Mutex::new(None),
+        }
+    }
+
+    /// Return a loaded context for `(model, use_gpu)`, reusing the cached one
+    /// when the key matches. The cache holds a single slot; switching models or
+    /// GPU mode drops the previous context first to free its memory.
+    fn obtain_context(
+        &self,
+        model: &InstalledModel,
+        use_gpu: bool,
+    ) -> Result<Arc<WhisperContext>> {
+        let mut cache = self
+            .context_cache
+            .lock()
+            .map_err(|_| anyhow!("whisper context cache poisoned"))?;
+        if let Some(cached) = cache.as_ref() {
+            if cached.model_path == model.local_path && cached.use_gpu == use_gpu {
+                return Ok(Arc::clone(&cached.context));
+            }
+        }
+        // Drop any previous context before allocating the new one.
+        *cache = None;
+        let context = Arc::new(create_whisper_context(model, use_gpu)?);
+        *cache = Some(CachedContext {
+            model_path: model.local_path.clone(),
+            use_gpu,
+            context: Arc::clone(&context),
+        });
+        Ok(context)
+    }
+
+    fn invalidate_context_cache(&self) {
+        if let Ok(mut cache) = self.context_cache.lock() {
+            *cache = None;
         }
     }
 
@@ -162,6 +218,9 @@ impl TranscriptionEngine for SharedWhisperEngine {
             .models
             .lock()
             .map_err(|_| anyhow!("model registry poisoned"))? = refreshed.clone();
+        // A model file may have been replaced/removed; drop the cached context
+        // so the next transcription reloads from disk.
+        self.invalidate_context_cache();
         Ok(refreshed)
     }
 
@@ -176,20 +235,21 @@ impl TranscriptionEngine for SharedWhisperEngine {
         let use_gpu = should_try_gpu(request.prefer_gpu);
 
         let (context, gpu_active) = if use_gpu {
-            match create_whisper_context(&model, true) {
+            match self.obtain_context(&model, true) {
                 Ok(ctx) => (ctx, true),
-                Err(_) => (create_whisper_context(&model, false)?, false),
+                Err(_) => (self.obtain_context(&model, false)?, false),
             }
         } else {
-            (create_whisper_context(&model, false)?, false)
+            (self.obtain_context(&model, false)?, false)
         };
 
-        let transcript =
-            run_whisper(&context, &model, &prepared, &request, &progress).or_else(|error| {
+        let transcript = run_whisper(context.as_ref(), &model, &prepared, &request, &progress)
+            .or_else(|error| {
                 if gpu_active {
-                    let cpu_context = create_whisper_context(&model, false)
+                    let cpu_context = self
+                        .obtain_context(&model, false)
                         .with_context(|| format!("{}; CPU context creation also failed", error))?;
-                    run_whisper(&cpu_context, &model, &prepared, &request, &progress)
+                    run_whisper(cpu_context.as_ref(), &model, &prepared, &request, &progress)
                         .with_context(|| format!("{}; CPU fallback also failed", error))
                 } else {
                     Err(error)

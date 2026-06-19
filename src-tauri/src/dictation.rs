@@ -1,8 +1,8 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -83,6 +83,13 @@ pub struct QuickDictationController {
     // instead of the global shortcut. Forces ClipboardOnly because Blabber
     // itself has focus, so auto-paste would target our own window.
     force_clipboard_only: Arc<AtomicBool>,
+    // Bumped on every `begin_listening`. The overlay-level poller captures the
+    // generation it was spawned for and exits as soon as it is superseded, so
+    // exactly one poller runs at a time (no zombie threads on intensive use).
+    poller_generation: Arc<AtomicU64>,
+    // Unix-millis timestamp of the last state transition, used by the watchdog
+    // to detect a dictation that has been stuck in Listening/Processing.
+    state_since_ms: Arc<AtomicI64>,
 }
 
 impl QuickDictationController {
@@ -107,6 +114,8 @@ impl QuickDictationController {
             paste_target: Arc::new(Mutex::new(None)),
             volume_snapshot: Arc::new(Mutex::new(None)),
             force_clipboard_only: Arc::new(AtomicBool::new(false)),
+            poller_generation: Arc::new(AtomicU64::new(0)),
+            state_since_ms: Arc::new(AtomicI64::new(now_ms())),
         }
     }
 
@@ -138,7 +147,9 @@ impl QuickDictationController {
         self.app.global_shortcut().on_shortcut(
             settings.shortcut.as_str(),
             move |_app, _shortcut, event| {
-                let _ = controller.handle_shortcut_event(event.state(), event.id);
+                if let Err(error) = controller.handle_shortcut_event(event.state(), event.id) {
+                    eprintln!("[dictation] shortcut handler failed: {error:?}");
+                }
             },
         )?;
 
@@ -273,6 +284,9 @@ impl QuickDictationController {
 
         if let Err(error) = self.recording_controller.start() {
             self.restore_system_volume();
+            // Surface the failure (overlay "Failed" + status + log) so a wedged
+            // microphone never silently swallows the dictation, then reset.
+            let _ = self.set_error(error.to_string());
             return Err(error);
         }
         self.desktop_shell
@@ -287,7 +301,10 @@ impl QuickDictationController {
             status.last_transcript_id = None;
             status.last_insert_outcome = None;
         })?;
-        self.spawn_overlay_level_poller();
+        // Bump the generation so any previous poller exits, then start the one
+        // poller that belongs to this listening session.
+        let generation = self.poller_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.spawn_overlay_level_poller(generation);
         Ok(())
     }
 
@@ -311,7 +328,10 @@ impl QuickDictationController {
 
         let controller = self.clone();
         thread::spawn(move || {
-            let _ = controller.finish_dictation_worker();
+            if let Err(error) = controller.finish_dictation_worker() {
+                eprintln!("[dictation] finish worker failed: {error:?}");
+                let _ = controller.set_error(error.to_string());
+            }
         });
         Ok(())
     }
@@ -463,10 +483,15 @@ impl QuickDictationController {
             .map_err(anyhow::Error::msg)
     }
 
-    fn spawn_overlay_level_poller(&self) {
+    fn spawn_overlay_level_poller(&self, generation: u64) {
         let controller = self.clone();
         thread::spawn(move || {
-            while controller.status().state == QuickDictationState::Listening {
+            // Exit as soon as this poller is superseded by a newer listening
+            // session OR the state leaves Listening. Both guards together make
+            // it impossible to accumulate zombie pollers under intensive use.
+            while controller.poller_generation.load(Ordering::SeqCst) == generation
+                && controller.status().state == QuickDictationState::Listening
+            {
                 let level = controller.recording_controller.input_level().unwrap_or(0.0);
                 let _ = controller
                     .desktop_shell
@@ -495,9 +520,11 @@ impl QuickDictationController {
                 let _ = controller
                     .desktop_shell
                     .set_overlay_payload(DictationOverlayPayload::default());
-                let _ = controller.update_status(|status| {
+                if let Err(error) = controller.update_status(|status| {
                     status.state = QuickDictationState::Idle;
-                });
+                }) {
+                    eprintln!("[dictation] failed to reset to idle: {error:?}");
+                }
             }
         });
     }
@@ -527,7 +554,13 @@ impl QuickDictationController {
                 .status
                 .lock()
                 .map_err(|_| anyhow!("quick dictation status unavailable"))?;
+            let previous_state = status.state;
             apply(&mut status);
+            if status.state != previous_state {
+                // Stamp every transition so the watchdog can tell how long the
+                // controller has been parked in Listening/Processing.
+                self.state_since_ms.store(now_ms(), Ordering::SeqCst);
+            }
             status.clone()
         };
         self.app.emit(QUICK_DICTATE_STATUS_EVENT, next_status)?;
@@ -573,6 +606,57 @@ impl QuickDictationController {
         }
     }
 
+    /// Force the controller back to a clean Idle state, abandoning any wedged
+    /// recording worker and tearing down overlay/volume side effects. Used by
+    /// both the manual reset command and the watchdog.
+    pub fn force_reset(&self) -> Result<QuickDictationStatusResponse> {
+        // Supersede any running poller and drop a possibly-wedged worker.
+        self.poller_generation.fetch_add(1, Ordering::SeqCst);
+        let _ = self.recording_controller.cancel();
+        self.recording_controller.recover();
+        self.restore_system_volume();
+        self.force_clipboard_only.store(false, Ordering::SeqCst);
+        let _ = self
+            .desktop_shell
+            .set_overlay_payload(DictationOverlayPayload::default());
+        self.update_status(|status| {
+            status.state = QuickDictationState::Idle;
+        })?;
+        // Re-arm the shortcut in case registration was affected.
+        let _ = self.sync_shortcut_registration();
+        Ok(self.status())
+    }
+
+    /// Spawn the single watchdog thread that auto-recovers a dictation stuck in
+    /// Listening or Processing for longer than `STUCK_THRESHOLD`. This is the
+    /// last-resort safety net behind the worker-level self-healing.
+    pub fn spawn_watchdog(&self) {
+        const STUCK_THRESHOLD_MS: i64 = 90_000;
+        const POLL_INTERVAL: Duration = Duration::from_secs(5);
+        let controller = self.clone();
+        thread::spawn(move || loop {
+            thread::sleep(POLL_INTERVAL);
+            let state = controller.status().state;
+            let is_active = matches!(
+                state,
+                QuickDictationState::Listening | QuickDictationState::Processing
+            );
+            if !is_active {
+                continue;
+            }
+            let since = controller.state_since_ms.load(Ordering::SeqCst);
+            if now_ms() - since >= STUCK_THRESHOLD_MS {
+                eprintln!(
+                    "[dictation] watchdog: stuck in {:?} for too long — forcing reset",
+                    state
+                );
+                if let Err(error) = controller.force_reset() {
+                    eprintln!("[dictation] watchdog reset failed: {error:?}");
+                }
+            }
+        });
+    }
+
     fn play_listen_stop_feedback(&self) {
         let sounds_enabled = storage::get_settings_from_db_path(&self.db_path)
             .map(|settings| settings.sounds_enabled)
@@ -583,6 +667,13 @@ impl QuickDictationController {
             }
         }
     }
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn resolve_model_name(

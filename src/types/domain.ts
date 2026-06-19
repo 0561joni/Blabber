@@ -301,6 +301,14 @@ export interface QuickDictationStatusResponse {
   lastDurationMs: number | null;
 }
 
+export interface DictationReadiness {
+  hasModel: boolean;
+  shortcutRegistered: boolean;
+  autoPasteEnabled: boolean;
+  accessibilityRequired: boolean;
+  accessibilityGranted: boolean;
+}
+
 export interface VocabularyAlias {
   id: string;
   alias: string;

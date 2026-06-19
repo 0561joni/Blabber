@@ -3,12 +3,15 @@ import { dictatePress, dictateRelease } from "../lib/api";
 import { formatDuration, formatShortcutForDisplay } from "../lib/formatting";
 import type {
   AppSettings,
+  DictationReadiness,
   FileQueueItem,
   ManualTranscriptionUiState,
   QuickDictationStatusResponse,
   RecordingStatusResponse,
   TranscriptionPreviewResponse,
 } from "../types/domain";
+
+type ReadinessItem = "model" | "shortcut" | "accessibility";
 
 interface HomeScreenProps {
   settings: AppSettings | null;
@@ -17,11 +20,14 @@ interface HomeScreenProps {
   recordingStatus: RecordingStatusResponse | null;
   manualTranscriptionState: ManualTranscriptionUiState;
   quickDictationStatus: QuickDictationStatusResponse | null;
+  readiness: DictationReadiness | null;
+  onResolveReadiness: (item: ReadinessItem) => void;
   fileQueueItems: FileQueueItem[];
   isFileDragActive: boolean;
   onStartRecording: () => void;
   onStopAndTranscribeRecording: () => void;
   onCancelRecording: () => void;
+  onResetDictation: () => void;
   onPickFiles: () => void;
   onDropFiles: (files: FileList) => void;
   onSetFileDragActive: (active: boolean) => void;
@@ -36,11 +42,14 @@ export function HomeScreen({
   recordingStatus,
   manualTranscriptionState,
   quickDictationStatus,
+  readiness,
+  onResolveReadiness,
   fileQueueItems,
   isFileDragActive,
   onStartRecording,
   onStopAndTranscribeRecording,
   onCancelRecording,
+  onResetDictation,
   onPickFiles,
   onDropFiles,
   onSetFileDragActive,
@@ -141,6 +150,14 @@ export function HomeScreen({
               ? "Transcript ready."
               : `Use ${shortcut} or tap the record control to start manual dictation.`);
 
+  // Offer the manual reset whenever dictation could be wedged: after an error,
+  // or while it is mid-flight (so the user can always escape a stuck session).
+  const showResetAction =
+    liveState === "error" || liveState === "processing" || liveState === "listening";
+
+  const readinessItems = buildReadinessItems(readiness);
+  const showReadinessCard = readinessItems.some((item) => !item.ok);
+
   const showRecordingMeta =
     recordingStatus?.state === "listening" ||
     recordingStatus?.state === "paused" ||
@@ -201,6 +218,55 @@ export function HomeScreen({
   return (
     <section className="screen home-screen">
       <div className="home-stack">
+        {showReadinessCard ? (
+          <article className="glass-panel readiness-card apple-panel">
+            <div className="section-header section-header-compact">
+              <div>
+                <p className="eyebrow">Get set up</p>
+                <h2>Finish setting up dictation</h2>
+                <p className="muted">
+                  A few things need attention before shortcut dictation works end to end.
+                </p>
+              </div>
+            </div>
+            <ul className="readiness-list">
+              {readinessItems.map((item) => (
+                <li
+                  key={item.key}
+                  className={`readiness-item ${item.ok ? "is-ok" : "is-pending"}`}
+                >
+                  <span className="readiness-status" aria-hidden="true">
+                    {item.ok ? (
+                      <svg viewBox="0 0 24 24">
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24">
+                        <path d="M12 8v5" />
+                        <path d="M12 16.5v.5" />
+                        <circle cx="12" cy="12" r="9" />
+                      </svg>
+                    )}
+                  </span>
+                  <div className="readiness-copy">
+                    <strong>{item.title}</strong>
+                    <p className="muted">{item.detail}</p>
+                  </div>
+                  {!item.ok && item.actionLabel ? (
+                    <button
+                      type="button"
+                      className="small-action-button"
+                      onClick={() => onResolveReadiness(item.key)}
+                    >
+                      {item.actionLabel}
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </article>
+        ) : null}
+
         <article
           onDragEnter={handleDragEnter}
           onDragOver={handleDragOver}
@@ -273,7 +339,11 @@ export function HomeScreen({
               </button>
 
               <button
-                className="upload-action-button"
+                className={
+                  isPttActive
+                    ? "upload-action-button is-pressed"
+                    : "upload-action-button"
+                }
                 type="button"
                 disabled={pttDisabled}
                 aria-pressed={isPttActive}
@@ -286,15 +356,6 @@ export function HomeScreen({
                   isPttActive
                     ? "Release to transcribe — the result will be on your clipboard"
                     : "Hold to dictate — release to copy the result to your clipboard"
-                }
-                style={
-                  isPttActive
-                    ? {
-                        background: "linear-gradient(180deg, #ff6258, #f23b30)",
-                        color: "#fff",
-                        borderColor: "#dc4338",
-                      }
-                    : undefined
                 }
                 onPointerDown={(event) => {
                   void handlePttPress(event);
@@ -499,7 +560,7 @@ export function HomeScreen({
                       </div>
                       <div className="toolbar">
                         <button
-                          className="icon-toolbar-button"
+                          className={`icon-toolbar-button copy-state-${item.copyState}`}
                           type="button"
                           onClick={() => onCopyFileTranscript(item.id, item.result!.result.plainText)}
                           aria-label={
@@ -517,10 +578,21 @@ export function HomeScreen({
                                 : "Copy transcript"
                           }
                         >
-                          <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <rect x="9" y="9" width="10" height="10" rx="2" />
-                            <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
-                          </svg>
+                          {item.copyState === "copied" ? (
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                          ) : item.copyState === "error" ? (
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M18 6 6 18" />
+                              <path d="m6 6 12 12" />
+                            </svg>
+                          ) : (
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <rect x="9" y="9" width="10" height="10" rx="2" />
+                              <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          )}
                         </button>
                         <button type="button" onClick={() => onToggleFileTranscript(item.id)}>
                           {item.isExpanded ? "Show less" : "Show full text"}
@@ -543,7 +615,21 @@ export function HomeScreen({
             <strong>{liveTitle}</strong>
             <p className="muted">{liveCopy}</p>
           </div>
-          <span className={`status-pill status-pill-${liveState}`}>{liveState}</span>
+          <div className="live-banner-side">
+            <span className={`status-pill status-pill-${liveState}`}>
+              {liveStateLabel(liveState)}
+            </span>
+            {showResetAction ? (
+              <button
+                type="button"
+                className="secondary-inline-button live-reset-button"
+                onClick={onResetDictation}
+                title="Restart the audio engine and re-arm the shortcut"
+              >
+                Reset dictation
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
     </section>
@@ -568,6 +654,77 @@ function useElapsedSeconds(startedAt: number | null) {
   }, [startedAt]);
 
   return elapsedSeconds;
+}
+
+interface ReadinessRow {
+  key: ReadinessItem;
+  ok: boolean;
+  title: string;
+  detail: string;
+  actionLabel?: string;
+}
+
+// Turn the backend readiness snapshot into a display checklist. The
+// Accessibility row only appears when auto-paste is on and the OS actually
+// gates keystroke synthesis (macOS) — otherwise it isn't a prerequisite.
+function buildReadinessItems(readiness: DictationReadiness | null): ReadinessRow[] {
+  if (!readiness) {
+    return [];
+  }
+  const rows: ReadinessRow[] = [
+    {
+      key: "model",
+      ok: readiness.hasModel,
+      title: "Transcription model",
+      detail: readiness.hasModel
+        ? "A local model is installed and ready."
+        : "No model is installed yet — dictation can't transcribe without one.",
+      actionLabel: "Download a model",
+    },
+    {
+      key: "shortcut",
+      ok: readiness.shortcutRegistered,
+      title: "Dictation shortcut",
+      detail: readiness.shortcutRegistered
+        ? "Your global shortcut is active."
+        : "No global shortcut is active, so hands-free dictation won't trigger.",
+      actionLabel: "Set a shortcut",
+    },
+  ];
+  if (readiness.accessibilityRequired) {
+    rows.push({
+      key: "accessibility",
+      ok: readiness.accessibilityGranted,
+      title: "Auto-paste access",
+      detail: readiness.accessibilityGranted
+        ? "Accessibility is granted — results paste straight into your app."
+        : "Grant Accessibility so results paste into your app. Until then, dictation is copied to your clipboard for a manual paste.",
+      actionLabel: "Grant access",
+    });
+  }
+  return rows;
+}
+
+// Map every internal state to one consistent, human-readable label shown in
+// the status pill — the same vocabulary used across the HUD and toasts.
+function liveStateLabel(state: string) {
+  switch (state) {
+    case "listening":
+      return "Listening";
+    case "paused":
+      return "Paused";
+    case "processing":
+      return "Transcribing";
+    case "success":
+    case "inserted":
+      return "Pasted";
+    case "clipboard_only":
+      return "Copied";
+    case "error":
+      return "Needs attention";
+    default:
+      return "Ready";
+  }
 }
 
 function isFileQueueWorking(stage: FileQueueItem["stage"]) {

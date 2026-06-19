@@ -1,6 +1,7 @@
 import type {
   AppSettings,
   CreateVocabularyTermInput,
+  DictationReadiness,
   DownloadableModel,
   FileTranscriptionRequest,
   FileTranscriptionStatusEvent,
@@ -853,6 +854,41 @@ export async function getQuickDictateStatus(): Promise<QuickDictationStatusRespo
     return mockQuickDictationStatus;
   }
   return invoke<QuickDictationStatusResponse>("get_quick_dictate_status");
+}
+
+/**
+ * Force dictation back to a clean Idle state. Recovers a wedged audio worker,
+ * hides the overlay, restores volume, and re-arms the shortcut. Surfaced in the
+ * UI as the "Reset" action when dictation looks unresponsive.
+ */
+export async function resetQuickDictation(): Promise<QuickDictationStatusResponse> {
+  if (!isTauriRuntime()) {
+    return mockQuickDictationStatus;
+  }
+  return invoke<QuickDictationStatusResponse>("reset_quick_dictation");
+}
+
+/** Snapshot of the prerequisites for shortcut dictation (model, shortcut,
+ * Accessibility). Drives the Home readiness checklist. */
+export async function getDictationReadiness(): Promise<DictationReadiness> {
+  if (!isTauriRuntime()) {
+    return {
+      hasModel: true,
+      shortcutRegistered: true,
+      autoPasteEnabled: true,
+      accessibilityRequired: false,
+      accessibilityGranted: true,
+    };
+  }
+  return invoke<DictationReadiness>("get_dictation_readiness");
+}
+
+/** Open the OS pane where the user grants Accessibility access (macOS). */
+export async function openAccessibilitySettings(): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invoke<void>("open_accessibility_settings");
 }
 
 export async function listenQuickDictateStatus(

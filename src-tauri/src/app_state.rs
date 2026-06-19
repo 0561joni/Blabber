@@ -114,6 +114,8 @@ impl AppState {
                 .dictation_controller
                 .mark_shortcut_unsupported(shortcut_unsupported_message())?;
         }
+        // Last-resort safety net: auto-recovers dictation if it ever gets stuck.
+        state.dictation_controller.spawn_watchdog();
         Ok(state)
     }
 

@@ -116,6 +116,30 @@ fn auto_paste_allowed() -> bool {
     crate::platform::auto_paste_supported()
 }
 
+/// Whether the OS currently trusts Blabber to synthesize keystrokes (i.e.
+/// auto-paste can work). macOS gates this behind Accessibility access; other
+/// platforms don't have an equivalent runtime gate, so they report `true`.
+#[cfg(target_os = "macos")]
+pub fn accessibility_trusted() -> bool {
+    unsafe { AXIsProcessTrusted() }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn accessibility_trusted() -> bool {
+    true
+}
+
+/// Open the OS pane where the user grants Accessibility access. No-op on
+/// platforms without that concept.
+pub fn open_accessibility_settings() {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+            .spawn();
+    }
+}
+
 fn should_attempt_paste(behavior: InsertBehavior, auto_paste_supported: bool) -> bool {
     matches!(behavior, InsertBehavior::Paste) && auto_paste_supported
 }

@@ -33,7 +33,8 @@ use audio_files::{
 use dictation::QuickDictationStatusResponse;
 use file_jobs::{FileTranscriptionStatusEvent, StartFileTranscriptionResponse};
 use model_downloads::{DownloadableModel, ModelDownloadStatus};
-use settings::{AppSettings, HealthCheckResponse, SettingsPatch};
+use serde::Serialize;
+use settings::{AppSettings, HealthCheckResponse, InsertBehavior, SettingsPatch};
 use std::process::Command;
 use storage::TranscriptSummary;
 use tauri::{DragDropEvent, Emitter, Manager, WebviewEvent, Window, WindowEvent};
@@ -412,6 +413,56 @@ fn get_quick_dictate_status(
 }
 
 #[tauri::command]
+fn reset_quick_dictation(
+    state: tauri::State<'_, AppState>,
+) -> Result<QuickDictationStatusResponse, String> {
+    state
+        .dictation_controller
+        .force_reset()
+        .map_err(|error| error.to_string())
+}
+
+/// Snapshot of everything that must be in place for shortcut dictation to work
+/// end-to-end. Drives the Home readiness checklist so silent prerequisites
+/// (no model, unbound shortcut, missing Accessibility) become visible.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DictationReadiness {
+    has_model: bool,
+    shortcut_registered: bool,
+    auto_paste_enabled: bool,
+    // True only when auto-paste is on AND the platform gates keystroke
+    // synthesis behind a permission (macOS Accessibility).
+    accessibility_required: bool,
+    accessibility_granted: bool,
+}
+
+#[tauri::command]
+fn get_dictation_readiness(
+    state: tauri::State<'_, AppState>,
+) -> Result<DictationReadiness, String> {
+    let settings = storage::get_settings(state.inner()).map_err(|error| error.to_string())?;
+    let models = state
+        .engine
+        .list_models()
+        .map_err(|error| error.to_string())?;
+    let status = state.dictation_controller.status();
+    let auto_paste = matches!(settings.insert_behavior, InsertBehavior::Paste);
+    Ok(DictationReadiness {
+        has_model: !models.is_empty(),
+        shortcut_registered: status.is_registered,
+        auto_paste_enabled: auto_paste,
+        accessibility_required: auto_paste && cfg!(target_os = "macos"),
+        accessibility_granted: insertion::accessibility_trusted(),
+    })
+}
+
+#[tauri::command]
+fn open_accessibility_settings() {
+    insertion::open_accessibility_settings();
+}
+
+#[tauri::command]
 fn suspend_shortcut_capture(
     state: tauri::State<'_, AppState>,
 ) -> Result<QuickDictationStatusResponse, String> {
@@ -591,6 +642,9 @@ fn main() {
             stop_recording_session,
             cancel_recording_session,
             get_quick_dictate_status,
+            reset_quick_dictation,
+            get_dictation_readiness,
+            open_accessibility_settings,
             suspend_shortcut_capture,
             resume_shortcut_capture,
             list_vocabulary_terms,

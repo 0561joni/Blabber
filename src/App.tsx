@@ -4,9 +4,11 @@ import {
   deleteTranscript,
   getFileTranscriptionStatuses,
   getHealthCheck,
+  getDictationReadiness,
   getQuickDictateStatus,
   getRecordingStatus,
   getSettings,
+  openAccessibilitySettings,
   listInstalledModels,
   listTranscripts,
   listVocabularyTerms,
@@ -21,6 +23,7 @@ import {
   startRecordingSession,
   stopRecordingSession,
   cancelRecordingSession,
+  resetQuickDictation,
   updateSettings,
   createVocabularyTerm,
   updateVocabularyTerm,
@@ -31,8 +34,10 @@ import { HomeScreen } from "./screens/HomeScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { VocabularyScreen } from "./screens/VocabularyScreen";
+import { formatPasteShortcutForDisplay } from "./lib/formatting";
 import type {
   AppSettings,
+  DictationReadiness,
   FileQueueItem,
   FileTranscriptionStatusEvent,
   HealthCheckResponse,
@@ -91,6 +96,7 @@ export function App() {
     });
   const [quickDictationStatus, setQuickDictationStatus] =
     useState<QuickDictationStatusResponse | null>(null);
+  const [readiness, setReadiness] = useState<DictationReadiness | null>(null);
   const [fileQueueItems, setFileQueueItems] = useState<FileQueueItem[]>([]);
   const [isFileDragActive, setIsFileDragActive] = useState(false);
   const currentScreenRef = useRef<ScreenId>("home");
@@ -127,6 +133,30 @@ export function App() {
       });
     },
     [pushToast],
+  );
+
+  const copyTranscriptToClipboard = useCallback(
+    async (text: string) => {
+      const pasteShortcut = formatPasteShortcutForDisplay(health?.platform ?? null);
+      try {
+        await copyTextToClipboard(text);
+        pushToast({
+          kind: "success",
+          message: "Copied to clipboard",
+          hint: `Press ${pasteShortcut} to paste`,
+          durationMs: 2500,
+        });
+      } catch (error) {
+        pushToast({
+          kind: "error",
+          message: "Copy failed",
+          hint: errorMessage(error, "Could not copy transcript."),
+          durationMs: 4000,
+        });
+        throw error;
+      }
+    },
+    [health?.platform, pushToast],
   );
 
   useEffect(() => {
@@ -173,7 +203,7 @@ export function App() {
             pushToast({
               kind: "info",
               message: "Copied to clipboard",
-              hint: "Press Ctrl+V to paste",
+              hint: `Press ${formatPasteShortcutForDisplay(health?.platform ?? null)} to paste`,
               durationMs: 3500,
             });
             break;
@@ -205,7 +235,7 @@ export function App() {
     return () => {
       unlisten?.();
     };
-  }, [pushToast]);
+  }, [health?.platform, pushToast]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -385,6 +415,7 @@ export function App() {
       setRecordingStatus(nextRecordingStatus);
       setQuickDictationStatus(nextQuickDictateStatus);
       setFileQueueItems(mergeFileStatusesIntoQueue([], nextFileStatuses));
+      void refreshReadiness();
     } catch (error) {
       console.error(errorMessage(error, "Failed to load app state."));
     }
@@ -419,17 +450,40 @@ export function App() {
     }
   }
 
+  const refreshReadiness = useCallback(async () => {
+    try {
+      setReadiness(await getDictationReadiness());
+    } catch (error) {
+      console.error(errorMessage(error, "Failed to check dictation readiness."));
+    }
+  }, []);
+
   async function saveSettings(patch: SettingsPatch) {
     const nextSettings = await updateSettings(patch);
     setSettings(nextSettings);
     setQuickDictationStatus(await getQuickDictateStatus());
+    void refreshReadiness();
   }
 
   const reloadModelState = useCallback(async () => {
     const [nextSettings, nextInstalledModels] = await Promise.all([getSettings(), listInstalledModels()]);
     setSettings(nextSettings);
     setInstalledModels(nextInstalledModels);
-  }, []);
+    void refreshReadiness();
+  }, [refreshReadiness]);
+
+  const handleResolveReadiness = useCallback(
+    async (item: "model" | "shortcut" | "accessibility") => {
+      if (item === "accessibility") {
+        await openAccessibilitySettings();
+        // Re-check shortly after, once the user has had a chance to grant it.
+        window.setTimeout(() => void refreshReadiness(), 1200);
+        return;
+      }
+      setScreen("settings");
+    },
+    [refreshReadiness],
+  );
 
   async function removeTranscript(transcriptId: string) {
     await deleteTranscript(transcriptId);
@@ -544,6 +598,27 @@ export function App() {
     setRecordingStatus(await cancelRecordingSession());
   }
 
+  async function resetDictation() {
+    try {
+      const status = await resetQuickDictation();
+      setQuickDictationStatus(status);
+      setRecordingStatus(await getRecordingStatus());
+      pushToast({
+        kind: "success",
+        message: "Dictation reset",
+        hint: "Audio engine restarted and the shortcut is ready again.",
+        durationMs: 4000,
+      });
+    } catch (error) {
+      pushToast({
+        kind: "error",
+        message: "Reset failed",
+        hint: errorMessage(error, "Could not reset dictation."),
+        durationMs: 6000,
+      });
+    }
+  }
+
   async function createVocabulary(input: Parameters<typeof createVocabularyTerm>[0]) {
     const term = await createVocabularyTerm(input);
     setVocabularyTerms((current) =>
@@ -629,7 +704,7 @@ export function App() {
 
   async function copyQueuedFile(itemId: string, text: string) {
     try {
-      await copyTextToClipboard(text);
+      await copyTranscriptToClipboard(text);
       setFileQueueItems((current) =>
         current.map((item) => (item.id === itemId ? { ...item, copyState: "copied" } : item)),
       );
@@ -705,11 +780,14 @@ export function App() {
                 recordingStatus={recordingStatus}
                 manualTranscriptionState={manualTranscriptionState}
                 quickDictationStatus={quickDictationStatus}
+                readiness={readiness}
+                onResolveReadiness={handleResolveReadiness}
                 fileQueueItems={fileQueueItems}
                 isFileDragActive={isFileDragActive}
                 onStartRecording={beginManualRecording}
                 onStopAndTranscribeRecording={stopAndPreviewManualRecording}
                 onCancelRecording={cancelManualRecording}
+                onResetDictation={resetDictation}
                 onPickFiles={enqueueFiles}
                 onDropFiles={handleDroppedFiles}
                 onSetFileDragActive={setIsFileDragActive}
@@ -740,6 +818,7 @@ export function App() {
             {screen === "history" ? (
               <HistoryScreen
                 transcripts={transcripts}
+                onCopyTranscript={copyTranscriptToClipboard}
                 onDelete={removeTranscript}
                 onDeleteAll={removeAllTranscripts}
               />

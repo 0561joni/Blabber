@@ -14,7 +14,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "node scripts/run-tauri.mjs"
+    "tauri": "node scripts/run-tauri.mjs",
+    "deploy:mac": "node scripts/deploy-macos.mjs"
   },
   "overrides": {
     "picomatch": "4.0.4"

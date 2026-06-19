@@ -125,8 +125,16 @@ impl RecordingWorkerState {
     }
 
     fn start(&mut self) -> Result<RecordingStatusResponse> {
-        if self.active.is_some() {
-            return Err(anyhow!("A recording session is already active"));
+        // Self-heal: if a session is still marked active, it is stale — almost
+        // always the residue of a previous `start`/`stop` whose response the
+        // controller already timed out on. Tear it down and start fresh rather
+        // than refusing forever with "a recording session is already active",
+        // which is what permanently wedged dictation after intensive use.
+        if let Some(existing) = self.active.take() {
+            if let Some(segment) = existing.current_segment {
+                drop(segment.stream);
+            }
+            eprintln!("[audio] discarded a stale active recording session before starting a new one");
         }
         let session_id = Uuid::new_v4().to_string();
         let segment =
@@ -359,23 +367,45 @@ enum WorkerCommand {
     Cancel(Sender<Result<RecordingStatusResponse, String>>),
 }
 
+/// Outcome of dispatching a command to the recording worker thread.
+enum SendOutcome<R> {
+    /// The worker replied within the timeout.
+    Ok(R),
+    /// The worker did not reply in time — it is presumed wedged.
+    Timeout,
+    /// The worker channel is gone, or the controller lock was poisoned.
+    Failed(anyhow::Error),
+}
+
 #[derive(Clone)]
 pub struct RecordingController {
-    sender: Sender<WorkerCommand>,
+    // Wrapped so a wedged worker thread (e.g. a CoreAudio stream-setup call
+    // that never returns) can be abandoned and replaced — see `recover`.
+    sender: Arc<Mutex<Sender<WorkerCommand>>>,
+    temp_dir: PathBuf,
     preferred_input_device: Arc<Mutex<Option<String>>>,
+}
+
+/// Spawn a fresh worker thread and return the channel that drives it.
+fn spawn_worker(
+    temp_dir: PathBuf,
+    preferred_input_device: Arc<Mutex<Option<String>>>,
+) -> Sender<WorkerCommand> {
+    let (sender, receiver) = mpsc::channel::<WorkerCommand>();
+    thread::spawn(move || {
+        let mut worker = RecordingWorkerState::new(temp_dir, preferred_input_device);
+        process_worker_commands(&mut worker, receiver);
+    });
+    sender
 }
 
 impl RecordingController {
     pub fn new(temp_dir: PathBuf) -> Self {
         let preferred_input_device = Arc::new(Mutex::new(None));
-        let (sender, receiver) = mpsc::channel::<WorkerCommand>();
-        let worker_preferred_input_device = Arc::clone(&preferred_input_device);
-        thread::spawn(move || {
-            let mut worker = RecordingWorkerState::new(temp_dir, worker_preferred_input_device);
-            process_worker_commands(&mut worker, receiver);
-        });
+        let sender = spawn_worker(temp_dir.clone(), Arc::clone(&preferred_input_device));
         Self {
-            sender,
+            sender: Arc::new(Mutex::new(sender)),
+            temp_dir,
             preferred_input_device,
         }
     }
@@ -386,79 +416,123 @@ impl RecordingController {
         }
     }
 
-    pub fn status(&self) -> Result<RecordingStatusResponse> {
+    /// Abandon the current (possibly wedged) worker thread and start a clean
+    /// one. The old thread is left to die on its own; it only owns its own
+    /// audio stream, so leaking it briefly is acceptable and far better than
+    /// leaving recording permanently dead.
+    pub fn recover(&self) {
+        let fresh = spawn_worker(self.temp_dir.clone(), Arc::clone(&self.preferred_input_device));
+        if let Ok(mut sender) = self.sender.lock() {
+            *sender = fresh;
+            eprintln!("[audio] recording worker was unresponsive — respawned a fresh worker");
+        }
+    }
+
+    /// Send a command to the worker and wait for its reply, distinguishing a
+    /// timeout (worker wedged) from a hard channel failure.
+    fn dispatch<R: Send + 'static>(
+        &self,
+        timeout: Duration,
+        build: impl FnOnce(Sender<R>) -> WorkerCommand,
+    ) -> SendOutcome<R> {
+        let sender = match self.sender.lock() {
+            Ok(sender) => sender.clone(),
+            Err(_) => return SendOutcome::Failed(anyhow!("recording worker is not available")),
+        };
         let (response_tx, response_rx) = mpsc::channel();
-        self.sender
-            .send(WorkerCommand::Status(response_tx))
-            .map_err(|_| anyhow!("recording worker is not available"))?;
-        response_rx
-            .recv_timeout(Duration::from_secs(2))
-            .map_err(|_| anyhow!("recording worker timed out"))
+        if sender.send(build(response_tx)).is_err() {
+            return SendOutcome::Failed(anyhow!("recording worker is not available"));
+        }
+        match response_rx.recv_timeout(timeout) {
+            Ok(value) => SendOutcome::Ok(value),
+            Err(_) => SendOutcome::Timeout,
+        }
+    }
+
+    pub fn status(&self) -> Result<RecordingStatusResponse> {
+        match self.dispatch(Duration::from_secs(2), WorkerCommand::Status) {
+            SendOutcome::Ok(value) => Ok(value),
+            SendOutcome::Failed(error) => Err(error),
+            SendOutcome::Timeout => Err(anyhow!("recording worker timed out")),
+        }
     }
 
     pub fn start(&self) -> Result<RecordingStatusResponse> {
-        let (response_tx, response_rx) = mpsc::channel();
-        self.sender
-            .send(WorkerCommand::Start(response_tx))
-            .map_err(|_| anyhow!("recording worker is not available"))?;
-        response_rx
-            .recv_timeout(Duration::from_secs(5))
-            .map_err(|_| anyhow!("recording worker timed out"))?
-            .map_err(anyhow::Error::msg)
+        // On timeout the worker is wedged; respawn it and retry once so the
+        // next dictation always gets a clean worker instead of failing forever.
+        let result = match self.dispatch(Duration::from_secs(5), WorkerCommand::Start) {
+            SendOutcome::Ok(value) => value,
+            SendOutcome::Failed(error) => return Err(error),
+            SendOutcome::Timeout => {
+                self.recover();
+                match self.dispatch(Duration::from_secs(5), WorkerCommand::Start) {
+                    SendOutcome::Ok(value) => value,
+                    SendOutcome::Failed(error) => return Err(error),
+                    SendOutcome::Timeout => return Err(anyhow!("recording worker timed out")),
+                }
+            }
+        };
+        result.map_err(anyhow::Error::msg)
     }
 
     pub fn input_level(&self) -> Result<f32> {
-        let (response_tx, response_rx) = mpsc::channel();
-        self.sender
-            .send(WorkerCommand::InputLevel(response_tx))
-            .map_err(|_| anyhow!("recording worker is not available"))?;
-        response_rx
-            .recv_timeout(Duration::from_millis(250))
-            .map_err(|_| anyhow!("recording worker timed out"))
+        match self.dispatch(Duration::from_millis(250), WorkerCommand::InputLevel) {
+            SendOutcome::Ok(value) => Ok(value),
+            SendOutcome::Failed(error) => Err(error),
+            SendOutcome::Timeout => Err(anyhow!("recording worker timed out")),
+        }
     }
 
     pub fn stop(&self) -> Result<RecordingResult> {
-        let (response_tx, response_rx) = mpsc::channel();
-        self.sender
-            .send(WorkerCommand::Stop(response_tx))
-            .map_err(|_| anyhow!("recording worker is not available"))?;
-        response_rx
-            .recv_timeout(Duration::from_secs(10))
-            .map_err(|_| anyhow!("recording worker timed out"))?
-            .map_err(anyhow::Error::msg)
+        let result = match self.dispatch(Duration::from_secs(10), WorkerCommand::Stop) {
+            SendOutcome::Ok(value) => value,
+            SendOutcome::Failed(error) => return Err(error),
+            SendOutcome::Timeout => {
+                // The worker hung mid-stop; this capture is lost, but recover so
+                // future dictations work. The retry runs against a clean worker.
+                self.recover();
+                match self.dispatch(Duration::from_secs(10), WorkerCommand::Stop) {
+                    SendOutcome::Ok(value) => value,
+                    SendOutcome::Failed(error) => return Err(error),
+                    SendOutcome::Timeout => return Err(anyhow!("recording worker timed out")),
+                }
+            }
+        };
+        result.map_err(anyhow::Error::msg)
     }
 
     pub fn pause(&self) -> Result<RecordingStatusResponse> {
-        let (response_tx, response_rx) = mpsc::channel();
-        self.sender
-            .send(WorkerCommand::Pause(response_tx))
-            .map_err(|_| anyhow!("recording worker is not available"))?;
-        response_rx
-            .recv_timeout(Duration::from_secs(5))
-            .map_err(|_| anyhow!("recording worker timed out"))?
-            .map_err(anyhow::Error::msg)
+        match self.dispatch(Duration::from_secs(5), WorkerCommand::Pause) {
+            SendOutcome::Ok(value) => value.map_err(anyhow::Error::msg),
+            SendOutcome::Failed(error) => Err(error),
+            SendOutcome::Timeout => Err(anyhow!("recording worker timed out")),
+        }
     }
 
     pub fn resume(&self) -> Result<RecordingStatusResponse> {
-        let (response_tx, response_rx) = mpsc::channel();
-        self.sender
-            .send(WorkerCommand::Resume(response_tx))
-            .map_err(|_| anyhow!("recording worker is not available"))?;
-        response_rx
-            .recv_timeout(Duration::from_secs(5))
-            .map_err(|_| anyhow!("recording worker timed out"))?
-            .map_err(anyhow::Error::msg)
+        match self.dispatch(Duration::from_secs(5), WorkerCommand::Resume) {
+            SendOutcome::Ok(value) => value.map_err(anyhow::Error::msg),
+            SendOutcome::Failed(error) => Err(error),
+            SendOutcome::Timeout => Err(anyhow!("recording worker timed out")),
+        }
     }
 
     pub fn cancel(&self) -> Result<RecordingStatusResponse> {
-        let (response_tx, response_rx) = mpsc::channel();
-        self.sender
-            .send(WorkerCommand::Cancel(response_tx))
-            .map_err(|_| anyhow!("recording worker is not available"))?;
-        response_rx
-            .recv_timeout(Duration::from_secs(5))
-            .map_err(|_| anyhow!("recording worker timed out"))?
-            .map_err(anyhow::Error::msg)
+        // Used by the watchdog and the manual reset path, so it must also
+        // recover a wedged worker rather than simply timing out.
+        let result = match self.dispatch(Duration::from_secs(5), WorkerCommand::Cancel) {
+            SendOutcome::Ok(value) => value,
+            SendOutcome::Failed(error) => return Err(error),
+            SendOutcome::Timeout => {
+                self.recover();
+                match self.dispatch(Duration::from_secs(5), WorkerCommand::Cancel) {
+                    SendOutcome::Ok(value) => value,
+                    SendOutcome::Failed(error) => return Err(error),
+                    SendOutcome::Timeout => return Err(anyhow!("recording worker timed out")),
+                }
+            }
+        };
+        result.map_err(anyhow::Error::msg)
     }
 }
 
@@ -768,5 +842,37 @@ impl RecordingWorkerState {
             .and_then(|active| active.current_segment.as_ref())
             .and_then(|segment| segment.input_level.lock().ok().map(|value| *value))
             .unwrap_or(0.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // These cover the controller<->worker dispatch and the respawn machinery
+    // without touching audio hardware (status() never opens a stream), which is
+    // exactly the layer the post-intensive-use freeze lived in.
+
+    #[test]
+    fn status_roundtrips_through_worker() {
+        let controller = RecordingController::new(std::env::temp_dir().join("blabber-test-a"));
+        let status = controller.status().expect("worker should answer status");
+        assert!(matches!(status.state, RecordingOverlayState::Idle));
+    }
+
+    #[test]
+    fn recover_yields_a_responsive_worker() {
+        let controller = RecordingController::new(std::env::temp_dir().join("blabber-test-b"));
+        // Simulate a wedged worker by abandoning it and spawning a fresh one;
+        // the controller must keep answering afterwards (the old freeze left it
+        // permanently unresponsive instead).
+        controller.recover();
+        let status = controller
+            .status()
+            .expect("recovered worker should answer status");
+        assert!(matches!(status.state, RecordingOverlayState::Idle));
+        // A second recovery must remain healthy too.
+        controller.recover();
+        assert!(controller.status().is_ok());
     }
 }
