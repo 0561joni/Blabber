@@ -35,6 +35,7 @@ import { SettingsScreen } from "./screens/SettingsScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { VocabularyScreen } from "./screens/VocabularyScreen";
 import { formatPasteShortcutForDisplay } from "./lib/formatting";
+import { useAccessibilityReadinessPolling } from "./hooks/useAccessibilityReadinessPolling";
 import type {
   AppSettings,
   DictationReadiness,
@@ -159,9 +160,39 @@ export function App() {
     [health?.platform, pushToast],
   );
 
+  const refreshReadiness = useCallback(async (): Promise<DictationReadiness | null> => {
+    try {
+      const nextReadiness = await getDictationReadiness();
+      setReadiness(nextReadiness);
+      return nextReadiness;
+    } catch (error) {
+      console.error(errorMessage(error, "Failed to check dictation readiness."));
+      return null;
+    }
+  }, []);
+
+  const {
+    isPolling: isPollingAccessibility,
+    startPolling: startAccessibilityPolling,
+    stopPolling: stopAccessibilityPolling,
+  } = useAccessibilityReadinessPolling(refreshReadiness);
+
   useEffect(() => {
     void loadAppState();
   }, []);
+
+  useEffect(() => {
+    if (
+      readiness &&
+      (!readiness.accessibilityRequired || readiness.accessibilityGranted)
+    ) {
+      stopAccessibilityPolling();
+    }
+  }, [
+    readiness?.accessibilityGranted,
+    readiness?.accessibilityRequired,
+    stopAccessibilityPolling,
+  ]);
 
   useEffect(() => {
     if (recordingStatus?.state !== "listening") {
@@ -253,6 +284,7 @@ export function App() {
     const refreshVisibleState = () => {
       void refreshShortcutOutputs();
       void refreshFileStatuses();
+      void refreshReadiness();
     };
 
     const handleVisibilityChange = () => {
@@ -293,7 +325,7 @@ export function App() {
       window.removeEventListener("focus", refreshVisibleState);
       unlistenFocus?.();
     };
-  }, []);
+  }, [refreshReadiness]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -458,14 +490,6 @@ export function App() {
     }
   }
 
-  const refreshReadiness = useCallback(async () => {
-    try {
-      setReadiness(await getDictationReadiness());
-    } catch (error) {
-      console.error(errorMessage(error, "Failed to check dictation readiness."));
-    }
-  }, []);
-
   async function saveSettings(patch: SettingsPatch) {
     const nextSettings = await updateSettings(patch);
     setSettings(nextSettings);
@@ -483,14 +507,17 @@ export function App() {
   const handleResolveReadiness = useCallback(
     async (item: "model" | "shortcut" | "accessibility") => {
       if (item === "accessibility") {
+        if (isPollingAccessibility) {
+          await refreshReadiness();
+          return;
+        }
         await openAccessibilitySettings();
-        // Re-check shortly after, once the user has had a chance to grant it.
-        window.setTimeout(() => void refreshReadiness(), 1200);
+        startAccessibilityPolling();
         return;
       }
       setScreen("settings");
     },
-    [refreshReadiness],
+    [isPollingAccessibility, refreshReadiness, startAccessibilityPolling],
   );
 
   async function removeTranscript(transcriptId: string) {
@@ -789,6 +816,7 @@ export function App() {
                 manualTranscriptionState={manualTranscriptionState}
                 quickDictationStatus={quickDictationStatus}
                 readiness={readiness}
+                isPollingAccessibility={isPollingAccessibility}
                 onResolveReadiness={handleResolveReadiness}
                 fileQueueItems={fileQueueItems}
                 isFileDragActive={isFileDragActive}

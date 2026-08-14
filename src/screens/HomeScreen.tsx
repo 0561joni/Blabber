@@ -21,6 +21,7 @@ interface HomeScreenProps {
   manualTranscriptionState: ManualTranscriptionUiState;
   quickDictationStatus: QuickDictationStatusResponse | null;
   readiness: DictationReadiness | null;
+  isPollingAccessibility: boolean;
   onResolveReadiness: (item: ReadinessItem) => void;
   fileQueueItems: FileQueueItem[];
   isFileDragActive: boolean;
@@ -43,6 +44,7 @@ export function HomeScreen({
   manualTranscriptionState,
   quickDictationStatus,
   readiness,
+  isPollingAccessibility,
   onResolveReadiness,
   fileQueueItems,
   isFileDragActive,
@@ -155,7 +157,7 @@ export function HomeScreen({
   const showResetAction =
     liveState === "error" || liveState === "processing" || liveState === "listening";
 
-  const readinessItems = buildReadinessItems(readiness);
+  const readinessItems = buildReadinessItems(readiness, isPollingAccessibility);
   const showReadinessCard = readinessItems.some((item) => !item.ok);
 
   const showRecordingMeta =
@@ -667,7 +669,10 @@ interface ReadinessRow {
 // Turn the backend readiness snapshot into a display checklist. The
 // Accessibility row only appears when auto-paste is on and the OS actually
 // gates keystroke synthesis (macOS) — otherwise it isn't a prerequisite.
-function buildReadinessItems(readiness: DictationReadiness | null): ReadinessRow[] {
+function buildReadinessItems(
+  readiness: DictationReadiness | null,
+  isPollingAccessibility: boolean,
+): ReadinessRow[] {
   if (!readiness) {
     return [];
   }
@@ -699,7 +704,7 @@ function buildReadinessItems(readiness: DictationReadiness | null): ReadinessRow
       detail: readiness.accessibilityGranted
         ? "Accessibility is granted — results paste straight into your app."
         : "Grant Accessibility so results paste into your app. Until then, dictation is copied to your clipboard for a manual paste.",
-      actionLabel: "Grant access",
+      actionLabel: isPollingAccessibility ? "Check again" : "Grant access",
     });
   }
   return rows;
