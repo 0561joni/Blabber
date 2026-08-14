@@ -17,3 +17,21 @@ and provide an allocator-safe function for releasing returned transcript text.
 
 The model is downloaded separately from the pinned Hugging Face revision
 `b188e100bd85038c06d2812d24a39776eba774ca` and is licensed under Apache-2.0.
+
+## sherpa-onnx
+
+The planned offline speaker-diarization runtime is pinned to sherpa-onnx
+1.13.5. sherpa-onnx is licensed under Apache-2.0.
+
+Upstream: https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.5
+
+License: https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.5/LICENSE
+
+## Speaker diarization model weights
+
+The pyannote segmentation 3.0 and 3D-Speaker ERes2Net weights are separate
+downloadable artifacts and are not bundled with Blabber. Their redistribution
+and local-commercial-use review is unresolved; consequently the package is not
+yet exposed as installable. A future reviewed artifact manifest must record the
+exact weight revision, SHA-256, license identifier, and reviewed license URL
+before enabling installation.
