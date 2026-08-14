@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -16,6 +16,8 @@ const appPath = join(macosBundleDir, `${productName}.app`);
 const outputDmgName = `${productName}_${version}_${architecture}.dmg`;
 const outputDmgPath = join(macosBundleDir, outputDmgName);
 const outputDmgCompatPath = join(dmgBundleDir, outputDmgName);
+const entitlementsPath = join(rootDir, "src-tauri", "Entitlements.plist");
+const signatureResourcesPath = join(appPath, "Contents", "_CodeSignature", "CodeResources");
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -33,6 +35,20 @@ if (process.platform !== "darwin") {
 
 mkdirSync(macosBundleDir, { recursive: true });
 mkdirSync(dmgBundleDir, { recursive: true });
+
+if (!existsSync(signatureResourcesPath)) {
+  console.log("No macOS signing identity detected; applying an ad-hoc bundle signature.");
+  run("codesign", [
+    "--force",
+    "--deep",
+    "--sign",
+    "-",
+    "--entitlements",
+    entitlementsPath,
+    appPath,
+  ]);
+}
+run("codesign", ["--verify", "--deep", "--strict", appPath]);
 
 const stageDir = mkdtempSync(join(tmpdir(), "blabber-dmg-stage-"));
 const stageRoot = join(stageDir, productName);

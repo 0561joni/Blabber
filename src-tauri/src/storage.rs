@@ -814,9 +814,9 @@ fn ensure_diarization_schema(connection: &Connection) -> Result<()> {
 
 fn table_columns(connection: &Connection, table: &str) -> Result<Vec<String>> {
     let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
-    Ok(statement
-        .query_map([], |row| row.get::<_, String>("name"))?
-        .collect::<std::result::Result<Vec<_>, _>>()?)
+    let rows = statement.query_map([], |row| row.get::<_, String>("name"))?;
+    let columns = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(columns)
 }
 
 fn ensure_file_transcription_performance_table(connection: &Connection) -> Result<()> {
