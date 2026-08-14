@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -7,10 +6,23 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+    WhisperVadContext, WhisperVadContextParams, WhisperVadParams,
+};
 
+use crate::audio_chunks::{
+    plan_audio_chunks, plan_audio_chunks_with_splits, split_chunk_near_middle, AudioChunk,
+};
 use crate::audio_preprocess;
+use crate::qwen_asr::QwenAsrEngine;
 use crate::settings::{LanguageMode, ModelProfile};
+use crate::transcript_stitching::stitch_segments;
+use crate::transcription_policy::{
+    CONTROLLED_PROMPT_MAX_CHARS, CONTROLLED_PROMPT_RESET_SILENCE_MS, DIRECT_FILE_MAX_MS,
+    MIN_SPLIT_RETRY_MS,
+};
+use crate::transcription_quality::repetition_reason;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +59,27 @@ pub struct TranscriptResult {
     pub timestamped_text: String,
     pub detected_languages: Vec<String>,
     pub segments: Vec<TranscriptSegment>,
+    pub quality_status: TranscriptQualityStatus,
+    pub recovered_region_count: i32,
+    pub warnings: Vec<TranscriptWarning>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TranscriptQualityStatus {
+    Clean,
+    Recovered,
+    Partial,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptWarning {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub reason: String,
+    pub attempts: i32,
+    pub outcome: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +87,22 @@ pub struct TranscriptResult {
 pub struct EngineErrorPayload {
     pub code: String,
     pub message: String,
+}
+
+pub fn engine_error_payload(error: &anyhow::Error) -> EngineErrorPayload {
+    let message = error.to_string();
+    let code = message
+        .split_once(':')
+        .map(|(candidate, _)| candidate)
+        .filter(|candidate| {
+            !candidate.is_empty()
+                && candidate
+                    .chars()
+                    .all(|character| character.is_ascii_uppercase() || character == '_')
+        })
+        .map(|candidate| candidate.to_ascii_lowercase())
+        .unwrap_or_else(|| "transcription_failed".to_string());
+    EngineErrorPayload { code, message }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -95,6 +144,10 @@ pub struct FileTranscriptionRequest {
     pub timestamps: bool,
     pub prefer_gpu: bool,
     pub file_path: String,
+    #[serde(default)]
+    pub context_prompt: Option<String>,
+    #[serde(default)]
+    pub context_terms: Vec<String>,
 }
 
 pub trait TranscriptionEngine: Send + Sync {
@@ -105,6 +158,118 @@ pub trait TranscriptionEngine: Send + Sync {
         request: FileTranscriptionRequest,
         progress: Option<Arc<AtomicI32>>,
     ) -> Result<TranscriptResult>;
+}
+
+#[derive(Debug)]
+pub struct LocalTranscriptionEngine {
+    models_dir: PathBuf,
+    models: Mutex<Vec<InstalledModel>>,
+    whisper: SharedWhisperEngine,
+    qwen: QwenAsrEngine,
+}
+
+impl LocalTranscriptionEngine {
+    pub fn new(models_dir: PathBuf, models: Vec<InstalledModel>) -> Self {
+        let whisper_models = models
+            .iter()
+            .filter(|model| model.engine == "whisper.cpp")
+            .cloned()
+            .collect();
+        Self {
+            models_dir: models_dir.clone(),
+            models: Mutex::new(models),
+            whisper: SharedWhisperEngine::new(models_dir.clone(), whisper_models),
+            qwen: QwenAsrEngine::new(models_dir),
+        }
+    }
+
+    fn resolve_model(
+        &self,
+        selected_model_id: Option<&str>,
+        profile: ModelProfile,
+    ) -> Result<InstalledModel> {
+        let models = self.list_models()?;
+        if let Some(model_id) = selected_model_id {
+            if let Some(model) = models.iter().find(|model| model.id == model_id) {
+                return Ok(model.clone());
+            }
+            if model_id == crate::qwen_asr::QWEN_MODEL_ID {
+                if !crate::qwen_asr::platform_supported() {
+                    return Err(anyhow!(
+                        "MODEL_UNSUPPORTED_PLATFORM: Qwen3-ASR is currently available on macOS and Linux only"
+                    ));
+                }
+                return Err(anyhow!(
+                    "MODEL_INCOMPLETE: Qwen3-ASR is not fully installed; resume or restart its model download"
+                ));
+            }
+        }
+        models
+            .iter()
+            .find(|model| model.profile == profile && model.is_default)
+            .or_else(|| models.iter().find(|model| model.profile == profile))
+            .cloned()
+            .ok_or_else(|| {
+                anyhow!(
+                    "MODEL_MISSING: no local model is installed for profile {}",
+                    to_profile_name(profile)
+                )
+            })
+    }
+}
+
+impl TranscriptionEngine for LocalTranscriptionEngine {
+    fn list_models(&self) -> Result<Vec<InstalledModel>> {
+        Ok(self
+            .models
+            .lock()
+            .map_err(|_| anyhow!("model registry poisoned"))?
+            .clone())
+    }
+
+    fn refresh_from_disk(&self) -> Result<Vec<InstalledModel>> {
+        let refreshed = discover_installed_models(&self.models_dir)?;
+        *self
+            .models
+            .lock()
+            .map_err(|_| anyhow!("model registry poisoned"))? = refreshed.clone();
+        let _ = self.whisper.refresh_from_disk()?;
+        self.qwen.invalidate_context_cache();
+        Ok(refreshed)
+    }
+
+    fn transcribe_file(
+        &self,
+        mut request: FileTranscriptionRequest,
+        progress: Option<Arc<AtomicI32>>,
+    ) -> Result<TranscriptResult> {
+        let model = self.resolve_model(request.selected_model_id.as_deref(), request.profile)?;
+        request.selected_model_id = Some(model.id.clone());
+        match model.engine.as_str() {
+            "whisper.cpp" => {
+                self.qwen.invalidate_context_cache();
+                self.whisper.transcribe_file(request, progress)
+            }
+            "qwen3_asr_c" => {
+                self.whisper.invalidate_context_cache();
+                let prepared =
+                    audio_preprocess::decode_audio_file(Path::new(&request.file_path))
+                        .with_context(|| format!("failed to prepare {}", request.file_path))?;
+                let vad_model_path =
+                    crate::model_downloads::installed_vad_model_path(&self.models_dir);
+                self.qwen.transcribe(
+                    &model,
+                    &prepared,
+                    &request,
+                    progress,
+                    vad_model_path.as_deref(),
+                )
+            }
+            engine => Err(anyhow!(
+                "MODEL_ENGINE_UNSUPPORTED: unsupported engine '{engine}'"
+            )),
+        }
+    }
 }
 
 /// A loaded Whisper context kept alive between transcriptions so we don't pay
@@ -146,11 +311,7 @@ impl SharedWhisperEngine {
     /// Return a loaded context for `(model, use_gpu)`, reusing the cached one
     /// when the key matches. The cache holds a single slot; switching models or
     /// GPU mode drops the previous context first to free its memory.
-    fn obtain_context(
-        &self,
-        model: &InstalledModel,
-        use_gpu: bool,
-    ) -> Result<Arc<WhisperContext>> {
+    fn obtain_context(&self, model: &InstalledModel, use_gpu: bool) -> Result<Arc<WhisperContext>> {
         let mut cache = self
             .context_cache
             .lock()
@@ -171,7 +332,7 @@ impl SharedWhisperEngine {
         Ok(context)
     }
 
-    fn invalidate_context_cache(&self) {
+    pub(crate) fn invalidate_context_cache(&self) {
         if let Ok(mut cache) = self.context_cache.lock() {
             *cache = None;
         }
@@ -233,6 +394,7 @@ impl TranscriptionEngine for SharedWhisperEngine {
         let prepared = audio_preprocess::decode_audio_file(Path::new(&request.file_path))
             .with_context(|| format!("failed to prepare {}", request.file_path))?;
         let use_gpu = should_try_gpu(request.prefer_gpu);
+        let vad_model_path = crate::model_downloads::installed_vad_model_path(&self.models_dir);
 
         let (context, gpu_active) = if use_gpu {
             match self.obtain_context(&model, true) {
@@ -243,18 +405,32 @@ impl TranscriptionEngine for SharedWhisperEngine {
             (self.obtain_context(&model, false)?, false)
         };
 
-        let transcript = run_whisper(context.as_ref(), &model, &prepared, &request, &progress)
-            .or_else(|error| {
-                if gpu_active {
-                    let cpu_context = self
-                        .obtain_context(&model, false)
-                        .with_context(|| format!("{}; CPU context creation also failed", error))?;
-                    run_whisper(cpu_context.as_ref(), &model, &prepared, &request, &progress)
-                        .with_context(|| format!("{}; CPU fallback also failed", error))
-                } else {
-                    Err(error)
-                }
-            })?;
+        let transcript = run_whisper(
+            context.as_ref(),
+            &model,
+            &prepared,
+            &request,
+            &progress,
+            vad_model_path.as_deref(),
+        )
+        .or_else(|error| {
+            if gpu_active {
+                let cpu_context = self
+                    .obtain_context(&model, false)
+                    .with_context(|| format!("{}; CPU context creation also failed", error))?;
+                run_whisper(
+                    cpu_context.as_ref(),
+                    &model,
+                    &prepared,
+                    &request,
+                    &progress,
+                    vad_model_path.as_deref(),
+                )
+                .with_context(|| format!("{}; CPU fallback also failed", error))
+            } else {
+                Err(error)
+            }
+        })?;
         Ok(transcript)
     }
 }
@@ -277,6 +453,11 @@ pub fn discover_whisper_models(models_dir: &Path) -> Result<Vec<InstalledModel>>
         }
 
         let model_name = entry.file_name().to_string_lossy().to_string();
+        if model_name.to_ascii_lowercase().contains("silero")
+            || model_name.to_ascii_lowercase().contains("vad")
+        {
+            continue;
+        }
         let profile = profile_for_model_name(&model_name);
         models.push(InstalledModel {
             id: model_id_from_name(&model_name),
@@ -294,6 +475,15 @@ pub fn discover_whisper_models(models_dir: &Path) -> Result<Vec<InstalledModel>>
     Ok(models)
 }
 
+pub fn discover_installed_models(models_dir: &Path) -> Result<Vec<InstalledModel>> {
+    let mut models = discover_whisper_models(models_dir)?;
+    if let Some(qwen) = crate::qwen_asr::discover_model(models_dir)? {
+        models.push(qwen);
+    }
+    models.sort_by(|left, right| left.model_name.cmp(&right.model_name));
+    Ok(models)
+}
+
 fn create_whisper_context(model: &InstalledModel, use_gpu: bool) -> Result<WhisperContext> {
     let context_params = WhisperContextParameters {
         use_gpu,
@@ -303,15 +493,548 @@ fn create_whisper_context(model: &InstalledModel, use_gpu: bool) -> Result<Whisp
         .with_context(|| format!("failed to load model {}", model.model_name))
 }
 
+#[derive(Debug, Clone)]
+struct DecodeOptions {
+    temperature: f32,
+    initial_prompt: Option<String>,
+    repetition_watchdog: bool,
+}
+
+impl DecodeOptions {
+    fn direct() -> Self {
+        Self {
+            temperature: 0.0,
+            initial_prompt: None,
+            repetition_watchdog: false,
+        }
+    }
+
+    fn resilient(temperature: f32, initial_prompt: Option<String>) -> Self {
+        Self {
+            temperature,
+            initial_prompt,
+            repetition_watchdog: true,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ProgressReporter {
+    progress: Arc<AtomicI32>,
+    start_percent: f32,
+    end_percent: f32,
+}
+
+impl ProgressReporter {
+    fn full(progress: Arc<AtomicI32>) -> Self {
+        Self {
+            progress,
+            start_percent: 0.0,
+            end_percent: 100.0,
+        }
+    }
+
+    fn for_range(progress: Arc<AtomicI32>, start_percent: f32, end_percent: f32) -> Self {
+        Self {
+            progress,
+            start_percent,
+            end_percent,
+        }
+    }
+
+    fn report(&self, local_percent: i32) {
+        let local = (local_percent as f32).clamp(0.0, 100.0) / 100.0;
+        let mapped = self.start_percent + (self.end_percent - self.start_percent) * local;
+        self.progress
+            .fetch_max(mapped.round() as i32, Ordering::Relaxed);
+    }
+}
+
+fn run_resilient_whisper(
+    context: &WhisperContext,
+    model: &InstalledModel,
+    prepared: &audio_preprocess::PreparedAudio,
+    request: &FileTranscriptionRequest,
+    progress: &Option<Arc<AtomicI32>>,
+    vad_model_path: Option<&Path>,
+) -> Result<TranscriptResult> {
+    let mut decoder_state = context
+        .create_state()
+        .context("failed to create whisper state for resilient transcription")?;
+    let preferred_splits = vad_model_path
+        .and_then(|path| detect_vad_splits(path, prepared).ok())
+        .unwrap_or_default();
+    let chunks = if preferred_splits.is_empty() {
+        plan_audio_chunks(&prepared.samples, prepared.sample_rate_hz)
+    } else {
+        plan_audio_chunks_with_splits(
+            &prepared.samples,
+            prepared.sample_rate_hz,
+            &preferred_splits,
+        )
+    };
+    if chunks.is_empty() {
+        return Err(anyhow!(
+            "TRANSCRIPTION_EMPTY: prepared audio had no samples"
+        ));
+    }
+
+    let job_id = Uuid::new_v4().to_string();
+    let total_samples = prepared.samples.len().max(1) as f32;
+    let mut accepted_segments = Vec::new();
+    let mut warnings = Vec::new();
+    let mut prompt_allowed = true;
+
+    for chunk in chunks {
+        let start_percent = chunk.start_sample as f32 / total_samples * 100.0;
+        let end_percent = chunk.end_sample as f32 / total_samples * 100.0;
+        let reporter = progress
+            .clone()
+            .map(|progress| ProgressReporter::for_range(progress, start_percent, end_percent));
+        let prompt = if prompt_allowed && matches!(request.language_mode, LanguageMode::Fixed) {
+            controlled_prompt(&accepted_segments, chunk.start_ms(prepared.sample_rate_hz))
+        } else {
+            None
+        };
+
+        match decode_audio_chunk(
+            context,
+            &mut decoder_state,
+            model,
+            prepared,
+            request,
+            chunk,
+            reporter.as_ref(),
+            DecodeOptions::resilient(0.0, prompt),
+        ) {
+            Ok(mut result) => {
+                shift_segments(
+                    &mut result.segments,
+                    chunk.start_ms(prepared.sample_rate_hz),
+                    chunk.end_ms(prepared.sample_rate_hz),
+                );
+                accepted_segments.extend(result.segments);
+                prompt_allowed = true;
+            }
+            Err(primary_error) if is_recoverable_decode_error(&primary_error) => {
+                match decode_audio_chunk(
+                    context,
+                    &mut decoder_state,
+                    model,
+                    prepared,
+                    request,
+                    chunk,
+                    reporter.as_ref(),
+                    DecodeOptions::resilient(0.2, None),
+                ) {
+                    Ok(mut result) => {
+                        shift_segments(
+                            &mut result.segments,
+                            chunk.start_ms(prepared.sample_rate_hz),
+                            chunk.end_ms(prepared.sample_rate_hz),
+                        );
+                        accepted_segments.extend(result.segments);
+                        warnings.push(TranscriptWarning {
+                            start_ms: chunk.start_ms(prepared.sample_rate_hz),
+                            end_ms: chunk.end_ms(prepared.sample_rate_hz),
+                            reason: clean_decode_error(&primary_error),
+                            attempts: 2,
+                            outcome: "recovered".to_string(),
+                        });
+                        prompt_allowed = false;
+                    }
+                    Err(retry_error) if is_recoverable_decode_error(&retry_error) => {
+                        let split_recovered = recover_split_chunk(
+                            context,
+                            &mut decoder_state,
+                            model,
+                            prepared,
+                            request,
+                            chunk,
+                            reporter.as_ref(),
+                            &mut accepted_segments,
+                            &mut warnings,
+                            &retry_error,
+                        )?;
+                        if !split_recovered {
+                            add_gap_segment(
+                                &job_id,
+                                chunk,
+                                prepared.sample_rate_hz,
+                                &mut accepted_segments,
+                            );
+                            warnings.push(TranscriptWarning {
+                                start_ms: chunk.start_ms(prepared.sample_rate_hz),
+                                end_ms: chunk.end_ms(prepared.sample_rate_hz),
+                                reason: clean_decode_error(&retry_error),
+                                attempts: 3,
+                                outcome: "skipped".to_string(),
+                            });
+                        }
+                        prompt_allowed = false;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    if let Some(progress) = progress {
+        progress.store(100, Ordering::Relaxed);
+    }
+
+    let segments = stitch_segments(accepted_segments);
+    if segments.is_empty() {
+        return Err(anyhow!("TRANSCRIPTION_EMPTY: whisper produced no segments"));
+    }
+
+    Ok(build_transcript_result(job_id, model, segments, warnings))
+}
+
+fn decode_audio_chunk(
+    context: &WhisperContext,
+    decoder_state: &mut WhisperState,
+    model: &InstalledModel,
+    prepared: &audio_preprocess::PreparedAudio,
+    request: &FileTranscriptionRequest,
+    chunk: AudioChunk,
+    reporter: Option<&ProgressReporter>,
+    options: DecodeOptions,
+) -> Result<TranscriptResult> {
+    let chunk_audio = audio_preprocess::PreparedAudio {
+        sample_rate_hz: prepared.sample_rate_hz,
+        channels: prepared.channels,
+        samples: prepared.samples[chunk.start_sample..chunk.end_sample].to_vec(),
+    };
+
+    if matches!(request.language_mode, LanguageMode::Auto) {
+        let mut detection_options = options.clone();
+        detection_options.initial_prompt = None;
+        detection_options.repetition_watchdog = false;
+        let language = {
+            let mut detection_state = context
+                .create_state()
+                .context("failed to create whisper language-detection state")?;
+            let detection = run_whisper_with_state(
+                &mut detection_state,
+                model,
+                &chunk_audio,
+                request,
+                None,
+                reporter,
+                detection_options,
+            )?;
+            detection
+                .detected_languages
+                .into_iter()
+                .find(|language| language != "unknown")
+                .ok_or_else(|| anyhow!("failed to detect a language for the audio chunk"))?
+        };
+        return run_whisper_with_state(
+            decoder_state,
+            model,
+            &chunk_audio,
+            request,
+            Some(language),
+            reporter,
+            options,
+        );
+    }
+
+    run_whisper_with_state(
+        decoder_state,
+        model,
+        &chunk_audio,
+        request,
+        None,
+        reporter,
+        options,
+    )
+}
+
+pub(crate) fn detect_vad_splits(
+    vad_model_path: &Path,
+    prepared: &audio_preprocess::PreparedAudio,
+) -> Result<Vec<usize>> {
+    let path = vad_model_path
+        .to_str()
+        .ok_or_else(|| anyhow!("VAD model path is not valid UTF-8"))?;
+    let mut context = WhisperVadContext::new(path, WhisperVadContextParams::default())
+        .context("failed to load VAD model")?;
+    let mut params = WhisperVadParams::default();
+    params.set_min_speech_duration(150);
+    params.set_min_silence_duration(300);
+    params.set_max_speech_duration(28.0);
+    params.set_speech_pad(120);
+    let segments = context
+        .segments_from_samples(params, &prepared.samples)
+        .context("failed to analyze speech boundaries")?;
+    let mut boundaries = Vec::new();
+    for segment in segments {
+        for timestamp_cs in [segment.start, segment.end] {
+            let sample =
+                (timestamp_cs.max(0.0) as f64 / 100.0 * prepared.sample_rate_hz as f64) as usize;
+            if sample > 0 && sample < prepared.samples.len() {
+                boundaries.push(sample);
+            }
+        }
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    Ok(boundaries)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recover_split_chunk(
+    context: &WhisperContext,
+    decoder_state: &mut WhisperState,
+    model: &InstalledModel,
+    prepared: &audio_preprocess::PreparedAudio,
+    request: &FileTranscriptionRequest,
+    chunk: AudioChunk,
+    reporter: Option<&ProgressReporter>,
+    accepted_segments: &mut Vec<TranscriptSegment>,
+    warnings: &mut Vec<TranscriptWarning>,
+    source_error: &anyhow::Error,
+) -> Result<bool> {
+    if chunk.duration_ms(prepared.sample_rate_hz) < MIN_SPLIT_RETRY_MS * 2 {
+        return Ok(false);
+    }
+    let Some((left, right)) =
+        split_chunk_near_middle(&prepared.samples, chunk, prepared.sample_rate_hz)
+    else {
+        return Ok(false);
+    };
+
+    let mut recovered_any = false;
+    let mut skipped_any = false;
+    for piece in [left, right] {
+        match decode_audio_chunk(
+            context,
+            decoder_state,
+            model,
+            prepared,
+            request,
+            piece,
+            reporter,
+            DecodeOptions::resilient(0.2, None),
+        ) {
+            Ok(mut result) => {
+                shift_segments(
+                    &mut result.segments,
+                    piece.start_ms(prepared.sample_rate_hz),
+                    piece.end_ms(prepared.sample_rate_hz),
+                );
+                accepted_segments.extend(result.segments);
+                recovered_any = true;
+            }
+            Err(error) if is_recoverable_decode_error(&error) => {
+                add_gap_segment(
+                    "recovery",
+                    piece,
+                    prepared.sample_rate_hz,
+                    accepted_segments,
+                );
+                warnings.push(TranscriptWarning {
+                    start_ms: piece.start_ms(prepared.sample_rate_hz),
+                    end_ms: piece.end_ms(prepared.sample_rate_hz),
+                    reason: clean_decode_error(&error),
+                    attempts: 3,
+                    outcome: "skipped".to_string(),
+                });
+                skipped_any = true;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    if recovered_any {
+        warnings.push(TranscriptWarning {
+            start_ms: chunk.start_ms(prepared.sample_rate_hz),
+            end_ms: chunk.end_ms(prepared.sample_rate_hz),
+            reason: clean_decode_error(source_error),
+            attempts: 3,
+            outcome: if skipped_any {
+                "partially_recovered".to_string()
+            } else {
+                "recovered".to_string()
+            },
+        });
+    }
+    Ok(recovered_any || skipped_any)
+}
+
+fn shift_segments(segments: &mut [TranscriptSegment], offset_ms: i64, chunk_end_ms: i64) {
+    for segment in segments {
+        segment.start_ms = (segment.start_ms + offset_ms).clamp(offset_ms, chunk_end_ms);
+        segment.end_ms = (segment.end_ms + offset_ms).clamp(segment.start_ms, chunk_end_ms);
+    }
+}
+
+fn add_gap_segment(
+    job_id: &str,
+    chunk: AudioChunk,
+    sample_rate_hz: u32,
+    segments: &mut Vec<TranscriptSegment>,
+) {
+    let start_ms = chunk.start_ms(sample_rate_hz);
+    let end_ms = chunk.end_ms(sample_rate_hz);
+    segments.push(TranscriptSegment {
+        id: format!("{job_id}:gap:{start_ms}"),
+        start_ms,
+        end_ms,
+        text: format!(
+            "[Unclear audio {}–{}]",
+            format_ms(start_ms),
+            format_ms(end_ms)
+        ),
+        language_code: "und".to_string(),
+        segment_order: 0,
+        confidence: None,
+    });
+}
+
+fn controlled_prompt(segments: &[TranscriptSegment], chunk_start_ms: i64) -> Option<String> {
+    let last = segments.last()?;
+    if chunk_start_ms - last.end_ms > CONTROLLED_PROMPT_RESET_SILENCE_MS {
+        return None;
+    }
+
+    let combined = segments
+        .iter()
+        .rev()
+        .take(2)
+        .rev()
+        .map(|segment| segment.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let chars = combined.chars().collect::<Vec<_>>();
+    let start = chars.len().saturating_sub(CONTROLLED_PROMPT_MAX_CHARS);
+    let prompt = chars[start..].iter().collect::<String>().trim().to_string();
+    (!prompt.is_empty()).then_some(prompt)
+}
+
+fn is_recoverable_decode_error(error: &anyhow::Error) -> bool {
+    error.to_string().contains("DECODER_REPETITION")
+}
+
+fn clean_decode_error(error: &anyhow::Error) -> String {
+    let message = error.to_string();
+    message
+        .strip_prefix("DECODER_REPETITION: ")
+        .unwrap_or(&message)
+        .to_string()
+}
+
+pub(crate) fn build_transcript_result(
+    job_id: String,
+    model: &InstalledModel,
+    mut segments: Vec<TranscriptSegment>,
+    warnings: Vec<TranscriptWarning>,
+) -> TranscriptResult {
+    for (index, segment) in segments.iter_mut().enumerate() {
+        segment.id = format!("{job_id}:{index}");
+        segment.segment_order = index as i32;
+    }
+    let plain_text = segments
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string();
+    let timestamped_text = segments
+        .iter()
+        .map(|segment| {
+            format!(
+                "[{} - {}] {}: {}",
+                format_ms(segment.start_ms),
+                format_ms(segment.end_ms),
+                segment.language_code,
+                segment.text
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut detected_languages = Vec::new();
+    for segment in &segments {
+        if segment.language_code != "und" && !detected_languages.contains(&segment.language_code) {
+            detected_languages.push(segment.language_code.clone());
+        }
+    }
+    let partial = warnings
+        .iter()
+        .any(|warning| warning.outcome == "skipped" || warning.outcome == "partially_recovered");
+    let quality_status = if partial {
+        TranscriptQualityStatus::Partial
+    } else if warnings.is_empty() {
+        TranscriptQualityStatus::Clean
+    } else {
+        TranscriptQualityStatus::Recovered
+    };
+    let recovered_region_count = warnings
+        .iter()
+        .filter(|warning| warning.outcome != "skipped")
+        .count() as i32;
+
+    TranscriptResult {
+        job_id,
+        model_name: model.model_name.clone(),
+        full_text: plain_text.clone(),
+        plain_text,
+        timestamped_text,
+        detected_languages,
+        segments,
+        quality_status,
+        recovered_region_count,
+        warnings,
+    }
+}
+
 fn run_whisper(
     context: &WhisperContext,
     model: &InstalledModel,
     prepared: &audio_preprocess::PreparedAudio,
     request: &FileTranscriptionRequest,
     progress: &Option<Arc<AtomicI32>>,
+    vad_model_path: Option<&Path>,
 ) -> Result<TranscriptResult> {
-    let first_attempt = run_whisper_once(context, model, prepared, request, None, progress)?;
+    let duration_ms =
+        (prepared.samples.len() as u128 * 1000 / prepared.sample_rate_hz.max(1) as u128) as i64;
+    if duration_ms > DIRECT_FILE_MAX_MS && request.timestamps {
+        return run_resilient_whisper(context, model, prepared, request, progress, vad_model_path);
+    }
+
+    let reporter = progress.clone().map(ProgressReporter::full);
+    let first_attempt = run_whisper_once(
+        context,
+        model,
+        prepared,
+        request,
+        None,
+        reporter.as_ref(),
+        DecodeOptions::direct(),
+    )?;
     if !first_attempt.segments.is_empty() {
+        if request.timestamps
+            && repetition_reason(
+                first_attempt
+                    .segments
+                    .iter()
+                    .map(|segment| (segment.start_ms, segment.end_ms, segment.text.as_str())),
+            )
+            .is_some()
+        {
+            return run_resilient_whisper(
+                context,
+                model,
+                prepared,
+                request,
+                progress,
+                vad_model_path,
+            );
+        }
         return Ok(first_attempt);
     }
 
@@ -323,9 +1046,33 @@ fn run_whisper(
 
     if matches!(request.language_mode, LanguageMode::Auto) {
         if let Some(language) = detected_language.clone() {
-            let retry =
-                run_whisper_once(&context, model, prepared, request, Some(language), progress)?;
+            let retry = run_whisper_once(
+                context,
+                model,
+                prepared,
+                request,
+                Some(language),
+                reporter.as_ref(),
+                DecodeOptions::direct(),
+            )?;
             if !retry.segments.is_empty() {
+                if request.timestamps
+                    && repetition_reason(
+                        retry.segments.iter().map(|segment| {
+                            (segment.start_ms, segment.end_ms, segment.text.as_str())
+                        }),
+                    )
+                    .is_some()
+                {
+                    return run_resilient_whisper(
+                        context,
+                        model,
+                        prepared,
+                        request,
+                        progress,
+                        vad_model_path,
+                    );
+                }
                 return Ok(retry);
             }
         }
@@ -335,12 +1082,13 @@ fn run_whisper(
         let mut timestamp_retry_request = request.clone();
         timestamp_retry_request.timestamps = true;
         let retry = run_whisper_once(
-            &context,
+            context,
             model,
             prepared,
             &timestamp_retry_request,
             detected_language.clone(),
-            progress,
+            reporter.as_ref(),
+            DecodeOptions::direct(),
         )?;
         if !retry.segments.is_empty() {
             return Ok(retry);
@@ -356,11 +1104,32 @@ fn run_whisper_once(
     prepared: &audio_preprocess::PreparedAudio,
     request: &FileTranscriptionRequest,
     forced_language: Option<String>,
-    progress: &Option<Arc<AtomicI32>>,
+    progress: Option<&ProgressReporter>,
+    options: DecodeOptions,
 ) -> Result<TranscriptResult> {
     let mut state = context
         .create_state()
         .context("failed to create whisper state")?;
+    run_whisper_with_state(
+        &mut state,
+        model,
+        prepared,
+        request,
+        forced_language,
+        progress,
+        options,
+    )
+}
+
+fn run_whisper_with_state(
+    state: &mut WhisperState,
+    model: &InstalledModel,
+    prepared: &audio_preprocess::PreparedAudio,
+    request: &FileTranscriptionRequest,
+    forced_language: Option<String>,
+    progress: Option<&ProgressReporter>,
+    options: DecodeOptions,
+) -> Result<TranscriptResult> {
     let mut params = FullParams::new(SamplingStrategy::BeamSearch {
         beam_size: 5,
         patience: -1.0,
@@ -378,17 +1147,25 @@ fn run_whisper_once(
     params.set_no_timestamps(!request.timestamps);
 
     // Anti-hallucination / repetition-loop settings
-    params.set_temperature(0.0);
+    params.set_temperature(options.temperature);
     params.set_temperature_inc(0.2); // retry with increasing temperature on fallback
     params.set_entropy_thold(2.4); // trigger fallback when token entropy is low (repetitive)
+    if options.repetition_watchdog {
+        params.set_logprob_thold(-1.0);
+        params.set_no_speech_thold(0.6);
+    }
     params.set_suppress_blank(true);
     params.set_suppress_nst(true); // suppress non-speech tokens like "[Music]", "Subtitles by..."
     params.set_n_max_text_ctx(64); // limit past context to prevent loop propagation
 
-    if let Some(progress_atomic) = progress.clone() {
+    if let Some(progress_reporter) = progress.cloned() {
         params.set_progress_callback_safe(move |pct: i32| {
-            progress_atomic.store(pct, Ordering::Relaxed);
+            progress_reporter.report(pct);
         });
+    }
+
+    if let Some(prompt) = options.initial_prompt.as_deref() {
+        params.set_initial_prompt(prompt);
     }
 
     match request.language_mode {
@@ -452,9 +1229,15 @@ fn run_whisper_once(
         });
     }
 
-    // Post-processing: remove hallucinated repetition loops.
-    // If 3+ consecutive segments have identical text, keep only the first.
-    let segments = deduplicate_segments(segments);
+    if options.repetition_watchdog {
+        if let Some(reason) = repetition_reason(
+            segments
+                .iter()
+                .map(|segment| (segment.start_ms, segment.end_ms, segment.text.as_str())),
+        ) {
+            return Err(anyhow!("DECODER_REPETITION: {reason}"));
+        }
+    }
 
     let plain_text = segments
         .iter()
@@ -476,11 +1259,7 @@ fn run_whisper_once(
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let detected_languages = {
-        let mut set = HashSet::new();
-        set.insert(detected_language.clone());
-        set.into_iter().collect::<Vec<_>>()
-    };
+    let detected_languages = vec![detected_language];
 
     Ok(TranscriptResult {
         job_id,
@@ -490,59 +1269,10 @@ fn run_whisper_once(
         timestamped_text,
         detected_languages,
         segments,
+        quality_status: TranscriptQualityStatus::Clean,
+        recovered_region_count: 0,
+        warnings: Vec::new(),
     })
-}
-
-/// Remove hallucinated repetition loops from segments.
-///
-/// If 3 or more consecutive segments contain the same text (after normalization),
-/// only the first occurrence is kept. This catches decoder loops that the
-/// temperature-fallback and entropy checks didn't prevent.
-fn deduplicate_segments(segments: Vec<TranscriptSegment>) -> Vec<TranscriptSegment> {
-    if segments.len() < 3 {
-        return segments;
-    }
-
-    fn normalize(text: &str) -> String {
-        text.trim()
-            .to_lowercase()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-    }
-
-    // First pass: identify runs of consecutive identical segments.
-    // For each segment, record how many consecutive repeats follow it (including itself).
-    let normalized: Vec<String> = segments.iter().map(|s| normalize(&s.text)).collect();
-    let mut run_lengths = vec![1usize; segments.len()];
-    let mut i = segments.len() - 1;
-    while i > 0 {
-        i -= 1;
-        if normalized[i] == normalized[i + 1] {
-            run_lengths[i] = run_lengths[i + 1] + 1;
-        }
-    }
-
-    // Second pass: keep only the first segment of any run of 3+.
-    let mut result = Vec::with_capacity(segments.len());
-    let mut skip_until = 0usize;
-    for (idx, segment) in segments.into_iter().enumerate() {
-        if idx < skip_until {
-            continue;
-        }
-        if run_lengths[idx] >= 3 {
-            // Keep this segment (the first in the run), skip the rest.
-            skip_until = idx + run_lengths[idx];
-        }
-        result.push(segment);
-    }
-
-    // Re-number segment_order after deduplication.
-    for (order, segment) in result.iter_mut().enumerate() {
-        segment.segment_order = order as i32;
-    }
-
-    result
 }
 
 fn should_try_gpu(prefer_gpu: bool) -> bool {
@@ -600,4 +1330,122 @@ fn format_ms(ms: i64) -> String {
     let minutes = total_seconds / 60;
     let seconds = total_seconds % 60;
     format!("{minutes:02}:{seconds:02}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model() -> InstalledModel {
+        InstalledModel {
+            id: "test-model".to_string(),
+            engine: "whisper.cpp".to_string(),
+            model_name: "ggml-large-v3-turbo-q5_0.bin".to_string(),
+            variant: "accurate".to_string(),
+            local_path: "/tmp/test-model.bin".to_string(),
+            size_bytes: 1,
+            is_default: true,
+            profile: ModelProfile::Accurate,
+        }
+    }
+
+    fn segment(language: &str) -> TranscriptSegment {
+        TranscriptSegment {
+            id: "temporary".to_string(),
+            start_ms: 1_000,
+            end_ms: 2_000,
+            text: "A valid sentence.".to_string(),
+            language_code: language.to_string(),
+            segment_order: 12,
+            confidence: Some(0.9),
+        }
+    }
+
+    #[test]
+    fn result_metadata_distinguishes_recovery_from_partial_output() {
+        let recovered = build_transcript_result(
+            "job".to_string(),
+            &model(),
+            vec![segment("fr")],
+            vec![TranscriptWarning {
+                start_ms: 0,
+                end_ms: 5_000,
+                reason: "repetition".to_string(),
+                attempts: 2,
+                outcome: "recovered".to_string(),
+            }],
+        );
+        assert_eq!(recovered.quality_status, TranscriptQualityStatus::Recovered);
+        assert_eq!(recovered.recovered_region_count, 1);
+        assert_eq!(recovered.detected_languages, vec!["fr"]);
+        assert_eq!(recovered.segments[0].segment_order, 0);
+
+        let partial = build_transcript_result(
+            "job".to_string(),
+            &model(),
+            vec![segment("und")],
+            vec![TranscriptWarning {
+                start_ms: 0,
+                end_ms: 5_000,
+                reason: "repetition".to_string(),
+                attempts: 3,
+                outcome: "skipped".to_string(),
+            }],
+        );
+        assert_eq!(partial.quality_status, TranscriptQualityStatus::Partial);
+        assert!(partial.detected_languages.is_empty());
+    }
+
+    #[test]
+    fn local_engine_routes_explicit_qwen_without_changing_whisper_default() {
+        let whisper = model();
+        let qwen = InstalledModel {
+            id: crate::qwen_asr::QWEN_MODEL_ID.to_string(),
+            engine: "qwen3_asr_c".to_string(),
+            model_name: crate::qwen_asr::QWEN_MODEL_NAME.to_string(),
+            variant: "1.7B BF16".to_string(),
+            local_path: "/tmp/qwen-model".to_string(),
+            size_bytes: crate::qwen_asr::QWEN_TOTAL_SIZE,
+            is_default: false,
+            profile: ModelProfile::Accurate,
+        };
+        let engine = LocalTranscriptionEngine::new(
+            PathBuf::from("/tmp/models"),
+            vec![whisper.clone(), qwen.clone()],
+        );
+        assert_eq!(
+            engine
+                .resolve_model(Some(crate::qwen_asr::QWEN_MODEL_ID), ModelProfile::Accurate)
+                .expect("explicit Qwen")
+                .engine,
+            "qwen3_asr_c"
+        );
+        assert_eq!(
+            engine
+                .resolve_model(None, ModelProfile::Accurate)
+                .expect("default model")
+                .id,
+            whisper.id
+        );
+    }
+
+    #[test]
+    fn typed_engine_errors_preserve_machine_readable_codes() {
+        let error = anyhow!("MODEL_BUSY: another Qwen transcription is running");
+        let payload = engine_error_payload(&error);
+        assert_eq!(payload.code, "model_busy");
+        assert_eq!(payload.message, error.to_string());
+    }
+
+    #[test]
+    fn explicit_uninstalled_qwen_does_not_silently_fall_back_to_whisper() {
+        if !crate::qwen_asr::platform_supported() {
+            return;
+        }
+        let engine = LocalTranscriptionEngine::new(PathBuf::from("/tmp/models"), vec![model()]);
+        let error = engine
+            .resolve_model(Some(crate::qwen_asr::QWEN_MODEL_ID), ModelProfile::Accurate)
+            .expect_err("incomplete Qwen must fail");
+        assert!(error.to_string().starts_with("MODEL_INCOMPLETE:"));
+    }
 }

@@ -24,6 +24,7 @@ use crate::vocabulary;
 
 const FILE_TRANSCRIPTION_STATUS_EVENT: &str = "file-transcription-status";
 const WATCHDOG_TIMEOUT_MS: i64 = 120_000;
+const WORKER_STALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -277,6 +278,21 @@ impl FileTranscriptionController {
         );
 
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
+        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(
+            &self.db_path,
+            settings.language_mode,
+            settings.fixed_language.as_deref(),
+        )?;
+        if let Some(prompt) = &vocabulary_prompt {
+            self.log_job(
+                &request.job_id,
+                "dictionary-prompt",
+                &format!(
+                    "included={} truncated={}",
+                    prompt.included_count, prompt.truncated_count
+                ),
+            );
+        }
         let resolved_model = resolve_model_for_settings(
             self.engine.as_ref(),
             &settings,
@@ -314,6 +330,11 @@ impl FileTranscriptionController {
                 timestamps: true,
                 prefer_gpu: settings.gpu_enabled,
                 file_path: request.source_file.file_path.clone(),
+                context_prompt: vocabulary_prompt.as_ref().map(|prompt| prompt.text.clone()),
+                context_terms: vocabulary_prompt
+                    .as_ref()
+                    .map(|prompt| prompt.terms.clone())
+                    .unwrap_or_default(),
             },
             Arc::clone(&cancelled),
             started_at,
@@ -326,8 +347,29 @@ impl FileTranscriptionController {
         }
 
         let corrected = vocabulary::correct_transcript_result(&self.db_path, transcript)?;
+        if !corrected.warnings.is_empty() {
+            self.log_job(
+                &request.job_id,
+                "recovery",
+                &format!(
+                    "quality={:?} recovered_regions={} warnings={}",
+                    corrected.quality_status,
+                    corrected.recovered_region_count,
+                    corrected.warnings.len()
+                ),
+            );
+        }
         let wall_duration_ms = started_at.elapsed().as_millis() as i64;
 
+        let completion_message = match corrected.quality_status {
+            crate::asr::TranscriptQualityStatus::Clean => "Transcription completed.",
+            crate::asr::TranscriptQualityStatus::Recovered => {
+                "Transcription completed after decoder recovery."
+            }
+            crate::asr::TranscriptQualityStatus::Partial => {
+                "Transcription completed with a section that needs review."
+            }
+        };
         self.update_status(
             &request.job_id,
             FileTranscriptionJobStage::Saving,
@@ -381,7 +423,7 @@ impl FileTranscriptionController {
         self.update_status(
             &request.job_id,
             FileTranscriptionJobStage::Completed,
-            "Transcription completed.",
+            completion_message,
             Some(100.0),
             request.source_file.duration_ms,
             request.source_file.duration_ms,
@@ -442,6 +484,9 @@ impl FileTranscriptionController {
             text
         });
 
+        let mut last_progress = -1;
+        let mut last_decoder_activity = Instant::now();
+
         loop {
             if cancelled.load(Ordering::SeqCst) {
                 let _ = child.kill();
@@ -461,7 +506,27 @@ impl FileTranscriptionController {
 
             match output_rx.recv_timeout(Duration::from_millis(250)) {
                 Ok(Ok(WorkerOutput::Progress { progress_percent })) => {
+                    if progress_percent > last_progress {
+                        last_progress = progress_percent;
+                        last_decoder_activity = Instant::now();
+                    }
                     self.update_worker_progress(request, progress_percent, started_at)?;
+                }
+                Ok(Ok(WorkerOutput::Heartbeat { progress_percent })) => {
+                    if progress_percent > last_progress {
+                        last_progress = progress_percent;
+                        last_decoder_activity = Instant::now();
+                    }
+                    if last_decoder_activity.elapsed() > WORKER_STALL_TIMEOUT {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        let _ = output_reader.join();
+                        let _ = stderr_reader.join();
+                        return Err(anyhow!(
+                            "File transcription worker stopped advancing for ten minutes."
+                        ));
+                    }
+                    self.update_worker_progress(request, progress_percent.max(0), started_at)?;
                 }
                 Ok(Ok(WorkerOutput::Result { result })) => {
                     let _ = child.wait();

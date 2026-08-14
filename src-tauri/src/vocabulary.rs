@@ -6,15 +6,28 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use strsim::jaro_winkler;
+use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 
 use crate::app_state::AppState;
 use crate::asr::{TranscriptResult, TranscriptSegment};
+use crate::settings::LanguageMode;
 
 const SINGLE_TOKEN_THRESHOLD: f64 = 0.965;
 const MULTI_TOKEN_THRESHOLD: f64 = 0.94;
 const MIN_FUZZY_LEAD: f64 = 0.04;
 const MAX_TOKEN_SPAN: usize = 3;
+pub const DICTIONARY_PROMPT_MAX_CHARS: usize = 1_500;
+const DICTIONARY_PROMPT_PREFIX: &str =
+    "Preserve these exact spellings only when spoken; never add them otherwise: ";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VocabularyPrompt {
+    pub text: String,
+    pub terms: Vec<String>,
+    pub included_count: usize,
+    pub truncated_count: usize,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -182,6 +195,93 @@ pub fn list_vocabulary_terms_from_db_path(db_path: &Path) -> Result<Vec<Vocabula
         term.aliases = list_aliases_for_term(&connection, &term.id)?;
     }
     Ok(terms)
+}
+
+pub fn build_asr_prompt_from_db_path(
+    db_path: &Path,
+    language_mode: LanguageMode,
+    fixed_language: Option<&str>,
+) -> Result<Option<VocabularyPrompt>> {
+    let terms = list_vocabulary_terms_from_db_path(db_path)?;
+    Ok(build_asr_prompt(&terms, language_mode, fixed_language))
+}
+
+fn build_asr_prompt(
+    terms: &[VocabularyTerm],
+    language_mode: LanguageMode,
+    fixed_language: Option<&str>,
+) -> Option<VocabularyPrompt> {
+    let fixed_language = fixed_language.map(|value| value.trim().to_ascii_lowercase());
+    let mut ordered = terms.to_vec();
+    ordered.sort_by(|left, right| {
+        prompt_rank(left, language_mode, fixed_language.as_deref())
+            .cmp(&prompt_rank(
+                right,
+                language_mode,
+                fixed_language.as_deref(),
+            ))
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+            .then_with(|| {
+                left.canonical
+                    .to_lowercase()
+                    .cmp(&right.canonical.to_lowercase())
+            })
+    });
+
+    let mut seen = HashSet::new();
+    let mut included = Vec::new();
+    let mut text = DICTIONARY_PROMPT_PREFIX.to_string();
+    let mut eligible_count = 0usize;
+    for term in ordered {
+        let canonical = term.canonical.nfkc().collect::<String>().trim().to_string();
+        let normalized = normalize_for_match(&canonical);
+        if canonical.is_empty() || normalized.is_empty() || !seen.insert(normalized) {
+            continue;
+        }
+        eligible_count += 1;
+        let encoded = serde_json::to_string(&canonical).ok()?;
+        let separator = if included.is_empty() { "" } else { ", " };
+        let candidate_chars =
+            text.chars().count() + separator.chars().count() + encoded.chars().count();
+        if candidate_chars > DICTIONARY_PROMPT_MAX_CHARS {
+            continue;
+        }
+        text.push_str(separator);
+        text.push_str(&encoded);
+        included.push(canonical);
+    }
+
+    if included.is_empty() {
+        return None;
+    }
+    Some(VocabularyPrompt {
+        text,
+        terms: included.clone(),
+        included_count: included.len(),
+        truncated_count: eligible_count.saturating_sub(included.len()),
+    })
+}
+
+fn prompt_rank(
+    term: &VocabularyTerm,
+    language_mode: LanguageMode,
+    fixed_language: Option<&str>,
+) -> u8 {
+    if term.is_builtin {
+        return 3;
+    }
+    if !matches!(language_mode, LanguageMode::Fixed) {
+        return 0;
+    }
+    match term
+        .language_hint
+        .as_deref()
+        .map(|value| value.to_ascii_lowercase())
+    {
+        Some(language) if Some(language.as_str()) == fixed_language => 0,
+        None => 1,
+        Some(_) => 2,
+    }
 }
 
 pub fn create_vocabulary_term(
@@ -1152,5 +1252,54 @@ mod tests {
             correct_segment_text_with_decisions("I want you to use only cloud opus 4.6", &matcher);
         assert_eq!(corrected, "I want you to use only cloud opus 4.6");
         assert!(decisions.is_empty());
+    }
+
+    #[test]
+    fn asr_prompt_contains_canonical_spellings_but_not_aliases() {
+        let term = make_term(
+            "CloudOpus",
+            &["cloud oppus"],
+            MatchMode::ExactAndFuzzy,
+            false,
+        );
+        let prompt = build_asr_prompt(&[term], LanguageMode::Auto, None).expect("prompt");
+        assert!(prompt.text.contains("\"CloudOpus\""));
+        assert!(!prompt.text.contains("cloud oppus"));
+        assert_eq!(prompt.terms, vec!["CloudOpus"]);
+    }
+
+    #[test]
+    fn fixed_language_terms_are_prioritized_and_builtins_are_last() {
+        let mut french = make_term("Élodie", &[], MatchMode::ExactOnly, false);
+        french.language_hint = Some("fr".to_string());
+        let mut unhinted = make_term("Blabber", &[], MatchMode::ExactOnly, false);
+        unhinted.language_hint = None;
+        let mut english = make_term("OpenAI", &[], MatchMode::ExactOnly, true);
+        english.language_hint = Some("en".to_string());
+        let prompt = build_asr_prompt(
+            &[english, unhinted, french],
+            LanguageMode::Fixed,
+            Some("fr"),
+        )
+        .expect("prompt");
+        assert_eq!(prompt.terms, vec!["Élodie", "Blabber", "OpenAI"]);
+    }
+
+    #[test]
+    fn asr_prompt_never_exceeds_character_budget() {
+        let terms = (0..100)
+            .map(|index| {
+                make_term(
+                    &format!("VeryLongDictionaryTermNumber{index:03}"),
+                    &[],
+                    MatchMode::ExactOnly,
+                    false,
+                )
+            })
+            .collect::<Vec<_>>();
+        let prompt = build_asr_prompt(&terms, LanguageMode::Auto, None).expect("prompt");
+        assert!(prompt.text.chars().count() <= DICTIONARY_PROMPT_MAX_CHARS);
+        assert!(prompt.truncated_count > 0);
+        assert_eq!(prompt.included_count + prompt.truncated_count, 100);
     }
 }

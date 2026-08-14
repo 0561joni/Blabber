@@ -14,7 +14,19 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
+#[cfg(target_os = "windows")]
+use tauri::Manager;
+
 use crate::settings::InsertBehavior;
+
+#[cfg(target_os = "macos")]
+mod clipboard_restore;
+
+#[cfg(target_os = "windows")]
+mod windows_clipboard_restore;
+
+#[cfg(target_os = "macos")]
+use clipboard_restore::ClipboardSnapshot;
 
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Foundation::HWND;
@@ -72,7 +84,35 @@ pub fn insert_text(
     behavior: InsertBehavior,
     paste_target: Option<&PasteTarget>,
 ) -> Result<InsertionOutcome> {
+    #[cfg(target_os = "macos")]
+    let clipboard_snapshot = if should_attempt_paste(behavior, auto_paste_allowed()) {
+        Some(ClipboardSnapshot::capture())
+    } else {
+        None
+    };
+
+    #[cfg(target_os = "windows")]
+    let windows_clipboard_snapshot = if should_attempt_paste(behavior, auto_paste_allowed()) {
+        Some(windows_clipboard_restore::ClipboardSnapshot::capture()?)
+    } else {
+        None
+    };
+
+    #[cfg(target_os = "windows")]
+    let windows_clipboard_owner = if should_attempt_paste(behavior, auto_paste_allowed()) {
+        windows_clipboard_owner(app)?
+    } else {
+        std::ptr::null_mut()
+    };
+
     app.clipboard().write_text(text.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    let dictated_clipboard_change_count = clipboard_restore::change_count();
+
+    #[cfg(target_os = "windows")]
+    let dictated_clipboard_sequence_number = windows_clipboard_restore::sequence_number();
+
     match behavior {
         InsertBehavior::ClipboardOnly => Ok(InsertionOutcome::ClipboardOnly),
         InsertBehavior::Paste => {
@@ -93,6 +133,11 @@ pub fn insert_text(
                     return Ok(InsertionOutcome::ClipboardOnly);
                 }
 
+                restore_windows_clipboard_after_paste(
+                    windows_clipboard_snapshot,
+                    dictated_clipboard_sequence_number,
+                    windows_clipboard_owner,
+                );
                 Ok(InsertionOutcome::Pasted)
             }
 
@@ -101,7 +146,14 @@ pub fn insert_text(
                 refocus_paste_target(paste_target)?;
 
                 match simulate_paste_with_retry(3) {
-                    Ok(()) => Ok(InsertionOutcome::Pasted),
+                    Ok(()) => {
+                        #[cfg(target_os = "macos")]
+                        restore_macos_clipboard_after_paste(
+                            clipboard_snapshot,
+                            dictated_clipboard_change_count,
+                        );
+                        Ok(InsertionOutcome::Pasted)
+                    }
                     Err(error) => {
                         let _ = error;
                         Ok(InsertionOutcome::ClipboardOnly)
@@ -109,6 +161,60 @@ pub fn insert_text(
                 }
             }
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn restore_windows_clipboard_after_paste(
+    clipboard_snapshot: Option<windows_clipboard_restore::ClipboardSnapshot>,
+    dictated_clipboard_sequence_number: u32,
+    clipboard_owner: HWND,
+) {
+    let Some(snapshot) = clipboard_snapshot else {
+        return;
+    };
+
+    // SendInput queues the shortcut, so the destination needs a moment to
+    // consume the temporary dictation text before the clipboard is restored.
+    thread::sleep(Duration::from_millis(300));
+
+    // A sequence-number change means the user or another app copied something
+    // newer while the paste was in flight. Never overwrite that content.
+    if let Err(error) =
+        snapshot.restore_if_unchanged(dictated_clipboard_sequence_number, clipboard_owner)
+    {
+        eprintln!("failed to restore clipboard after auto-paste: {error:#}");
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_clipboard_owner(app: &AppHandle) -> Result<HWND> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| anyhow!("main window is unavailable for Windows clipboard ownership"))?;
+    let hwnd = window
+        .hwnd()
+        .map_err(|error| anyhow!("could not get main window handle: {error}"))?;
+    Ok(hwnd.0)
+}
+
+#[cfg(target_os = "macos")]
+fn restore_macos_clipboard_after_paste(
+    clipboard_snapshot: Option<ClipboardSnapshot>,
+    dictated_clipboard_change_count: isize,
+) {
+    let Some(snapshot) = clipboard_snapshot else {
+        return;
+    };
+
+    // CGEventPost queues the shortcut. Give the target app time to consume
+    // the dictated text before replacing the temporary clipboard contents.
+    thread::sleep(Duration::from_millis(300));
+
+    // The change-count guard protects content copied by the user (or another
+    // app) while the paste was in flight.
+    if let Err(error) = snapshot.restore_if_unchanged(dictated_clipboard_change_count) {
+        eprintln!("failed to restore clipboard after auto-paste: {error:#}");
     }
 }
 

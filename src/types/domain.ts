@@ -8,6 +8,8 @@ export type TranscriptStatus =
   | "failed"
   | "canceled";
 
+export type TranscriptQualityStatus = "clean" | "recovered" | "partial";
+
 export type LanguageMode = "auto" | "fixed";
 export type InsertBehavior = "paste" | "clipboard_only";
 export type ModelProfile = "fast" | "balanced" | "accurate";
@@ -20,6 +22,7 @@ export interface HealthCheckResponse {
   dbPath: string;
   tempDir: string;
   modelsDir: string;
+  startupNotices: string[];
 }
 
 export interface PlatformInfo {
@@ -48,6 +51,8 @@ export interface TranscriptSummary {
   detectedLanguages: string[];
   durationMs: number | null;
   modelName: string | null;
+  qualityStatus: TranscriptQualityStatus;
+  recoveredRegionCount: number;
 }
 
 export interface AppSettings {
@@ -105,13 +110,22 @@ export interface InstalledModel {
 
 export interface DownloadableModel {
   id: string;
+  engine: string;
   modelName: string;
   description: string;
   sizeBytes: number;
   profile: ModelProfile;
+  availability: "available" | "unsupported_platform";
+  requirements: string | null;
+  artifactCount: number;
 }
 
-export type ModelDownloadState = "idle" | "downloading" | "completed" | "failed";
+export type ModelDownloadState =
+  | "idle"
+  | "downloading"
+  | "completed"
+  | "canceled"
+  | "failed";
 
 export interface ModelDownloadStatus {
   modelId: string;
@@ -121,6 +135,9 @@ export interface ModelDownloadStatus {
   totalBytes: number | null;
   progressPercent: number | null;
   errorMessage: string | null;
+  currentArtifact: string | null;
+  artifactIndex: number | null;
+  artifactCount: number;
 }
 
 export type PreviewSourceKind = "quick_dictate" | "file_upload";
@@ -143,6 +160,17 @@ export interface TranscriptResult {
   timestampedText: string;
   detectedLanguages: string[];
   segments: TranscriptSegment[];
+  qualityStatus: TranscriptQualityStatus;
+  recoveredRegionCount: number;
+  warnings: TranscriptWarning[];
+}
+
+export interface TranscriptWarning {
+  startMs: number;
+  endMs: number;
+  reason: string;
+  attempts: number;
+  outcome: string;
 }
 
 export interface EngineErrorPayload {

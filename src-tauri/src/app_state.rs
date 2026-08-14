@@ -1,11 +1,11 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use tauri::{AppHandle, Manager};
 
-use crate::asr::{self, SharedWhisperEngine, TranscriptionEngine};
+use crate::asr::{self, LocalTranscriptionEngine, TranscriptionEngine};
 use crate::audio_capture::RecordingController;
 use crate::autostart;
 use crate::desktop_shell::DesktopShellController;
@@ -24,12 +24,13 @@ pub struct AppState {
     pub temp_dir: PathBuf,
     pub models_dir: PathBuf,
     pub db_path: PathBuf,
-    pub engine: Arc<SharedWhisperEngine>,
+    pub engine: Arc<LocalTranscriptionEngine>,
     pub recording_controller: RecordingController,
     pub dictation_controller: QuickDictationController,
     pub file_transcription_controller: FileTranscriptionController,
     pub model_download_manager: ModelDownloadManager,
     pub desktop_shell: DesktopShellController,
+    pub startup_notices: Arc<Mutex<Vec<String>>>,
 }
 
 impl AppState {
@@ -47,9 +48,10 @@ impl AppState {
         fs::create_dir_all(&app_data_dir)?;
         fs::create_dir_all(&temp_dir)?;
         fs::create_dir_all(&models_dir)?;
+        crate::model_downloads::start_background_vad_download(models_dir.clone());
 
-        let engine_models = asr::discover_whisper_models(&models_dir)?;
-        let engine = Arc::new(SharedWhisperEngine::new(
+        let engine_models = asr::discover_installed_models(&models_dir)?;
+        let engine = Arc::new(LocalTranscriptionEngine::new(
             models_dir.clone(),
             engine_models.clone(),
         ));
@@ -96,9 +98,16 @@ impl AppState {
             file_transcription_controller,
             model_download_manager,
             desktop_shell,
+            startup_notices: Arc::new(Mutex::new(Vec::new())),
         };
 
         storage::initialize_database(&state)?;
+        if let Some(notice) = migrate_windows_qwen_selection(&state, &engine_models, &app_data_dir)?
+        {
+            if let Ok(mut notices) = state.startup_notices.lock() {
+                notices.push(notice);
+            }
+        }
         storage::sync_installed_models(&state, &engine_models)?;
         storage::apply_preferred_model_defaults(&state, &engine_models)?;
         vocabulary::seed_builtin_terms(&state)?;
@@ -127,8 +136,43 @@ impl AppState {
             db_path: self.db_path.display().to_string(),
             temp_dir: self.temp_dir.display().to_string(),
             models_dir: self.models_dir.display().to_string(),
+            startup_notices: self
+                .startup_notices
+                .lock()
+                .map(|notices| notices.clone())
+                .unwrap_or_default(),
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+fn migrate_windows_qwen_selection(
+    state: &AppState,
+    models: &[crate::asr::InstalledModel],
+    app_data_dir: &std::path::Path,
+) -> Result<Option<String>> {
+    let replaced = storage::replace_qwen_selections_with_whisper(&state.db_path, models)?;
+    if !replaced {
+        return Ok(None);
+    }
+    let marker = app_data_dir.join(".qwen-windows-fallback-notice-v1");
+    if marker.exists() {
+        return Ok(None);
+    }
+    fs::write(&marker, b"shown")?;
+    Ok(Some(
+        "Qwen3-ASR is not supported on Windows, so your affected model selection was changed to the Accurate Whisper default."
+            .to_string(),
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn migrate_windows_qwen_selection(
+    _state: &AppState,
+    _models: &[crate::asr::InstalledModel],
+    _app_data_dir: &std::path::Path,
+) -> Result<Option<String>> {
+    Ok(None)
 }
 
 fn shortcut_unsupported_message() -> &'static str {

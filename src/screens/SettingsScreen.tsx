@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { formatShortcutForDisplay } from "../lib/formatting";
 import {
+  cancelModelDownload,
   cancelRecordingSession,
   getPlatformInfo,
   getRecordingInputLevel,
@@ -219,9 +220,9 @@ export function SettingsScreen({
       ? "Open in Explorer"
       : "Open folder";
   const autoPasteDescription = isMacOS
-    ? "Insert text directly when Accessibility permissions allow it."
+    ? "Insert text directly while preserving your previous clipboard contents."
     : isWindows
-      ? "Insert text directly into the active app when Windows allows simulated paste input."
+      ? "Insert text directly while preserving your previous clipboard contents."
       : "Insert text directly when the platform allows simulated paste input.";
   const autoPasteEnabledLabel = isMacOS
     ? "On when Accessibility allows it"
@@ -369,6 +370,17 @@ export function SettingsScreen({
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Failed to download the selected model.",
+      );
+    }
+  }
+
+  async function handleCancelModelDownload(modelId: string) {
+    setErrorMessage(null);
+    try {
+      await cancelModelDownload(modelId);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to cancel the model download.",
       );
     }
   }
@@ -622,8 +634,9 @@ export function SettingsScreen({
                 <div className="downloadable-models">
                   {downloadableModels.map((model) => {
                     const isInstalled = installedModels.some(
-                      (installed) => installed.modelName === model.modelName,
+                      (installed) => installed.id === model.id,
                     );
+                    const isUnavailable = model.availability !== "available";
                     const downloadStatus = modelDownloadStatuses[model.id];
                     const isDownloading = downloadStatus?.state === "downloading";
                     const anotherDownloadActive = Object.values(modelDownloadStatuses).some(
@@ -642,10 +655,13 @@ export function SettingsScreen({
                           <div className="downloadable-model-heading">
                             <strong>{model.modelName}</strong>
                             <span className="downloadable-model-meta">
-                              {formatModelProfile(model.profile)} · {formatModelSize(model.sizeBytes)}
+                              {formatModelProfile(model.profile)} · {formatModelSize(model.sizeBytes)} · {model.engine === "qwen3_asr_c" ? "Qwen" : "Whisper"}
                             </span>
                           </div>
                           <p className="muted">{model.description}</p>
+                          {model.requirements ? (
+                            <p className="downloadable-model-meta">{model.requirements}</p>
+                          ) : null}
                           {isDownloading ? (
                             <div className="model-download-progress">
                               <div className="model-download-progress-track">
@@ -670,6 +686,11 @@ export function SettingsScreen({
                                 </span>
                                 {progressLabel ? <span>{progressLabel}</span> : null}
                               </div>
+                              {downloadStatus.currentArtifact ? (
+                                <span className="downloadable-model-meta">
+                                  File {downloadStatus.artifactIndex ?? 1} of {downloadStatus.artifactCount}: {downloadStatus.currentArtifact}
+                                </span>
+                              ) : null}
                             </div>
                           ) : null}
                           {downloadStatus?.state === "failed" && downloadStatus.errorMessage ? (
@@ -694,7 +715,9 @@ export function SettingsScreen({
                           >
                             {isInstalled
                               ? "Installed"
-                              : isDownloading
+                              : isUnavailable
+                                ? "Unavailable"
+                                : isDownloading
                                 ? "Downloading"
                                 : downloadStatus?.state === "failed"
                                   ? "Failed"
@@ -705,13 +728,19 @@ export function SettingsScreen({
                           <button
                             type="button"
                             className="small-action-button"
-                            disabled={isInstalled || isDownloading || anotherDownloadActive}
+                            disabled={isUnavailable || isInstalled || anotherDownloadActive}
                             onClick={() => {
-                              void handleDownloadModel(model.id);
+                              if (isDownloading) {
+                                void handleCancelModelDownload(model.id);
+                              } else {
+                                void handleDownloadModel(model.id);
+                              }
                             }}
                           >
-                            {isDownloading
-                              ? "Downloading..."
+                            {isUnavailable
+                              ? "Not supported"
+                              : isDownloading
+                              ? "Cancel download"
                               : isInstalled
                                 ? "Installed"
                                 : anotherDownloadActive

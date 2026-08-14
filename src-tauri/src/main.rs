@@ -3,6 +3,7 @@
 mod app_state;
 mod asr;
 mod audio_capture;
+mod audio_chunks;
 mod audio_files;
 mod audio_preprocess;
 mod autostart;
@@ -14,10 +15,14 @@ mod insertion;
 mod ipc;
 mod model_downloads;
 mod platform;
+mod qwen_asr;
 mod settings;
 mod sound;
 mod storage;
 mod system_volume;
+mod transcript_stitching;
+mod transcription_policy;
+mod transcription_quality;
 mod transcription_worker;
 mod vocabulary;
 
@@ -194,6 +199,17 @@ fn start_model_download(
 }
 
 #[tauri::command]
+fn cancel_model_download(
+    state: tauri::State<'_, AppState>,
+    model_id: String,
+) -> Result<ModelDownloadStatus, String> {
+    state
+        .model_download_manager
+        .cancel_download(&model_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn open_models_folder(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut command = if cfg!(target_os = "macos") {
         let mut command = Command::new("open");
@@ -256,6 +272,13 @@ async fn preview_transcription(
             });
         };
 
+        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(
+            &app_state.db_path,
+            request.language_mode,
+            request.fixed_language.as_deref(),
+        )
+        .map_err(|error| error.to_string())?;
+
         let result = app_state.engine.transcribe_file(
             FileTranscriptionRequest {
                 profile: request.profile,
@@ -265,6 +288,11 @@ async fn preview_transcription(
                 timestamps: request.timestamps,
                 prefer_gpu: request.prefer_gpu,
                 file_path,
+                context_prompt: vocabulary_prompt.as_ref().map(|prompt| prompt.text.clone()),
+                context_terms: vocabulary_prompt
+                    .as_ref()
+                    .map(|prompt| prompt.terms.clone())
+                    .unwrap_or_default(),
             },
             None,
         );
@@ -284,10 +312,7 @@ async fn preview_transcription(
                 source_kind: request.source_kind,
                 resolved_model,
                 result: None,
-                error: Some(asr::EngineErrorPayload {
-                    code: "transcription_failed".to_string(),
-                    message: error.to_string(),
-                }),
+                error: Some(asr::engine_error_payload(&error)),
             },
         })
     })
@@ -625,6 +650,7 @@ fn main() {
             list_downloadable_models,
             get_model_download_statuses,
             start_model_download,
+            cancel_model_download,
             list_input_devices,
             open_models_folder,
             get_dictation_overlay_status,

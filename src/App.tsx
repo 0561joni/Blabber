@@ -415,6 +415,14 @@ export function App() {
       setRecordingStatus(nextRecordingStatus);
       setQuickDictationStatus(nextQuickDictateStatus);
       setFileQueueItems(mergeFileStatusesIntoQueue([], nextFileStatuses));
+      for (const notice of nextHealth.startupNotices) {
+        pushToast({
+          kind: "info",
+          message: "Model selection updated",
+          hint: notice,
+          durationMs: 8000,
+        });
+      }
       void refreshReadiness();
     } catch (error) {
       console.error(errorMessage(error, "Failed to load app state."));

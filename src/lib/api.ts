@@ -54,7 +54,7 @@ const mockModels: InstalledModel[] = [
     modelName: "ggml-tiny.bin",
     variant: "fast",
     localPath: "mock://models/ggml-tiny.bin",
-    sizeBytes: 75_000_000,
+    sizeBytes: 77_691_713,
     isDefault: true,
     profile: "fast",
   },
@@ -64,7 +64,7 @@ const mockModels: InstalledModel[] = [
     modelName: "ggml-small.bin",
     variant: "balanced",
     localPath: "mock://models/ggml-small.bin",
-    sizeBytes: 466_000_000,
+    sizeBytes: 487_601_967,
     isDefault: true,
     profile: "balanced",
   },
@@ -74,7 +74,7 @@ const mockModels: InstalledModel[] = [
     modelName: "ggml-medium.bin",
     variant: "accurate",
     localPath: "mock://models/ggml-medium.bin",
-    sizeBytes: 1_530_000_000,
+    sizeBytes: 1_533_763_059,
     isDefault: false,
     profile: "accurate",
   },
@@ -84,7 +84,7 @@ const mockModels: InstalledModel[] = [
     modelName: "ggml-large-v3-turbo.bin",
     variant: "accurate",
     localPath: "mock://models/ggml-large-v3-turbo.bin",
-    sizeBytes: 1_620_000_000,
+    sizeBytes: 1_624_555_275,
     isDefault: false,
     profile: "accurate",
   },
@@ -94,7 +94,7 @@ const mockModels: InstalledModel[] = [
     modelName: "ggml-large-v3-turbo-q5_0.bin",
     variant: "accurate",
     localPath: "mock://models/ggml-large-v3-turbo-q5_0.bin",
-    sizeBytes: 1_210_000_000,
+    sizeBytes: 574_041_195,
     isDefault: true,
     profile: "accurate",
   },
@@ -102,38 +102,70 @@ const mockModels: InstalledModel[] = [
 const mockDownloadableModels: DownloadableModel[] = [
   {
     id: "ggml-tiny-bin",
+    engine: "whisper.cpp",
     modelName: "ggml-tiny.bin",
     description: "Smallest local model for quick tests and lightweight dictation.",
-    sizeBytes: 75_000_000,
+    sizeBytes: 77_691_713,
     profile: "fast",
+    availability: "available",
+    requirements: null,
+    artifactCount: 1,
   },
   {
     id: "ggml-small-bin",
+    engine: "whisper.cpp",
     modelName: "ggml-small.bin",
     description: "Good balance when you want lower memory use with better quality than tiny.",
-    sizeBytes: 466_000_000,
+    sizeBytes: 487_601_967,
     profile: "balanced",
+    availability: "available",
+    requirements: null,
+    artifactCount: 1,
   },
   {
     id: "ggml-medium-bin",
+    engine: "whisper.cpp",
     modelName: "ggml-medium.bin",
     description: "Strong default for shortcut dictation when you want better accuracy.",
-    sizeBytes: 1_530_000_000,
+    sizeBytes: 1_533_763_059,
     profile: "accurate",
+    availability: "available",
+    requirements: null,
+    artifactCount: 1,
   },
   {
     id: "ggml-large-v3-turbo-bin",
+    engine: "whisper.cpp",
     modelName: "ggml-large-v3-turbo.bin",
     description: "Best full-size turbo model when you want top quality and speed.",
-    sizeBytes: 1_620_000_000,
+    sizeBytes: 1_624_555_275,
     profile: "accurate",
+    availability: "available",
+    requirements: null,
+    artifactCount: 1,
   },
   {
     id: "ggml-large-v3-turbo-q5_0-bin",
+    engine: "whisper.cpp",
     modelName: "ggml-large-v3-turbo-q5_0.bin",
     description: "Quantized turbo model with lower memory use and a strong quality-speed tradeoff.",
-    sizeBytes: 1_210_000_000,
+    sizeBytes: 574_041_195,
     profile: "accurate",
+    availability: "available",
+    requirements: null,
+    artifactCount: 1,
+  },
+  {
+    id: "qwen3-asr-1.7b-bf16",
+    engine: "qwen3_asr_c",
+    modelName: "Qwen3-ASR-1.7B",
+    description:
+      "High-quality multilingual and code-switch transcription with dictionary-aware spelling prompts. CPU-only.",
+    sizeBytes: 4_703_041_355,
+    profile: "accurate",
+    availability: "available",
+    requirements: "macOS or Linux · 16 GB RAM recommended · CPU-only",
+    artifactCount: 7,
   },
 ];
 const mockModelDownloadListeners = new Set<(status: ModelDownloadStatus) => void>();
@@ -148,6 +180,9 @@ const mockModelDownloadStatuses = new Map<string, ModelDownloadStatus>(
       totalBytes: model.sizeBytes,
       progressPercent: 0,
       errorMessage: null,
+      currentArtifact: null,
+      artifactIndex: null,
+      artifactCount: model.artifactCount,
     },
   ]),
 );
@@ -241,6 +276,7 @@ export async function getHealthCheck(): Promise<HealthCheckResponse> {
       dbPath: "mock://speech-to-text.sqlite",
       tempDir: "mock://temp",
       modelsDir: "mock://models",
+      startupNotices: [],
     };
   }
   return invoke<HealthCheckResponse>("health_check");
@@ -330,6 +366,9 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
     if (!model) {
       throw new Error("Unsupported model download.");
     }
+    if (model.availability !== "available") {
+      throw new Error("This model is not available on the current platform.");
+    }
     const current = mockModelDownloadStatuses.get(modelId);
     if (current?.state === "downloading") {
       return current;
@@ -351,6 +390,9 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
       totalBytes,
       progressPercent: 0,
       errorMessage: null,
+      currentArtifact: model.artifactCount > 1 ? "config.json" : model.modelName,
+      artifactIndex: 1,
+      artifactCount: model.artifactCount,
     };
     mockModelDownloadStatuses.set(model.id, initialStatus);
     emitMockModelDownloadStatus(initialStatus);
@@ -358,6 +400,9 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
     const steps = 8;
     for (let step = 1; step <= steps; step += 1) {
       window.setTimeout(() => {
+        if (mockModelDownloadStatuses.get(model.id)?.state === "canceled") {
+          return;
+        }
         const isFinal = step === steps;
         const nextStatus: ModelDownloadStatus = {
           modelId: model.id,
@@ -367,6 +412,9 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
           totalBytes,
           progressPercent: Math.round((100 * step) / steps),
           errorMessage: null,
+          currentArtifact: isFinal ? null : model.modelName,
+          artifactIndex: isFinal ? model.artifactCount : 1,
+          artifactCount: model.artifactCount,
         };
         mockModelDownloadStatuses.set(model.id, nextStatus);
         emitMockModelDownloadStatus(nextStatus);
@@ -374,7 +422,7 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
         if (isFinal && !mockModels.some((installed) => installed.id === model.id)) {
           mockModels.push({
             id: model.id,
-            engine: "whisper.cpp",
+            engine: model.engine,
             modelName: model.modelName,
             variant: model.profile,
             localPath: `mock://models/${model.modelName}`,
@@ -389,6 +437,25 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
     return initialStatus;
   }
   return invoke<ModelDownloadStatus>("start_model_download", { modelId });
+}
+
+export async function cancelModelDownload(modelId: string): Promise<ModelDownloadStatus> {
+  if (!isTauriRuntime()) {
+    const current = mockModelDownloadStatuses.get(modelId);
+    if (!current || current.state !== "downloading") {
+      throw new Error("No active download exists for this model.");
+    }
+    const canceled: ModelDownloadStatus = {
+      ...current,
+      state: "canceled",
+      currentArtifact: null,
+      artifactIndex: null,
+    };
+    mockModelDownloadStatuses.set(modelId, canceled);
+    emitMockModelDownloadStatus(canceled);
+    return canceled;
+  }
+  return invoke<ModelDownloadStatus>("cancel_model_download", { modelId });
 }
 
 export async function listenModelDownloadStatus(
@@ -568,6 +635,8 @@ export async function startFileTranscription(
           detectedLanguages: ["de", "en", "es"],
           durationMs: 8_400,
           modelName: "browser-preview",
+          qualityStatus: "clean",
+          recoveredRegionCount: 0,
         }
       : null;
 
@@ -590,6 +659,9 @@ export async function startFileTranscription(
         timestampedText:
           "[00:00 - 00:04] de: Hallo Lena, LinkedIn bleibt LinkedIn.\n[00:04 - 00:08] es: Und Empanadas bleiben Empanadas.",
         detectedLanguages: ["de", "en", "es"],
+        qualityStatus: "clean",
+        recoveredRegionCount: 0,
+        warnings: [],
         segments: [
           {
             id: crypto.randomUUID(),

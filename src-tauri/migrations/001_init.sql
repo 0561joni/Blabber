@@ -33,7 +33,10 @@ CREATE TABLE IF NOT EXISTS transcripts (
   detected_languages TEXT NOT NULL DEFAULT '[]',
   duration_ms INTEGER NULL,
   status TEXT NOT NULL,
-  model_name TEXT NULL
+  model_name TEXT NULL,
+  quality_status TEXT NOT NULL DEFAULT 'clean',
+  recovered_region_count INTEGER NOT NULL DEFAULT 0,
+  transcription_warnings TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS transcript_segments (

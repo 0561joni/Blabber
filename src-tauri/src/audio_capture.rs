@@ -134,7 +134,9 @@ impl RecordingWorkerState {
             if let Some(segment) = existing.current_segment {
                 drop(segment.stream);
             }
-            eprintln!("[audio] discarded a stale active recording session before starting a new one");
+            eprintln!(
+                "[audio] discarded a stale active recording session before starting a new one"
+            );
         }
         let session_id = Uuid::new_v4().to_string();
         let segment =
@@ -421,7 +423,10 @@ impl RecordingController {
     /// audio stream, so leaking it briefly is acceptable and far better than
     /// leaving recording permanently dead.
     pub fn recover(&self) {
-        let fresh = spawn_worker(self.temp_dir.clone(), Arc::clone(&self.preferred_input_device));
+        let fresh = spawn_worker(
+            self.temp_dir.clone(),
+            Arc::clone(&self.preferred_input_device),
+        );
         if let Ok(mut sender) = self.sender.lock() {
             *sender = fresh;
             eprintln!("[audio] recording worker was unresponsive — respawned a fresh worker");

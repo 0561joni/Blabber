@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::app_state::AppState;
-use crate::asr::{InstalledModel, TranscriptResult};
+use crate::asr::{InstalledModel, TranscriptQualityStatus, TranscriptResult};
 use crate::audio_files::SelectedSourceFile;
 use crate::settings::{
     AppSettings, DefaultMode, InsertBehavior, LanguageMode, ModelProfile, SettingsPatch,
@@ -47,6 +47,8 @@ pub struct TranscriptSummary {
     pub detected_languages: Vec<String>,
     pub duration_ms: Option<i64>,
     pub model_name: Option<String>,
+    pub quality_status: TranscriptQualityStatus,
+    pub recovered_region_count: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +66,7 @@ pub fn initialize_database(state: &AppState) -> Result<()> {
         .execute_batch(INIT_MIGRATION)
         .context("failed to run initial migration")?;
     ensure_settings_columns(&connection)?;
+    ensure_transcript_quality_columns(&connection)?;
     ensure_vocabulary_columns(&connection)?;
     ensure_file_transcription_performance_table(&connection)?;
     seed_default_settings(&connection)?;
@@ -99,6 +102,50 @@ pub fn sync_installed_models_for_db_path(db_path: &Path, models: &[InstalledMode
 
 pub fn apply_preferred_model_defaults(state: &AppState, models: &[InstalledModel]) -> Result<()> {
     apply_preferred_model_defaults_for_db_path(&state.db_path, models)
+}
+
+#[cfg(target_os = "windows")]
+pub fn replace_qwen_selections_with_whisper(
+    db_path: &Path,
+    models: &[InstalledModel],
+) -> Result<bool> {
+    let current = get_settings_from_db_path(db_path)?;
+    let qwen_id = crate::qwen_asr::QWEN_MODEL_ID;
+    let selected_qwen = current.shortcut_dictation_selected_model_id.as_deref() == Some(qwen_id)
+        || current.quick_dictate_selected_model_id.as_deref() == Some(qwen_id)
+        || current.file_transcribe_selected_model_id.as_deref() == Some(qwen_id);
+    if !selected_qwen {
+        return Ok(false);
+    }
+
+    let fallback = models
+        .iter()
+        .find(|model| {
+            model.engine == "whisper.cpp"
+                && model.profile == ModelProfile::Accurate
+                && model.is_default
+        })
+        .or_else(|| {
+            models.iter().find(|model| {
+                model.engine == "whisper.cpp" && model.profile == ModelProfile::Accurate
+            })
+        });
+    let mut patch = SettingsPatch::default();
+    let fallback_id = fallback.map(|model| model.id.clone());
+    if current.shortcut_dictation_selected_model_id.as_deref() == Some(qwen_id) {
+        patch.shortcut_dictation_model_profile = Some(ModelProfile::Accurate);
+        patch.shortcut_dictation_selected_model_id = Some(fallback_id.clone());
+    }
+    if current.quick_dictate_selected_model_id.as_deref() == Some(qwen_id) {
+        patch.quick_dictate_model_profile = Some(ModelProfile::Accurate);
+        patch.quick_dictate_selected_model_id = Some(fallback_id.clone());
+    }
+    if current.file_transcribe_selected_model_id.as_deref() == Some(qwen_id) {
+        patch.file_transcribe_model_profile = Some(ModelProfile::Accurate);
+        patch.file_transcribe_selected_model_id = Some(fallback_id);
+    }
+    let _ = update_settings_for_db_path(db_path, patch)?;
+    Ok(true)
 }
 
 pub fn apply_preferred_model_defaults_for_db_path(
@@ -434,11 +481,11 @@ pub fn list_transcripts(state: &AppState, query: Option<String>) -> Result<Vec<T
         .map(|value| format!("%{}%", value.trim().to_lowercase()));
     let mut statement = if normalized_query.is_some() {
         connection.prepare(
-            "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name FROM transcripts WHERE lower(title) LIKE ?1 OR lower(plain_text) LIKE ?1 ORDER BY datetime(created_at) DESC",
+            "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count FROM transcripts WHERE lower(title) LIKE ?1 OR lower(plain_text) LIKE ?1 ORDER BY datetime(created_at) DESC",
         )?
     } else {
         connection.prepare(
-            "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name FROM transcripts ORDER BY datetime(created_at) DESC",
+            "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count FROM transcripts ORDER BY datetime(created_at) DESC",
         )?
     };
     let rows = if let Some(value) = normalized_query {
@@ -660,6 +707,39 @@ fn ensure_vocabulary_columns(connection: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn ensure_transcript_quality_columns(connection: &Connection) -> Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(transcripts)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>("name"))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    if !columns.iter().any(|column| column == "quality_status") {
+        connection.execute(
+            "ALTER TABLE transcripts ADD COLUMN quality_status TEXT NOT NULL DEFAULT 'clean'",
+            [],
+        )?;
+    }
+    if !columns
+        .iter()
+        .any(|column| column == "recovered_region_count")
+    {
+        connection.execute(
+            "ALTER TABLE transcripts ADD COLUMN recovered_region_count INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    if !columns
+        .iter()
+        .any(|column| column == "transcription_warnings")
+    {
+        connection.execute(
+            "ALTER TABLE transcripts ADD COLUMN transcription_warnings TEXT NOT NULL DEFAULT '[]'",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
 fn ensure_file_transcription_performance_table(connection: &Connection) -> Result<()> {
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS file_transcription_model_performance (
@@ -731,7 +811,7 @@ fn fetch_transcript_summary(
     transcript_id: &str,
 ) -> Result<TranscriptSummary> {
     let transcript = connection.query_row(
-        "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name FROM transcripts WHERE id = ?1",
+        "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count FROM transcripts WHERE id = ?1",
         [transcript_id],
         map_transcript_summary_row,
     )?;
@@ -748,9 +828,10 @@ fn insert_transcript(
 ) -> Result<()> {
     let created_at = Utc::now().to_rfc3339();
     let languages = serde_json::to_string(&result.detected_languages)?;
+    let warnings = serde_json::to_string(&result.warnings)?;
     transaction.execute(
-        "INSERT INTO transcripts (id, created_at, source_type, title, full_text, plain_text, timestamped_text, detected_languages, duration_ms, status, model_name)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO transcripts (id, created_at, source_type, title, full_text, plain_text, timestamped_text, detected_languages, duration_ms, status, model_name, quality_status, recovered_region_count, transcription_warnings)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             transcript_id,
             &created_at,
@@ -763,6 +844,9 @@ fn insert_transcript(
             duration_ms,
             "completed",
             &result.model_name,
+            to_transcript_quality_status(result.quality_status),
+            result.recovered_region_count,
+            warnings,
         ],
     )?;
 
@@ -935,7 +1019,26 @@ fn map_transcript_summary_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Trans
         detected_languages,
         duration_ms: row.get("duration_ms")?,
         model_name: row.get("model_name")?,
+        quality_status: parse_transcript_quality_status(row.get("quality_status")?)?,
+        recovered_region_count: row.get("recovered_region_count")?,
     })
+}
+
+fn parse_transcript_quality_status(value: String) -> rusqlite::Result<TranscriptQualityStatus> {
+    match value.as_str() {
+        "clean" => Ok(TranscriptQualityStatus::Clean),
+        "recovered" => Ok(TranscriptQualityStatus::Recovered),
+        "partial" => Ok(TranscriptQualityStatus::Partial),
+        _ => Err(rusqlite::Error::InvalidQuery),
+    }
+}
+
+fn to_transcript_quality_status(value: TranscriptQualityStatus) -> &'static str {
+    match value {
+        TranscriptQualityStatus::Clean => "clean",
+        TranscriptQualityStatus::Recovered => "recovered",
+        TranscriptQualityStatus::Partial => "partial",
+    }
 }
 
 fn parse_default_mode(value: String) -> rusqlite::Result<DefaultMode> {
@@ -974,7 +1077,7 @@ fn parse_model_profile(value: String) -> rusqlite::Result<ModelProfile> {
     match value.as_str() {
         "fast" => Ok(ModelProfile::Fast),
         "balanced" => Ok(ModelProfile::Balanced),
-        "accurate" => Ok(ModelProfile::Accurate),
+        "accurate" | "1.7B BF16" => Ok(ModelProfile::Accurate),
         _ => Err(rusqlite::Error::InvalidQuery),
     }
 }
@@ -1039,5 +1142,38 @@ fn to_source_type(value: SourceType) -> &'static str {
     match value {
         SourceType::QuickDictate => "quick_dictate",
         SourceType::FileUpload => "file_upload",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quality_columns_are_added_to_existing_transcript_tables() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        connection
+            .execute_batch("CREATE TABLE transcripts (id TEXT PRIMARY KEY);")
+            .expect("legacy transcript table");
+
+        ensure_transcript_quality_columns(&connection).expect("quality migration");
+        connection
+            .execute("INSERT INTO transcripts (id) VALUES ('legacy')", [])
+            .expect("legacy row");
+
+        let values = connection
+            .query_row(
+                "SELECT quality_status, recovered_region_count, transcription_warnings FROM transcripts WHERE id = 'legacy'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i32>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .expect("quality defaults");
+        assert_eq!(values, ("clean".to_string(), 0, "[]".to_string()));
     }
 }

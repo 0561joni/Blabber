@@ -129,7 +129,12 @@ export function HistoryScreen({
                     </div>
                     <div>
                       <dt>Status</dt>
-                      <dd>{transcript.status}</dd>
+                      <dd>
+                        {transcript.status}
+                        {transcript.qualityStatus !== "clean"
+                          ? ` · ${transcript.qualityStatus}`
+                          : ""}
+                      </dd>
                     </div>
                     <div>
                       <dt>Model</dt>
@@ -152,6 +157,13 @@ export function HistoryScreen({
                   <span className="language-chip">
                     {transcript.durationMs ? `${(transcript.durationMs / 1000).toFixed(1)}s` : "n/a"}
                   </span>
+                  {transcript.qualityStatus !== "clean" ? (
+                    <span className={`status-pill quality-${transcript.qualityStatus}`}>
+                      {transcript.qualityStatus === "partial"
+                        ? "Review needed"
+                        : `${transcript.recoveredRegionCount} recovered`}
+                    </span>
+                  ) : null}
                   <button onClick={() => void onDelete(transcript.id)}>Delete</button>
                 </div>
               </article>

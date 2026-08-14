@@ -362,6 +362,40 @@ select:focus-visible {
   font-size: 0.85rem;
 }
 
+.transcript-quality-notice {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(238, 174, 105, 0.46);
+  border-radius: 18px;
+  background: rgba(255, 244, 222, 0.72);
+  color: var(--text-primary);
+}
+
+.transcript-quality-notice.quality-partial {
+  border-color: rgba(224, 126, 116, 0.52);
+  background: rgba(255, 234, 231, 0.72);
+}
+
+.transcript-quality-notice p,
+.transcript-quality-notice ul {
+  margin: 0;
+}
+
+.transcript-quality-notice ul {
+  padding-left: 20px;
+  color: var(--text-secondary);
+}
+
+.status-pill.quality-recovered {
+  color: #b57639;
+}
+
+.status-pill.quality-partial {
+  color: #b65448;
+}
+
 /* Keep the recovery action reachable when the panel stacks on narrow widths. */
 @media (max-width: 760px) {
   .live-banner-side {

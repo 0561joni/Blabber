@@ -9,6 +9,7 @@ pub struct HealthCheckResponse {
     pub db_path: String,
     pub temp_dir: String,
     pub models_dir: String,
+    pub startup_notices: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

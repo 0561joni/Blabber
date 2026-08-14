@@ -347,6 +347,17 @@ impl QuickDictationController {
 
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
         let resolved_model_name = resolve_model_name(self.engine.as_ref(), &settings)?;
+        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(
+            &self.db_path,
+            settings.language_mode,
+            settings.fixed_language.as_deref(),
+        )?;
+        if let Some(prompt) = &vocabulary_prompt {
+            eprintln!(
+                "[dictation] dictionary prompt enabled: included={} truncated={}",
+                prompt.included_count, prompt.truncated_count
+            );
+        }
         let transcript = match self.engine.transcribe_file(
             FileTranscriptionRequest {
                 profile: settings.shortcut_dictation_model_profile,
@@ -356,6 +367,11 @@ impl QuickDictationController {
                 timestamps: false,
                 prefer_gpu: settings.gpu_enabled,
                 file_path: recording.file_path.clone(),
+                context_prompt: vocabulary_prompt.as_ref().map(|prompt| prompt.text.clone()),
+                context_terms: vocabulary_prompt
+                    .as_ref()
+                    .map(|prompt| prompt.terms.clone())
+                    .unwrap_or_default(),
             },
             None,
         ) {

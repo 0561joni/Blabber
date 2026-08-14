@@ -9,8 +9,8 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::asr::{
-    discover_whisper_models, FileTranscriptionRequest, SharedWhisperEngine, TranscriptResult,
-    TranscriptionEngine,
+    discover_installed_models, FileTranscriptionRequest, LocalTranscriptionEngine,
+    TranscriptResult, TranscriptionEngine,
 };
 
 pub const WORKER_ARG: &str = "--transcribe-worker";
@@ -26,6 +26,7 @@ pub struct WorkerRequest {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WorkerOutput {
     Progress { progress_percent: i32 },
+    Heartbeat { progress_percent: i32 },
     Result { result: TranscriptResult },
     Error { message: String },
 }
@@ -50,8 +51,8 @@ fn run_stdio_worker_inner() -> Result<()> {
     let request: WorkerRequest =
         serde_json::from_str(&input).context("failed to parse transcription worker request")?;
 
-    let models = discover_whisper_models(&request.models_dir)?;
-    let engine = SharedWhisperEngine::new(request.models_dir, models);
+    let models = discover_installed_models(&request.models_dir)?;
+    let engine = LocalTranscriptionEngine::new(request.models_dir, models);
     let progress = Arc::new(AtomicI32::new(-1));
     let finished = Arc::new(AtomicBool::new(false));
     let stdout = Arc::new(Mutex::new(io::stdout()));
@@ -77,6 +78,7 @@ fn spawn_progress_emitter(
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut last_progress = -1;
+        let mut ticks = 0_u32;
         while !finished.load(Ordering::SeqCst) {
             let current = progress.load(Ordering::Relaxed);
             if current >= 0 && current != last_progress {
@@ -88,6 +90,15 @@ fn spawn_progress_emitter(
                 );
                 last_progress = current;
             }
+            if ticks % 4 == 0 {
+                let _ = emit_output_to(
+                    &stdout,
+                    &WorkerOutput::Heartbeat {
+                        progress_percent: current,
+                    },
+                );
+            }
+            ticks = ticks.wrapping_add(1);
             thread::sleep(Duration::from_millis(500));
         }
     })
@@ -148,5 +159,15 @@ mod tests {
     fn rejects_malformed_output_line() {
         let output = parse_worker_output_line("not-json");
         assert!(output.is_err());
+    }
+
+    #[test]
+    fn parses_heartbeat_output_line() {
+        let output = parse_worker_output_line(r#"{"type":"heartbeat","progress_percent":17}"#)
+            .expect("heartbeat output");
+        match output {
+            WorkerOutput::Heartbeat { progress_percent } => assert_eq!(progress_percent, 17),
+            _ => panic!("expected heartbeat"),
+        }
     }
 }

@@ -171,6 +171,34 @@ export function FileTranscribePanel({
                 {transcription.result.plainText}
               </p>
             </div>
+            {transcription.result.qualityStatus !== "clean" ? (
+              <div
+                className={`transcript-quality-notice quality-${transcription.result.qualityStatus}`}
+                role="status"
+              >
+                <strong>
+                  {transcription.result.qualityStatus === "partial"
+                    ? "Completed with a section that needs review"
+                    : `Recovered ${transcription.result.recoveredRegionCount} problematic ${
+                        transcription.result.recoveredRegionCount === 1 ? "section" : "sections"
+                      }`}
+                </strong>
+                <p>
+                  {transcription.result.qualityStatus === "partial"
+                    ? "Blabber preserved the rest of the transcript and inserted a timestamped marker where decoding could not be recovered."
+                    : "Blabber reset the decoder and continued without changing the selected model."}
+                </p>
+                {transcription.result.warnings.length > 0 ? (
+                  <ul>
+                    {transcription.result.warnings.map((warning, index) => (
+                      <li key={`${warning.startMs}:${warning.endMs}:${index}`}>
+                        {formatTimestampRange(warning.startMs, warning.endMs)} · {warning.outcome.split("_").join(" ")}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
             <div className="toolbar">
               <button onClick={() => void handleCopyTranscript(transcription.result.plainText)}>
                 {copyState === "copied"
@@ -281,4 +309,18 @@ function formatEta(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
   return minutes > 0 ? `${minutes}m ${remainder}s` : `${remainder}s`;
+}
+
+function formatTimestampRange(startMs: number, endMs: number) {
+  return `${formatClock(startMs)}–${formatClock(endMs)}`;
+}
+
+function formatClock(valueMs: number) {
+  const totalSeconds = Math.max(0, Math.floor(valueMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+    : `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
