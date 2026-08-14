@@ -44,6 +44,10 @@ const mockSettings: AppSettings = {
   saveHistory: true,
   soundsEnabled: true,
   volumeDuckingEnabled: true,
+  fileDiarizationEnabled: false,
+  quickDictateDiarizationEnabled: false,
+  diarizationMinSpeakers: null,
+  diarizationMaxSpeakers: null,
 };
 
 const mockTranscripts: TranscriptSummary[] = [];
@@ -110,6 +114,7 @@ const mockDownloadableModels: DownloadableModel[] = [
     availability: "available",
     requirements: null,
     artifactCount: 1,
+    capability: "asr",
   },
   {
     id: "ggml-small-bin",
@@ -121,6 +126,7 @@ const mockDownloadableModels: DownloadableModel[] = [
     availability: "available",
     requirements: null,
     artifactCount: 1,
+    capability: "asr",
   },
   {
     id: "ggml-medium-bin",
@@ -132,6 +138,7 @@ const mockDownloadableModels: DownloadableModel[] = [
     availability: "available",
     requirements: null,
     artifactCount: 1,
+    capability: "asr",
   },
   {
     id: "ggml-large-v3-turbo-bin",
@@ -143,6 +150,7 @@ const mockDownloadableModels: DownloadableModel[] = [
     availability: "available",
     requirements: null,
     artifactCount: 1,
+    capability: "asr",
   },
   {
     id: "ggml-large-v3-turbo-q5_0-bin",
@@ -154,6 +162,7 @@ const mockDownloadableModels: DownloadableModel[] = [
     availability: "available",
     requirements: null,
     artifactCount: 1,
+    capability: "asr",
   },
   {
     id: "qwen3-asr-1.7b-bf16",
@@ -166,6 +175,7 @@ const mockDownloadableModels: DownloadableModel[] = [
     availability: "available",
     requirements: "macOS or Linux · 16 GB RAM recommended · CPU-only",
     artifactCount: 7,
+    capability: "asr",
   },
 ];
 const mockModelDownloadListeners = new Set<(status: ModelDownloadStatus) => void>();
@@ -637,6 +647,8 @@ export async function startFileTranscription(
           modelName: "browser-preview",
           qualityStatus: "clean",
           recoveredRegionCount: 0,
+          diarizationStatus: "not_requested",
+          speakerCount: null,
         }
       : null;
 
@@ -671,6 +683,7 @@ export async function startFileTranscription(
             languageCode: "de",
             segmentOrder: 0,
             confidence: 0.89,
+            speakerId: null, speakerIds: null, speakerAttribution: "none", speakerConfidence: null,
           },
           {
             id: crypto.randomUUID(),
@@ -680,6 +693,7 @@ export async function startFileTranscription(
             languageCode: "es",
             segmentOrder: 1,
             confidence: 0.9,
+            speakerId: null, speakerIds: null, speakerAttribution: "none", speakerConfidence: null,
           },
         ],
       },

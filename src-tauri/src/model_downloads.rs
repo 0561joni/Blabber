@@ -34,6 +34,14 @@ pub enum ModelAvailability {
     UnsupportedPlatform,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelCapability {
+    Asr,
+    Vad,
+    Diarization,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadableModel {
@@ -46,6 +54,7 @@ pub struct DownloadableModel {
     pub availability: ModelAvailability,
     pub requirements: Option<String>,
     pub artifact_count: u32,
+    pub capability: ModelCapability,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -722,6 +731,7 @@ pub fn list_downloadable_models() -> Vec<DownloadableModel> {
             availability: spec.availability(),
             requirements: spec.requirements.map(ToString::to_string),
             artifact_count: spec.artifacts.len() as u32,
+            capability: ModelCapability::Asr,
         })
         .collect()
 }

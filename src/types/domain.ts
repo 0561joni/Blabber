@@ -13,6 +13,9 @@ export type TranscriptQualityStatus = "clean" | "recovered" | "partial";
 export type LanguageMode = "auto" | "fixed";
 export type InsertBehavior = "paste" | "clipboard_only";
 export type ModelProfile = "fast" | "balanced" | "accurate";
+export type ModelCapability = "asr" | "vad" | "diarization";
+export type DiarizationStatus = "not_requested" | "pending" | "running" | "completed" | "completed_with_uncertainty" | "failed" | "canceled" | "not_enough_speech";
+export type SpeakerAttribution = "none" | "assigned" | "uncertain" | "overlap";
 export type ShortcutMode = "push_to_talk" | "toggle";
 
 export interface HealthCheckResponse {
@@ -53,6 +56,8 @@ export interface TranscriptSummary {
   modelName: string | null;
   qualityStatus: TranscriptQualityStatus;
   recoveredRegionCount: number;
+  diarizationStatus: DiarizationStatus;
+  speakerCount: number | null;
 }
 
 export interface AppSettings {
@@ -74,6 +79,10 @@ export interface AppSettings {
   saveHistory: boolean;
   soundsEnabled: boolean;
   volumeDuckingEnabled: boolean;
+  fileDiarizationEnabled: boolean;
+  quickDictateDiarizationEnabled: boolean;
+  diarizationMinSpeakers: number | null;
+  diarizationMaxSpeakers: number | null;
 }
 
 export interface SettingsPatch {
@@ -95,6 +104,10 @@ export interface SettingsPatch {
   saveHistory?: boolean;
   soundsEnabled?: boolean;
   volumeDuckingEnabled?: boolean;
+  fileDiarizationEnabled?: boolean;
+  quickDictateDiarizationEnabled?: boolean;
+  diarizationMinSpeakers?: number | null;
+  diarizationMaxSpeakers?: number | null;
 }
 
 export interface InstalledModel {
@@ -118,6 +131,7 @@ export interface DownloadableModel {
   availability: "available" | "unsupported_platform";
   requirements: string | null;
   artifactCount: number;
+  capability: ModelCapability;
 }
 
 export type ModelDownloadState =
@@ -150,7 +164,14 @@ export interface TranscriptSegment {
   languageCode: string;
   segmentOrder: number;
   confidence: number | null;
+  speakerId: string | null;
+  speakerIds: string[] | null;
+  speakerAttribution: SpeakerAttribution;
+  speakerConfidence: number | null;
 }
+
+export interface DiarizationTurn { id: string; startMs: number; endMs: number; speakerIds: string[]; confidence: number | null; isOverlap: boolean; isUncertain: boolean; turnOrder: number; }
+export interface TranscriptSpeaker { speakerId: string; displayName: string; speakerOrder: number; }
 
 export interface TranscriptResult {
   jobId: string;

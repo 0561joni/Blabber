@@ -20,6 +20,10 @@ CREATE TABLE IF NOT EXISTS settings (
   save_history INTEGER NOT NULL DEFAULT 1,
   sounds_enabled INTEGER NOT NULL DEFAULT 1,
   volume_ducking_enabled INTEGER NOT NULL DEFAULT 1
+  ,file_diarization_enabled INTEGER NOT NULL DEFAULT 0
+  ,quick_dictate_diarization_enabled INTEGER NOT NULL DEFAULT 0
+  ,diarization_min_speakers INTEGER NULL
+  ,diarization_max_speakers INTEGER NULL
 );
 
 CREATE TABLE IF NOT EXISTS transcripts (
@@ -37,6 +41,11 @@ CREATE TABLE IF NOT EXISTS transcripts (
   quality_status TEXT NOT NULL DEFAULT 'clean',
   recovered_region_count INTEGER NOT NULL DEFAULT 0,
   transcription_warnings TEXT NOT NULL DEFAULT '[]'
+  ,diarization_status TEXT NOT NULL DEFAULT 'not_requested'
+  ,diarization_model_id TEXT NULL
+  ,diarization_warning TEXT NULL
+  ,diarization_policy_version INTEGER NULL
+  ,speaker_count INTEGER NULL
 );
 
 CREATE TABLE IF NOT EXISTS transcript_segments (
@@ -49,8 +58,28 @@ CREATE TABLE IF NOT EXISTS transcript_segments (
   speaker_label TEXT NULL,
   confidence REAL NULL,
   segment_order INTEGER NOT NULL,
+  speaker_id TEXT NULL,
+  speaker_ids_json TEXT NULL,
+  speaker_attribution TEXT NOT NULL DEFAULT 'none',
+  speaker_confidence REAL NULL,
   FOREIGN KEY (transcript_id) REFERENCES transcripts(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS transcript_speakers (
+  transcript_id TEXT NOT NULL, speaker_id TEXT NOT NULL, display_name TEXT NOT NULL,
+  speaker_order INTEGER NOT NULL, PRIMARY KEY (transcript_id, speaker_id),
+  FOREIGN KEY (transcript_id) REFERENCES transcripts(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS diarization_turns (
+  id TEXT PRIMARY KEY, transcript_id TEXT NOT NULL, start_ms INTEGER NOT NULL,
+  end_ms INTEGER NOT NULL, speaker_ids_json TEXT NOT NULL, confidence REAL NULL,
+  is_overlap INTEGER NOT NULL DEFAULT 0, is_uncertain INTEGER NOT NULL DEFAULT 0,
+  turn_order INTEGER NOT NULL,
+  FOREIGN KEY (transcript_id) REFERENCES transcripts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_diarization_turns_order ON diarization_turns(transcript_id, turn_order);
+CREATE INDEX IF NOT EXISTS idx_diarization_turns_start ON diarization_turns(transcript_id, start_ms);
 
 CREATE TABLE IF NOT EXISTS source_files (
   id TEXT PRIMARY KEY,

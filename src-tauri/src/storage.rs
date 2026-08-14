@@ -67,6 +67,7 @@ pub fn initialize_database(state: &AppState) -> Result<()> {
         .context("failed to run initial migration")?;
     ensure_settings_columns(&connection)?;
     ensure_transcript_quality_columns(&connection)?;
+    ensure_diarization_schema(&connection)?;
     ensure_vocabulary_columns(&connection)?;
     ensure_file_transcription_performance_table(&connection)?;
     seed_default_settings(&connection)?;
@@ -654,6 +655,22 @@ fn ensure_settings_columns(connection: &Connection) -> Result<()> {
             [],
         )?;
     }
+    for (name, declaration) in [
+        ("file_diarization_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        (
+            "quick_dictate_diarization_enabled",
+            "INTEGER NOT NULL DEFAULT 0",
+        ),
+        ("diarization_min_speakers", "INTEGER NULL"),
+        ("diarization_max_speakers", "INTEGER NULL"),
+    ] {
+        if !columns.iter().any(|column| column == name) {
+            connection.execute(
+                &format!("ALTER TABLE settings ADD COLUMN {name} {declaration}"),
+                [],
+            )?;
+        }
+    }
 
     if added_quick_dictate_columns {
         connection.execute(
@@ -738,6 +755,68 @@ fn ensure_transcript_quality_columns(connection: &Connection) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+/// Idempotently upgrades databases created by every prior Blabber release.
+fn ensure_diarization_schema(connection: &Connection) -> Result<()> {
+    let transcript_columns = table_columns(connection, "transcripts")?;
+    for (name, declaration) in [
+        (
+            "diarization_status",
+            "TEXT NOT NULL DEFAULT 'not_requested'",
+        ),
+        ("diarization_model_id", "TEXT NULL"),
+        ("diarization_warning", "TEXT NULL"),
+        ("diarization_policy_version", "INTEGER NULL"),
+        ("speaker_count", "INTEGER NULL"),
+    ] {
+        if !transcript_columns.iter().any(|column| column == name) {
+            connection.execute(
+                &format!("ALTER TABLE transcripts ADD COLUMN {name} {declaration}"),
+                [],
+            )?;
+        }
+    }
+    let segment_columns = table_columns(connection, "transcript_segments")?;
+    for (name, declaration) in [
+        ("speaker_id", "TEXT NULL"),
+        ("speaker_ids_json", "TEXT NULL"),
+        ("speaker_attribution", "TEXT NOT NULL DEFAULT 'none'"),
+        ("speaker_confidence", "REAL NULL"),
+    ] {
+        if !segment_columns.iter().any(|column| column == name) {
+            connection.execute(
+                &format!("ALTER TABLE transcript_segments ADD COLUMN {name} {declaration}"),
+                [],
+            )?;
+        }
+    }
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS transcript_speakers (
+            transcript_id TEXT NOT NULL, speaker_id TEXT NOT NULL, display_name TEXT NOT NULL,
+            speaker_order INTEGER NOT NULL, PRIMARY KEY (transcript_id, speaker_id),
+            FOREIGN KEY (transcript_id) REFERENCES transcripts(id) ON DELETE CASCADE);
+         CREATE TABLE IF NOT EXISTS diarization_turns (
+            id TEXT PRIMARY KEY, transcript_id TEXT NOT NULL, start_ms INTEGER NOT NULL,
+            end_ms INTEGER NOT NULL, speaker_ids_json TEXT NOT NULL, confidence REAL NULL,
+            is_overlap INTEGER NOT NULL DEFAULT 0, is_uncertain INTEGER NOT NULL DEFAULT 0,
+            turn_order INTEGER NOT NULL,
+            FOREIGN KEY (transcript_id) REFERENCES transcripts(id) ON DELETE CASCADE);
+         CREATE INDEX IF NOT EXISTS idx_diarization_turns_order ON diarization_turns(transcript_id, turn_order);
+         CREATE INDEX IF NOT EXISTS idx_diarization_turns_start ON diarization_turns(transcript_id, start_ms);
+         CREATE TABLE IF NOT EXISTS installed_model_packages (
+            id TEXT PRIMARY KEY, capability TEXT NOT NULL, local_path TEXT NOT NULL,
+            manifest_version INTEGER NOT NULL, hashes_json TEXT NOT NULL,
+            installed_at TEXT NOT NULL);"
+    )?;
+    Ok(())
+}
+
+fn table_columns(connection: &Connection, table: &str) -> Result<Vec<String>> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    Ok(statement
+        .query_map([], |row| row.get::<_, String>("name"))?
+        .collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
 fn ensure_file_transcription_performance_table(connection: &Connection) -> Result<()> {
