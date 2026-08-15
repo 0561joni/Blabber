@@ -1,0 +1,36 @@
+{
+  "modelId": "sherpa-diarization-pyannote3-eres2net-v1",
+  "manifestVersion": 1,
+  "runtime": {
+    "name": "sherpa-onnx",
+    "version": "1.13.5",
+    "provider": "cpu"
+  },
+  "reviewStatus": "reviewed",
+  "reviewedAt": "2026-08-15",
+  "privateUseOnly": true,
+  "packageRevision": "segmentation@340b52f1f5cd12d45a30fa284691417eaad2ff92+embedding@8be2a75c9ed7a590538b268e46fbb65e1aa9d208",
+  "artifacts": [
+    {
+      "path": "segmentation.onnx",
+      "role": "pyannote_segmentation",
+      "sourceUrl": "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/340b52f1f5cd12d45a30fa284691417eaad2ff92/model.onnx?download=true",
+      "sourceRevision": "340b52f1f5cd12d45a30fa284691417eaad2ff92",
+      "sizeBytes": 5992778,
+      "sha256": "fed22097bca974bad329a930b60865703766ff89f05fa09060bf6fd44e92e319",
+      "license": "MIT",
+      "licenseUrl": "https://huggingface.co/pyannote/segmentation-3.0"
+    },
+    {
+      "path": "embedding.onnx",
+      "role": "eres2net_speaker_embedding",
+      "sourceUrl": "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/8be2a75c9ed7a590538b268e46fbb65e1aa9d208/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx?download=true",
+      "sourceRevision": "8be2a75c9ed7a590538b268e46fbb65e1aa9d208",
+      "sizeBytes": 39593761,
+      "sha256": "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://github.com/modelscope/3D-Speaker/blob/main/LICENSE"
+    }
+  ],
+  "provenanceDecision": "For this private-use build, download the ungated sherpa-compatible ONNX conversion of the MIT-licensed pyannote segmentation 3.0 model rather than requiring access to pyannote's contact-sharing-gated repository. Re-review before external distribution."
+}

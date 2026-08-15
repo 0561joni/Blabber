@@ -26,6 +26,10 @@
   },
   "bundle": {
     "active": true,
+    "resources": {
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "licenses/*": "licenses/"
+    },
     "macOS": {
       "minimumSystemVersion": "11.0",
       "infoPlist": "Info.plist",

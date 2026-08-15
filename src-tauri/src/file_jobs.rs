@@ -381,7 +381,7 @@ impl FileTranscriptionController {
                     job_id: request.job_id.clone(),
                     audio_path: request.source_file.file_path.clone().into(),
                     package_path,
-                    exact_speaker_count: settings.diarization_speaker_count,
+                    exact_speaker_count: None,
                     spec_version: diarization::DIARIZATION_MODEL_SPEC_V1.manifest_version,
                 };
                 match diarization_worker::run_subprocess_worker(
@@ -397,7 +397,7 @@ impl FileTranscriptionController {
             } else {
                 diarization::mark_failure(
                     &mut corrected,
-                    "The verified diarization model package is not installed.",
+                    "Speaker identification is enabled, but its model is still installing or unavailable. The transcript was saved without speaker labels.",
                 );
             }
         }

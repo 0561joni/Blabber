@@ -273,17 +273,10 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
         file_diarization_enabled: patch
             .file_diarization_enabled
             .unwrap_or(current.file_diarization_enabled),
-        quick_dictate_diarization_enabled: patch
-            .quick_dictate_diarization_enabled
-            .unwrap_or(current.quick_dictate_diarization_enabled),
-        diarization_speaker_count: patch
-            .diarization_speaker_count
-            .unwrap_or(current.diarization_speaker_count),
     };
-    validate_diarization_speaker_count(next.diarization_speaker_count)?;
     let connection = open_connection_by_path(db_path)?;
     connection.execute(
-        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19, quick_dictate_diarization_enabled = ?20, diarization_speaker_count = ?21 WHERE id = 1",
+        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19 WHERE id = 1",
         params![
             to_default_mode(next.default_mode),
             next.shortcut,
@@ -304,8 +297,6 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
             next.sounds_enabled,
             next.volume_ducking_enabled,
             next.file_diarization_enabled,
-            next.quick_dictate_diarization_enabled,
-            next.diarization_speaker_count,
         ],
     )?;
     get_settings_from_db_path(db_path)
@@ -545,7 +536,7 @@ fn open_connection_by_path(db_path: &Path) -> Result<Connection> {
 
 fn query_settings(connection: &Connection) -> Result<AppSettings> {
     let settings = connection.query_row(
-        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled, quick_dictate_diarization_enabled, diarization_speaker_count FROM settings WHERE id = 1",
+        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled FROM settings WHERE id = 1",
         [],
         map_settings_row,
     )?;
@@ -1137,16 +1128,7 @@ fn map_settings_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AppSettings> {
         sounds_enabled: row.get("sounds_enabled")?,
         volume_ducking_enabled: row.get("volume_ducking_enabled")?,
         file_diarization_enabled: row.get("file_diarization_enabled")?,
-        quick_dictate_diarization_enabled: row.get("quick_dictate_diarization_enabled")?,
-        diarization_speaker_count: row.get("diarization_speaker_count")?,
     })
-}
-
-fn validate_diarization_speaker_count(value: Option<i32>) -> Result<()> {
-    if value.is_some_and(|count| !(1..=20).contains(&count)) {
-        anyhow::bail!("Speaker count must be between 1 and 20.");
-    }
-    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -1524,14 +1506,5 @@ mod tests {
         assert_eq!(detail.segments[0].speaker_id.as_deref(), Some("speaker_0"));
         assert_eq!(detail.speakers[0].display_name, "Speaker 1");
         assert_eq!(detail.diarization_turns.len(), 1);
-    }
-
-    #[test]
-    fn exact_speaker_count_is_bounded() {
-        assert!(validate_diarization_speaker_count(None).is_ok());
-        assert!(validate_diarization_speaker_count(Some(1)).is_ok());
-        assert!(validate_diarization_speaker_count(Some(20)).is_ok());
-        assert!(validate_diarization_speaker_count(Some(0)).is_err());
-        assert!(validate_diarization_speaker_count(Some(21)).is_err());
     }
 }

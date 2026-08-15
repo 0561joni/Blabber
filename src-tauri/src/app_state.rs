@@ -112,6 +112,17 @@ impl AppState {
         storage::apply_preferred_model_defaults(&state, &engine_models)?;
         vocabulary::seed_builtin_terms(&state)?;
         let settings = storage::get_settings(&state)?;
+        if settings.file_diarization_enabled
+            && crate::model_downloads::installed_diarization_package_path(&state.models_dir)
+                .is_none()
+        {
+            if let Err(error) = state
+                .model_download_manager
+                .start_download(crate::diarization::DIARIZATION_MODEL_ID)
+            {
+                eprintln!("[diarization-model] startup resume unavailable: {error:#}");
+            }
+        }
         state
             .recording_controller
             .set_preferred_input_device(settings.preferred_input_device.clone());

@@ -30,9 +30,23 @@ License: https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.5/LICENSE
 
 ## Speaker diarization model weights
 
-The pyannote segmentation 3.0 and 3D-Speaker ERes2Net weights are separate
-downloadable artifacts and are not bundled with Blabber. Their redistribution
-and local-commercial-use review is unresolved; consequently the package is not
-yet exposed as installable. A future reviewed artifact manifest must record the
-exact weight revision, SHA-256, license identifier, and reviewed license URL
-before enabling installation.
+The speaker-diarization weights are downloaded separately and are not bundled
+with Blabber. Blabber verifies their byte sizes and SHA-256 hashes before
+installing them.
+
+The segmentation artifact is an ungated sherpa-compatible ONNX conversion of
+the MIT-licensed pyannote segmentation 3.0 model, pinned to revision
+`340b52f1f5cd12d45a30fa284691417eaad2ff92`. The original pyannote repository
+uses a contact-sharing download gate; this private-use build downloads the
+public conversion instead. The MIT license text is retained at
+`src-tauri/licenses/pyannote-segmentation-3.0-MIT.txt`.
+
+The ERes2Net speaker-embedding artifact comes from 3D-Speaker and is pinned to
+revision `8be2a75c9ed7a590538b268e46fbb65e1aa9d208`. It is licensed under
+Apache-2.0; the license text is retained at
+`src-tauri/licenses/3D-Speaker-APACHE-2.0.txt`.
+
+The reviewed artifact manifest is
+`src-tauri/model-manifests/sherpa-diarization-pyannote3-eres2net-v1.json`.
+The provenance decision must be reviewed again before distributing Blabber to
+other users.

@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub const SHERPA_ONNX_VERSION: &str = "1.13.5";
 pub const DIARIZATION_MODEL_ID: &str = "sherpa-diarization-pyannote3-eres2net-v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

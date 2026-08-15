@@ -19,8 +19,7 @@ use crate::diarization::DIARIZATION_MODEL_ID;
 #[cfg(test)]
 use crate::qwen_asr::QWEN_REQUIRED_ARTIFACTS;
 use crate::qwen_asr::{
-    self, QWEN_COMPLETE_FILE, QWEN_MODEL_DIR, QWEN_MODEL_ID, QWEN_MODEL_NAME, QWEN_MODEL_REVISION,
-    QWEN_TOTAL_SIZE,
+    self, QWEN_MODEL_DIR, QWEN_MODEL_ID, QWEN_MODEL_NAME, QWEN_MODEL_REVISION, QWEN_TOTAL_SIZE,
 };
 use crate::settings::ModelProfile;
 use crate::storage;
@@ -28,16 +27,18 @@ use crate::storage;
 const MODEL_DOWNLOAD_EVENT: &str = "model-download-status";
 pub const VAD_MODEL_NAME: &str = "ggml-silero-v6.2.0.bin";
 pub const DIARIZATION_MODEL_DIR: &str = "sherpa-diarization-pyannote3-eres2net-v1";
-pub const MODEL_COMPLETE_FILE: &str = ".complete.json";
-/// Flip only after the pinned artifact manifest and redistribution terms are reviewed.
-pub const DIARIZATION_ARTIFACTS_REVIEWED: bool = false;
+/// Shared completion marker for every directory-based model package.
+/// Keep the historical filename so existing Qwen installations remain valid.
+pub const MODEL_COMPLETE_FILE: &str = ".blabber-model.json";
+pub const DIARIZATION_ARTIFACTS_REVIEWED: bool = true;
+pub const DIARIZATION_TOTAL_SIZE: i64 = 45_586_539;
+pub const DIARIZATION_REVISION: &str = "segmentation@340b52f1f5cd12d45a30fa284691417eaad2ff92+embedding@8be2a75c9ed7a590538b268e46fbb65e1aa9d208";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelAvailability {
     Available,
     UnsupportedPlatform,
-    PendingLicenseReview,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -140,13 +141,12 @@ impl ModelDownloadManager {
             .ok_or_else(|| anyhow!("Unknown model download: {model_id}"))?;
         match spec.availability() {
             ModelAvailability::Available => {}
-            ModelAvailability::UnsupportedPlatform => return Err(anyhow!(
-                "MODEL_UNSUPPORTED_PLATFORM: {} is not available on this platform",
-                spec.model_name
-            )),
-            ModelAvailability::PendingLicenseReview => return Err(anyhow!(
-                "MODEL_LICENSE_REVIEW_PENDING: The diarization weights are not downloadable until their redistribution terms and pinned hashes have been reviewed."
-            )),
+            ModelAvailability::UnsupportedPlatform => {
+                return Err(anyhow!(
+                    "MODEL_UNSUPPORTED_PLATFORM: {} is not available on this platform",
+                    spec.model_name
+                ))
+            }
         }
 
         let mut active = self
@@ -364,7 +364,7 @@ fn download_model(
             fs::rename(temp_path, final_path)?;
         }
         InstallLayout::Directory { directory_name } => {
-            if qwen_asr::discover_model(models_dir)?.is_some() {
+            if model_is_installed(spec, models_dir) {
                 return Ok(());
             }
             let final_dir = models_dir.join(directory_name);
@@ -528,38 +528,38 @@ fn verify_file(path: &Path, artifact: &ModelArtifactSpec) -> Result<bool> {
     Ok(format!("{:x}", hasher.finalize()) == artifact.sha256)
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CompletionManifest<'a> {
-    model_id: &'a str,
-    revision: &'a str,
-    artifacts: Vec<CompletionArtifact<'a>>,
+struct CompletionManifest {
+    model_id: String,
+    revision: String,
+    artifacts: Vec<CompletionArtifact>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CompletionArtifact<'a> {
-    path: &'a str,
+struct CompletionArtifact {
+    path: String,
     size_bytes: i64,
-    sha256: &'a str,
+    sha256: String,
 }
 
 fn write_completion_manifest(spec: &DownloadableModelSpec, directory: &Path) -> Result<()> {
     let manifest = CompletionManifest {
-        model_id: spec.id,
-        revision: spec.revision.unwrap_or(""),
+        model_id: spec.id.to_string(),
+        revision: spec.revision.unwrap_or("").to_string(),
         artifacts: spec
             .artifacts
             .iter()
             .map(|artifact| CompletionArtifact {
-                path: artifact.path,
+                path: artifact.path.to_string(),
                 size_bytes: artifact.size_bytes,
-                sha256: artifact.sha256,
+                sha256: artifact.sha256.to_string(),
             })
             .collect(),
     };
-    let partial = directory.join(format!("{QWEN_COMPLETE_FILE}.part"));
-    let final_path = directory.join(QWEN_COMPLETE_FILE);
+    let partial = directory.join(format!("{MODEL_COMPLETE_FILE}.part"));
+    let final_path = directory.join(MODEL_COMPLETE_FILE);
     let mut file = File::create(&partial)?;
     serde_json::to_writer_pretty(&mut file, &manifest)?;
     file.write_all(b"\n")?;
@@ -618,14 +618,11 @@ struct DownloadableModelSpec {
     artifacts: &'static [ModelArtifactSpec],
     qwen_platform_limited: bool,
     capability: ModelCapability,
-    pending_license_review: bool,
 }
 
 impl DownloadableModelSpec {
     fn availability(&self) -> ModelAvailability {
-        if self.pending_license_review {
-            ModelAvailability::PendingLicenseReview
-        } else if self.qwen_platform_limited && !qwen_asr::platform_supported() {
+        if self.qwen_platform_limited && !qwen_asr::platform_supported() {
             ModelAvailability::UnsupportedPlatform
         } else {
             ModelAvailability::Available
@@ -654,6 +651,21 @@ const QWEN_ARTIFACTS: &[ModelArtifactSpec] = &[
     ModelArtifactSpec { path: "merges.txt", size_bytes: 1_671_853, url: "https://huggingface.co/Qwen/Qwen3-ASR-1.7B/resolve/b188e100bd85038c06d2812d24a39776eba774ca/merges.txt?download=true", sha256: "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5" },
 ];
 
+const DIARIZATION_ARTIFACTS: &[ModelArtifactSpec] = &[
+    ModelArtifactSpec {
+        path: "segmentation.onnx",
+        size_bytes: 5_992_778,
+        url: "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/340b52f1f5cd12d45a30fa284691417eaad2ff92/model.onnx?download=true",
+        sha256: "fed22097bca974bad329a930b60865703766ff89f05fa09060bf6fd44e92e319",
+    },
+    ModelArtifactSpec {
+        path: "embedding.onnx",
+        size_bytes: 39_593_761,
+        url: "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/8be2a75c9ed7a590538b268e46fbb65e1aa9d208/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx?download=true",
+        sha256: "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b",
+    },
+];
+
 fn downloadable_specs() -> Vec<DownloadableModelSpec> {
     vec![
         whisper_spec("ggml-tiny-bin", "ggml-tiny.bin", "Smallest local model for quick tests and lightweight dictation.", 77_691_713, ModelProfile::Fast, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin?download=true", "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21"),
@@ -674,22 +686,20 @@ fn downloadable_specs() -> Vec<DownloadableModelSpec> {
             artifacts: QWEN_ARTIFACTS,
             qwen_platform_limited: true,
             capability: ModelCapability::Asr,
-            pending_license_review: false,
         },
         DownloadableModelSpec {
             id: DIARIZATION_MODEL_ID,
             engine: "sherpa-onnx",
             model_name: "Offline speaker diarization",
             description: "Local speaker separation using pyannote segmentation and ERes2Net embeddings.",
-            requirements: Some("CPU-only · model redistribution review pending"),
-            size_bytes: 0,
+            requirements: Some("CPU-only · approximately 46 MB download"),
+            size_bytes: DIARIZATION_TOTAL_SIZE,
             profile: ModelProfile::Balanced,
             layout: InstallLayout::Directory { directory_name: DIARIZATION_MODEL_DIR },
-            revision: None,
-            artifacts: &[],
+            revision: Some(DIARIZATION_REVISION),
+            artifacts: DIARIZATION_ARTIFACTS,
             qwen_platform_limited: false,
             capability: ModelCapability::Diarization,
-            pending_license_review: true,
         },
     ]
 }
@@ -726,7 +736,6 @@ fn whisper_spec(
         artifacts,
         qwen_platform_limited: false,
         capability: ModelCapability::Asr,
-        pending_license_review: false,
     }
 }
 
@@ -751,7 +760,6 @@ fn vad_model_spec() -> DownloadableModelSpec {
         ),
         qwen_platform_limited: false,
         capability: ModelCapability::Vad,
-        pending_license_review: false,
     }
 }
 
@@ -768,8 +776,9 @@ pub fn list_downloadable_models(models_dir: Option<&Path>) -> Vec<DownloadableMo
             availability: spec.availability(),
             requirements: spec.requirements.map(ToString::to_string),
             availability_reason: match spec.availability() {
-                ModelAvailability::PendingLicenseReview => Some(format!("The sherpa-onnx {} runtime is integrated, but downloads remain disabled until the upstream weight licenses, immutable artifact URLs, sizes, and SHA-256 hashes have been reviewed and pinned.", crate::diarization::SHERPA_ONNX_VERSION)),
-                ModelAvailability::UnsupportedPlatform => Some("This runtime is not supported on the current platform.".to_string()),
+                ModelAvailability::UnsupportedPlatform => {
+                    Some("This runtime is not supported on the current platform.".to_string())
+                }
                 ModelAvailability::Available => None,
             },
             installed: models_dir.is_some_and(|dir| model_is_installed(&spec, dir)),
@@ -780,15 +789,33 @@ pub fn list_downloadable_models(models_dir: Option<&Path>) -> Vec<DownloadableMo
 }
 
 fn model_is_installed(spec: &DownloadableModelSpec, models_dir: &Path) -> bool {
-    if spec.pending_license_review {
-        return false;
-    }
     match spec.layout {
         InstallLayout::File { file_name } => models_dir.join(file_name).is_file(),
-        InstallLayout::Directory { directory_name } => models_dir
-            .join(directory_name)
-            .join(MODEL_COMPLETE_FILE)
-            .is_file(),
+        InstallLayout::Directory { directory_name } => {
+            let directory = models_dir.join(directory_name);
+            let manifest = fs::read_to_string(directory.join(MODEL_COMPLETE_FILE))
+                .ok()
+                .and_then(|contents| serde_json::from_str::<CompletionManifest>(&contents).ok());
+            let Some(manifest) = manifest else {
+                return false;
+            };
+            manifest.model_id == spec.id
+                && manifest.revision == spec.revision.unwrap_or("")
+                && manifest.artifacts.len() == spec.artifacts.len()
+                && spec.artifacts.iter().all(|artifact| {
+                    manifest.artifacts.iter().any(|installed| {
+                        installed.path == artifact.path
+                            && installed.size_bytes == artifact.size_bytes
+                            && installed.sha256 == artifact.sha256
+                    }) && directory
+                        .join(artifact.path)
+                        .metadata()
+                        .map(|metadata| {
+                            metadata.is_file() && metadata.len() as i64 == artifact.size_bytes
+                        })
+                        .unwrap_or(false)
+                })
+        }
     }
 }
 
@@ -796,16 +823,47 @@ pub fn installed_diarization_package_path(models_dir: &Path) -> Option<PathBuf> 
     if !DIARIZATION_ARTIFACTS_REVIEWED {
         return None;
     }
-    let directory = models_dir.join(DIARIZATION_MODEL_DIR);
-    let complete = directory.join(MODEL_COMPLETE_FILE);
-    let segmentation = directory.join("segmentation.onnx");
-    let embedding = directory.join("embedding.onnx");
-    (complete.is_file() && segmentation.is_file() && embedding.is_file()).then_some(directory)
+    let spec = downloadable_specs()
+        .into_iter()
+        .find(|spec| spec.id == DIARIZATION_MODEL_ID)?;
+    model_is_installed(&spec, models_dir).then(|| models_dir.join(DIARIZATION_MODEL_DIR))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TEST_HASH: &str = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+
+    fn test_directory_spec(
+        id: &'static str,
+        directory_name: &'static str,
+        url: &'static str,
+    ) -> DownloadableModelSpec {
+        let artifacts = Box::leak(
+            vec![ModelArtifactSpec {
+                path: "model.bin",
+                size_bytes: 5,
+                url,
+                sha256: TEST_HASH,
+            }]
+            .into_boxed_slice(),
+        );
+        DownloadableModelSpec {
+            id,
+            engine: "test",
+            model_name: "Test directory model",
+            description: "Test fixture",
+            requirements: None,
+            size_bytes: 5,
+            profile: ModelProfile::Fast,
+            layout: InstallLayout::Directory { directory_name },
+            revision: Some("test-revision"),
+            artifacts,
+            qwen_platform_limited: false,
+            capability: ModelCapability::Diarization,
+        }
+    }
 
     #[test]
     fn qwen_manifest_is_pinned_and_complete() {
@@ -838,15 +896,39 @@ mod tests {
     }
 
     #[test]
-    fn diarization_weights_remain_gated_until_reviewed() {
+    fn diarization_manifest_is_reviewed_pinned_and_complete() {
         let spec = downloadable_specs()
             .into_iter()
             .find(|spec| spec.id == DIARIZATION_MODEL_ID)
             .expect("diarization model card");
         assert_eq!(spec.capability, ModelCapability::Diarization);
-        assert_eq!(spec.availability(), ModelAvailability::PendingLicenseReview);
-        assert!(spec.artifacts.is_empty());
-        assert!(!DIARIZATION_ARTIFACTS_REVIEWED);
+        assert_eq!(spec.availability(), ModelAvailability::Available);
+        assert_eq!(spec.revision, Some(DIARIZATION_REVISION));
+        assert_eq!(spec.artifacts.len(), 2);
+        assert_eq!(
+            spec.artifacts
+                .iter()
+                .map(|artifact| artifact.size_bytes)
+                .sum::<i64>(),
+            DIARIZATION_TOTAL_SIZE
+        );
+        assert_eq!(
+            spec.artifacts
+                .iter()
+                .map(|artifact| artifact.path)
+                .collect::<Vec<_>>(),
+            ["segmentation.onnx", "embedding.onnx"]
+        );
+        assert!(spec.artifacts.iter().all(|artifact| {
+            artifact.sha256.len() == 64
+                && artifact
+                    .sha256
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit())
+                && artifact.url.contains("/resolve/")
+                && !artifact.url.contains("/resolve/main/")
+        }));
+        assert!(DIARIZATION_ARTIFACTS_REVIEWED);
     }
 
     #[test]
@@ -874,6 +956,140 @@ mod tests {
         };
         assert!(!verify_file(&path, &wrong_hash).expect("wrong hash"));
         fs::remove_file(path).expect("cleanup");
+    }
+
+    #[test]
+    fn directory_installation_requires_matching_manifest_and_artifacts() {
+        let models_dir = std::env::temp_dir().join(format!(
+            "blabber-directory-validation-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let spec = test_directory_spec(
+            "test-directory-model",
+            "test-directory-model",
+            "https://example.invalid/model.bin",
+        );
+        let package_dir = models_dir.join("test-directory-model");
+        fs::create_dir_all(&package_dir).expect("package directory");
+        fs::write(package_dir.join("model.bin"), b"hello").expect("artifact");
+
+        assert!(!model_is_installed(&spec, &models_dir));
+        write_completion_manifest(&spec, &package_dir).expect("completion manifest");
+        assert!(model_is_installed(&spec, &models_dir));
+
+        let manifest_path = package_dir.join(MODEL_COMPLETE_FILE);
+        let mut manifest: CompletionManifest =
+            serde_json::from_slice(&fs::read(&manifest_path).expect("manifest bytes"))
+                .expect("manifest");
+        manifest.revision = "stale-revision".to_string();
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec(&manifest).expect("stale manifest"),
+        )
+        .expect("write stale manifest");
+        assert!(!model_is_installed(&spec, &models_dir));
+
+        write_completion_manifest(&spec, &package_dir).expect("restore manifest");
+        let mut manifest: CompletionManifest =
+            serde_json::from_slice(&fs::read(&manifest_path).expect("restored manifest bytes"))
+                .expect("restored manifest");
+        manifest.artifacts[0].sha256 =
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string();
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec(&manifest).expect("wrong-hash manifest"),
+        )
+        .expect("write wrong-hash manifest");
+        assert!(!model_is_installed(&spec, &models_dir));
+
+        write_completion_manifest(&spec, &package_dir).expect("restore manifest again");
+        fs::write(package_dir.join("model.bin"), b"tiny").expect("wrong-size artifact");
+        assert!(!model_is_installed(&spec, &models_dir));
+
+        fs::remove_dir_all(models_dir).expect("cleanup");
+    }
+
+    #[test]
+    fn cancellation_keeps_a_resumable_partial_artifact() {
+        let models_dir =
+            std::env::temp_dir().join(format!("blabber-directory-cancel-{}", uuid::Uuid::new_v4()));
+        let spec = test_directory_spec(
+            "cancel-test-package",
+            "cancel-test-package",
+            "https://example.invalid/model.bin",
+        );
+        let partial_path = models_dir
+            .join(".cancel-test-package.part")
+            .join("model.bin.part");
+        fs::create_dir_all(partial_path.parent().expect("partial parent"))
+            .expect("partial directory");
+        fs::write(&partial_path, b"he").expect("partial artifact");
+
+        let error = download_model(&spec, &models_dir, &AtomicBool::new(true), |_, _, _| {})
+            .expect_err("canceled download");
+        assert!(is_cancelled_error(&error));
+        assert_eq!(fs::read(&partial_path).expect("preserved partial"), b"he");
+        assert!(!models_dir.join("cancel-test-package").exists());
+
+        fs::remove_dir_all(models_dir).expect("cleanup");
+    }
+
+    #[test]
+    fn unrelated_directory_package_does_not_block_resumed_atomic_install() {
+        let models_dir = std::env::temp_dir().join(format!(
+            "blabber-directory-download-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let unrelated = test_directory_spec(
+            "qwen-test-package",
+            QWEN_MODEL_DIR,
+            "https://example.invalid/qwen.bin",
+        );
+        let unrelated_dir = models_dir.join(QWEN_MODEL_DIR);
+        fs::create_dir_all(&unrelated_dir).expect("unrelated package directory");
+        fs::write(unrelated_dir.join("model.bin"), b"hello").expect("unrelated artifact");
+        write_completion_manifest(&unrelated, &unrelated_dir).expect("unrelated manifest");
+        assert!(model_is_installed(&unrelated, &models_dir));
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("test server");
+        let address = listener.local_addr().expect("server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("download connection");
+            let mut request = [0_u8; 2048];
+            let bytes_read = stream.read(&mut request).expect("request");
+            let request = String::from_utf8_lossy(&request[..bytes_read]);
+            assert!(request.contains("Range: bytes=2-") || request.contains("range: bytes=2-"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Length: 3\r\nContent-Range: bytes 2-4/5\r\nConnection: close\r\n\r\nllo",
+                )
+                .expect("response");
+        });
+        let url: &'static str = Box::leak(format!("http://{address}/model.bin").into_boxed_str());
+        let requested =
+            test_directory_spec("diarization-test-package", "diarization-test-package", url);
+        let final_dir = models_dir.join("diarization-test-package");
+        fs::create_dir_all(&final_dir).expect("stale final directory");
+        fs::write(final_dir.join("model.bin"), b"stale").expect("stale artifact");
+        let staging_dir = models_dir.join(".diarization-test-package.part");
+        fs::create_dir_all(&staging_dir).expect("staging directory");
+        fs::write(staging_dir.join("model.bin.part"), b"he").expect("partial artifact");
+
+        download_model(
+            &requested,
+            &models_dir,
+            &AtomicBool::new(false),
+            |_, _, _| {},
+        )
+        .expect("directory download");
+        server.join().expect("test server completed");
+
+        assert_eq!(
+            fs::read(final_dir.join("model.bin")).expect("installed artifact"),
+            b"hello"
+        );
+        assert!(model_is_installed(&requested, &models_dir));
+        fs::remove_dir_all(models_dir).expect("cleanup");
     }
 
     #[test]

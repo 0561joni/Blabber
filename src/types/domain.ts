@@ -80,8 +80,6 @@ export interface AppSettings {
   soundsEnabled: boolean;
   volumeDuckingEnabled: boolean;
   fileDiarizationEnabled: boolean;
-  quickDictateDiarizationEnabled: boolean;
-  diarizationSpeakerCount: number | null;
 }
 
 export interface SettingsPatch {
@@ -104,8 +102,6 @@ export interface SettingsPatch {
   soundsEnabled?: boolean;
   volumeDuckingEnabled?: boolean;
   fileDiarizationEnabled?: boolean;
-  quickDictateDiarizationEnabled?: boolean;
-  diarizationSpeakerCount?: number | null;
 }
 
 export interface InstalledModel {
@@ -126,7 +122,7 @@ export interface DownloadableModel {
   description: string;
   sizeBytes: number;
   profile: ModelProfile;
-  availability: "available" | "unsupported_platform" | "pending_license_review";
+  availability: "available" | "unsupported_platform";
   availabilityReason: string | null;
   installed: boolean;
   requirements: string | null;

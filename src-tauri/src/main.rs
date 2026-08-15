@@ -126,17 +126,27 @@ fn update_settings(
     state: tauri::State<'_, AppState>,
     patch: SettingsPatch,
 ) -> Result<AppSettings, String> {
-    if (patch.file_diarization_enabled == Some(true)
-        || patch.quick_dictate_diarization_enabled == Some(true))
-        && model_downloads::installed_diarization_package_path(&state.models_dir).is_none()
-    {
-        return Err(
-            "Install a verified diarization model package before enabling speaker identification."
-                .to_string(),
-        );
-    }
+    let diarization_change = patch.file_diarization_enabled;
     let settings =
         storage::update_settings(state.inner(), patch).map_err(|error| error.to_string())?;
+    match diarization_change {
+        Some(true)
+            if model_downloads::installed_diarization_package_path(&state.models_dir).is_none() =>
+        {
+            if let Err(error) = state
+                .model_download_manager
+                .start_download(diarization::DIARIZATION_MODEL_ID)
+            {
+                eprintln!("[diarization-model] automatic download unavailable: {error:#}");
+            }
+        }
+        Some(false) => {
+            let _ = state
+                .model_download_manager
+                .cancel_download(diarization::DIARIZATION_MODEL_ID);
+        }
+        _ => {}
+    }
     state
         .recording_controller
         .set_preferred_input_device(settings.preferred_input_device.clone());
@@ -366,42 +376,8 @@ async fn preview_transcription(
 
         Ok(match result {
             Ok(result) => {
-                let mut corrected =
-                    vocabulary::correct_transcript_result(&app_state.db_path, result)
-                        .map_err(|error| error.to_string())?;
-                if request.source_kind == asr::PreviewSourceKind::QuickDictate {
-                    let settings = storage::get_settings_from_db_path(&app_state.db_path)
-                        .map_err(|error| error.to_string())?;
-                    if settings.quick_dictate_diarization_enabled {
-                        if let Some(package_path) =
-                            model_downloads::installed_diarization_package_path(
-                                &app_state.models_dir,
-                            )
-                        {
-                            let worker_request = diarization_worker::WorkerRequest {
-                                job_id: corrected.job_id.clone(),
-                                audio_path: file_path.into(),
-                                package_path,
-                                exact_speaker_count: settings.diarization_speaker_count,
-                                spec_version: diarization::DIARIZATION_MODEL_SPEC_V1
-                                    .manifest_version,
-                            };
-                            match diarization_worker::run_subprocess_worker(&worker_request, None) {
-                                Ok(turns) => {
-                                    diarization::apply_turns_to_transcript(&mut corrected, turns)
-                                }
-                                Err(error) => {
-                                    diarization::mark_failure(&mut corrected, error.to_string())
-                                }
-                            }
-                        } else {
-                            diarization::mark_failure(
-                                &mut corrected,
-                                "The verified diarization model package is not installed.",
-                            );
-                        }
-                    }
-                }
+                let corrected = vocabulary::correct_transcript_result(&app_state.db_path, result)
+                    .map_err(|error| error.to_string())?;
                 TranscriptionPreviewResponse {
                     source_kind: request.source_kind,
                     resolved_model,

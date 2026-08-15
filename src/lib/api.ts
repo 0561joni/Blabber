@@ -49,8 +49,6 @@ const mockSettings: AppSettings = {
   soundsEnabled: true,
   volumeDuckingEnabled: true,
   fileDiarizationEnabled: false,
-  quickDictateDiarizationEnabled: false,
-  diarizationSpeakerCount: null,
 };
 
 const mockTranscripts: TranscriptSummary[] = [];
@@ -197,14 +195,13 @@ const mockDownloadableModels: DownloadableModel[] = [
     engine: "sherpa-onnx",
     modelName: "Offline speaker diarization",
     description: "Local speaker separation using pyannote segmentation and ERes2Net embeddings.",
-    sizeBytes: 0,
+    sizeBytes: 45_586_539,
     profile: "balanced",
-    availability: "pending_license_review",
-    availabilityReason:
-      "Downloads remain disabled until the upstream model-weight licenses and immutable hashes are reviewed.",
+    availability: "available",
+    availabilityReason: null,
     installed: false,
-    requirements: "CPU-only · model redistribution review pending",
-    artifactCount: 0,
+    requirements: "CPU-only · approximately 46 MB download",
+    artifactCount: 2,
     capability: "diarization",
   },
 ];
@@ -388,7 +385,10 @@ export async function openModelsFolder(): Promise<void> {
 
 export async function listDownloadableModels(): Promise<DownloadableModel[]> {
   if (!isTauriRuntime()) {
-    return mockDownloadableModels;
+    return mockDownloadableModels.map((model) => ({
+      ...model,
+      installed: model.installed || mockModels.some((installed) => installed.id === model.id),
+    }));
   }
   return invoke<DownloadableModel[]>("list_downloadable_models");
 }
@@ -456,9 +456,6 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
           artifactIndex: isFinal ? model.artifactCount : 1,
           artifactCount: model.artifactCount,
         };
-        mockModelDownloadStatuses.set(model.id, nextStatus);
-        emitMockModelDownloadStatus(nextStatus);
-
         if (isFinal && !mockModels.some((installed) => installed.id === model.id)) {
           mockModels.push({
             id: model.id,
@@ -471,6 +468,8 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
             profile: model.profile,
           });
         }
+        mockModelDownloadStatuses.set(model.id, nextStatus);
+        emitMockModelDownloadStatus(nextStatus);
       }, step * 280);
     }
 
@@ -530,6 +529,23 @@ export async function listInputDevices(): Promise<InputDeviceOption[]> {
 export async function updateSettings(patch: SettingsPatch): Promise<AppSettings> {
   if (!isTauriRuntime()) {
     Object.assign(mockSettings, patch);
+    if (patch.fileDiarizationEnabled === true) {
+      const diarizationModel = mockDownloadableModels.find(
+        (model) => model.capability === "diarization",
+      );
+      if (diarizationModel && !mockModels.some((model) => model.id === diarizationModel.id)) {
+        await startModelDownload(diarizationModel.id);
+      }
+    } else if (patch.fileDiarizationEnabled === false) {
+      const diarizationStatus = Array.from(mockModelDownloadStatuses.values()).find(
+        (status) =>
+          status.state === "downloading" &&
+          mockDownloadableModels.find((model) => model.id === status.modelId)?.capability === "diarization",
+      );
+      if (diarizationStatus) {
+        await cancelModelDownload(diarizationStatus.modelId);
+      }
+    }
     mockQuickDictationStatus = {
       ...mockQuickDictationStatus,
       registeredShortcut: mockSettings.shortcut,

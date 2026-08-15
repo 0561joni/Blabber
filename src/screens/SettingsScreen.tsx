@@ -94,7 +94,11 @@ export function SettingsScreen({
         [status.modelId]: status,
       }));
       if (status.state === "completed") {
-        await onReloadModelState();
+        const [models] = await Promise.all([
+          listDownloadableModels(),
+          onReloadModelState(),
+        ]);
+        setDownloadableModels(models);
       }
     }).then((cleanup) => {
       unlisten = cleanup;
@@ -249,7 +253,19 @@ export function SettingsScreen({
         },
       ];
   const diarizationModel = downloadableModels.find((model) => model.capability === "diarization");
+  const speechModels = downloadableModels.filter((model) => model.capability === "asr");
   const diarizationReady = diarizationModel?.installed === true;
+  const diarizationStatus = diarizationModel
+    ? modelDownloadStatuses[diarizationModel.id]
+    : undefined;
+  const diarizationDownloading = diarizationStatus?.state === "downloading";
+  const anotherDownloadActive = Object.values(modelDownloadStatuses).some(
+    (status) =>
+      status.modelId !== diarizationModel?.id && status.state === "downloading",
+  );
+  const diarizationProgress = diarizationStatus?.progressPercent === null
+    ? null
+    : Math.round(diarizationStatus?.progressPercent ?? 0);
 
   async function beginShortcutCapture() {
     setErrorMessage(null);
@@ -623,7 +639,7 @@ export function SettingsScreen({
                 <div className="downloads-accordion-copy">
                   <span>Download models</span>
                   <p className="muted">
-                    {formatDownloadSummary(downloadableModels, installedModels, modelDownloadStatuses)}
+                    {formatDownloadSummary(speechModels, installedModels, modelDownloadStatuses)}
                   </p>
                 </div>
                 <span className={isDownloadsExpanded ? "downloads-chevron is-open" : "downloads-chevron"}>
@@ -634,7 +650,7 @@ export function SettingsScreen({
               </button>
               {isDownloadsExpanded ? (
                 <div className="downloadable-models">
-                  {downloadableModels.map((model) => {
+                  {speechModels.map((model) => {
                     const isInstalled = model.installed || installedModels.some(
                       (installed) => installed.id === model.id,
                     );
@@ -657,7 +673,7 @@ export function SettingsScreen({
                           <div className="downloadable-model-heading">
                             <strong>{model.modelName}</strong>
                             <span className="downloadable-model-meta">
-                              {formatModelProfile(model.profile)} · {model.sizeBytes > 0 ? formatModelSize(model.sizeBytes) : "Size pending"} · {model.capability === "diarization" ? "Diarization" : model.engine === "qwen3_asr_c" ? "Qwen" : "Whisper"}
+                              {formatModelProfile(model.profile)} · {model.sizeBytes > 0 ? formatModelSize(model.sizeBytes) : "Size pending"} · {model.engine === "qwen3_asr_c" ? "Qwen" : "Whisper"}
                             </span>
                           </div>
                           <p className="muted">{model.description}</p>
@@ -719,7 +735,7 @@ export function SettingsScreen({
                             {isInstalled
                               ? "Installed"
                               : isUnavailable
-                                ? model.availability === "pending_license_review" ? "Review pending" : "Unavailable"
+                                ? "Unavailable"
                                 : isDownloading
                                 ? "Downloading"
                                 : downloadStatus?.state === "failed"
@@ -741,7 +757,7 @@ export function SettingsScreen({
                             }}
                           >
                             {isUnavailable
-                              ? model.availability === "pending_license_review" ? "License review pending" : "Not supported"
+                              ? "Not supported"
                               : isDownloading
                               ? "Cancel download"
                               : isInstalled
@@ -761,15 +777,90 @@ export function SettingsScreen({
 
           <article className="glass-subtle settings-card settings-card-wide">
             <div className="field-stack">
-              <span>Speaker diarization</span>
+              <span>Identify speakers in file transcriptions</span>
               <p className="muted" style={{ margin: 0 }}>
-                Identify speakers after in-app Quick Dictate recordings and file transcriptions. Global-shortcut dictation stays optimized for immediate insertion.
+                Runs locally after imported audio or video files are transcribed. Speaker count is detected automatically.
               </p>
-              {!diarizationReady ? <p className="warning-text" style={{ margin: 0 }}>{diarizationModel?.availabilityReason ?? "Install the verified diarization model package to enable these controls."}</p> : null}
               <div className="settings-option-list">
-                <div className="setting-row"><div className="setting-copy"><p className="setting-title">File Transcribe</p><p className="muted">Run speaker identification after ASR.</p></div><div className="setting-control"><button type="button" className={settings.fileDiarizationEnabled ? "switch-button is-on" : "switch-button"} aria-pressed={settings.fileDiarizationEnabled} disabled={!diarizationReady || isSaving} onClick={() => void handleChange("fileDiarizationEnabled", !settings.fileDiarizationEnabled)}><span className="switch-thumb" /></button><span className="setting-state">{settings.fileDiarizationEnabled ? "Enabled" : "Disabled"}</span></div></div>
-                <div className="setting-row"><div className="setting-copy"><p className="setting-title">In-app Quick Dictate</p><p className="muted">Run only for recordings started inside Blabber.</p></div><div className="setting-control"><button type="button" className={settings.quickDictateDiarizationEnabled ? "switch-button is-on" : "switch-button"} aria-pressed={settings.quickDictateDiarizationEnabled} disabled={!diarizationReady || isSaving} onClick={() => void handleChange("quickDictateDiarizationEnabled", !settings.quickDictateDiarizationEnabled)}><span className="switch-thumb" /></button><span className="setting-state">{settings.quickDictateDiarizationEnabled ? "Enabled" : "Disabled"}</span></div></div>
-                <div className="setting-row"><div className="setting-copy"><p className="setting-title">Speaker count</p><p className="muted">Automatic clustering is recommended; choose an exact count when known.</p></div><div className="setting-control"><select value={settings.diarizationSpeakerCount ?? "auto"} disabled={!diarizationReady || isSaving} onChange={(event) => void handleChange("diarizationSpeakerCount", event.target.value === "auto" ? null : Number(event.target.value))}><option value="auto">Automatic</option>{Array.from({ length: 20 }, (_, index) => index + 1).map((count) => <option value={count} key={count}>{count}</option>)}</select></div></div>
+                <div className="setting-row">
+                  <div className="setting-copy">
+                    <p className="setting-title">Speaker identification</p>
+                    <p className="muted">
+                      {diarizationReady
+                        ? "The local speaker model is installed."
+                        : settings.fileDiarizationEnabled
+                          ? diarizationDownloading
+                            ? `Installing the speaker model${diarizationProgress === null ? "" : ` — ${diarizationProgress}%`}`
+                            : diarizationStatus?.state === "failed"
+                              ? "The speaker model could not be installed."
+                              : "Preparing the speaker model download…"
+                          : `Downloads ${formatModelSize(diarizationModel?.sizeBytes ?? 45_586_539)} the first time you turn this on.`}
+                    </p>
+                  </div>
+                  <div className="setting-control">
+                    <button
+                      type="button"
+                      className={settings.fileDiarizationEnabled ? "switch-button is-on" : "switch-button"}
+                      aria-pressed={settings.fileDiarizationEnabled}
+                      disabled={
+                        isSaving ||
+                        !diarizationModel ||
+                        diarizationModel.availability !== "available" ||
+                        (!settings.fileDiarizationEnabled && anotherDownloadActive)
+                      }
+                      onClick={() => void handleChange("fileDiarizationEnabled", !settings.fileDiarizationEnabled)}
+                    >
+                      <span className="switch-thumb" />
+                    </button>
+                    <span className="setting-state">
+                      {settings.fileDiarizationEnabled
+                        ? diarizationReady
+                          ? "On"
+                          : diarizationDownloading
+                            ? "Installing"
+                            : diarizationStatus?.state === "failed"
+                              ? "Retry needed"
+                              : "Starting"
+                        : "Off"}
+                    </span>
+                  </div>
+                </div>
+                {settings.fileDiarizationEnabled && diarizationDownloading ? (
+                  <div className="model-download-progress">
+                    <div className="model-download-progress-track">
+                      <div
+                        className={diarizationProgress === null ? "model-download-progress-bar is-indeterminate" : "model-download-progress-bar"}
+                        style={diarizationProgress === null ? undefined : { width: `${diarizationProgress}%` }}
+                      />
+                    </div>
+                    <div className="model-download-progress-meta">
+                      <span>{diarizationProgress === null ? "Installing…" : `${diarizationProgress}%`}</span>
+                      {diarizationStatus?.totalBytes ? (
+                        <span>{formatModelSize(diarizationStatus.downloadedBytes)} / {formatModelSize(diarizationStatus.totalBytes)}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+                {settings.fileDiarizationEnabled && diarizationStatus?.state === "failed" ? (
+                  <div className="setting-row">
+                    <p className="error-text model-download-error">
+                      {diarizationStatus.errorMessage ?? "The speaker model download failed."}
+                    </p>
+                    <button
+                      type="button"
+                      className="small-action-button"
+                      disabled={anotherDownloadActive}
+                      onClick={() => diarizationModel && void handleDownloadModel(diarizationModel.id)}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : null}
+                {!diarizationModel || diarizationModel.availability !== "available" ? (
+                  <p className="warning-text" style={{ margin: 0 }}>
+                    {diarizationModel?.availabilityReason ?? "The speaker model is unavailable."}
+                  </p>
+                ) : null}
               </div>
             </div>
           </article>
@@ -1119,10 +1210,13 @@ function formatDownloadSummary(
   installedModels: InstalledModel[],
   statuses: Record<string, ModelDownloadStatus>,
 ) {
+  const modelIds = new Set(downloadableModels.map((model) => model.id));
   const installedCount = downloadableModels.filter((model) =>
     installedModels.some((installed) => installed.modelName === model.modelName),
   ).length;
-  const activeStatus = Object.values(statuses).find((status) => status.state === "downloading");
+  const activeStatus = Object.values(statuses).find(
+    (status) => modelIds.has(status.modelId) && status.state === "downloading",
+  );
   if (activeStatus) {
     return `${installedCount} of ${downloadableModels.length} installed · Downloading ${activeStatus.modelName}`;
   }
