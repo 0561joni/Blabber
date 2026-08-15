@@ -81,8 +81,7 @@ export interface AppSettings {
   volumeDuckingEnabled: boolean;
   fileDiarizationEnabled: boolean;
   quickDictateDiarizationEnabled: boolean;
-  diarizationMinSpeakers: number | null;
-  diarizationMaxSpeakers: number | null;
+  diarizationSpeakerCount: number | null;
 }
 
 export interface SettingsPatch {
@@ -106,8 +105,7 @@ export interface SettingsPatch {
   volumeDuckingEnabled?: boolean;
   fileDiarizationEnabled?: boolean;
   quickDictateDiarizationEnabled?: boolean;
-  diarizationMinSpeakers?: number | null;
-  diarizationMaxSpeakers?: number | null;
+  diarizationSpeakerCount?: number | null;
 }
 
 export interface InstalledModel {
@@ -128,7 +126,9 @@ export interface DownloadableModel {
   description: string;
   sizeBytes: number;
   profile: ModelProfile;
-  availability: "available" | "unsupported_platform";
+  availability: "available" | "unsupported_platform" | "pending_license_review";
+  availabilityReason: string | null;
+  installed: boolean;
   requirements: string | null;
   artifactCount: number;
   capability: ModelCapability;
@@ -184,7 +184,29 @@ export interface TranscriptResult {
   qualityStatus: TranscriptQualityStatus;
   recoveredRegionCount: number;
   warnings: TranscriptWarning[];
+  diarizationStatus: DiarizationStatus;
+  diarizationModelId: string | null;
+  diarizationWarning: string | null;
+  diarizationPolicyVersion: number | null;
+  speakers: TranscriptSpeaker[];
+  diarizationTurns: DiarizationTurn[];
 }
+
+export interface TranscriptDetail extends TranscriptSummary {
+  fullText: string;
+  timestampedText: string;
+  transcriptionWarnings: TranscriptWarning[];
+  diarizationModelId: string | null;
+  diarizationWarning: string | null;
+  diarizationPolicyVersion: number | null;
+  segments: TranscriptSegment[];
+  speakers: TranscriptSpeaker[];
+  diarizationTurns: DiarizationTurn[];
+}
+
+export type TranscriptExportFormat = "txt" | "md" | "srt" | "vtt" | "json";
+export type TranscriptCopyVariant = "speaker_aware" | "plain";
+export interface TranscriptExportResult { path: string | null; }
 
 export interface TranscriptWarning {
   startMs: number;
@@ -241,9 +263,11 @@ export type FileTranscriptionJobStage =
   | "queued"
   | "preparing"
   | "transcribing"
+  | "diarizing"
   | "saving"
   | "completed"
-  | "failed";
+  | "failed"
+  | "canceled";
 
 export interface StartFileTranscriptionResponse {
   jobId: string;

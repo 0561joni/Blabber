@@ -15,6 +15,7 @@ use crate::audio_chunks::{
     plan_audio_chunks, plan_audio_chunks_with_splits, split_chunk_near_middle, AudioChunk,
 };
 use crate::audio_preprocess;
+use crate::diarization::{DiarizationStatus, DiarizationTurn, TranscriptSpeaker};
 use crate::qwen_asr::QwenAsrEngine;
 use crate::settings::{LanguageMode, ModelProfile};
 use crate::transcript_stitching::stitch_segments;
@@ -47,6 +48,14 @@ pub struct TranscriptSegment {
     pub language_code: String,
     pub segment_order: i32,
     pub confidence: Option<f32>,
+    #[serde(default)]
+    pub speaker_id: Option<String>,
+    #[serde(default)]
+    pub speaker_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub speaker_attribution: crate::speaker_reconciliation::SpeakerAttribution,
+    #[serde(default)]
+    pub speaker_confidence: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +71,18 @@ pub struct TranscriptResult {
     pub quality_status: TranscriptQualityStatus,
     pub recovered_region_count: i32,
     pub warnings: Vec<TranscriptWarning>,
+    #[serde(default)]
+    pub diarization_status: DiarizationStatus,
+    #[serde(default)]
+    pub diarization_model_id: Option<String>,
+    #[serde(default)]
+    pub diarization_warning: Option<String>,
+    #[serde(default)]
+    pub diarization_policy_version: Option<u32>,
+    #[serde(default)]
+    pub speakers: Vec<TranscriptSpeaker>,
+    #[serde(default)]
+    pub diarization_turns: Vec<DiarizationTurn>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,7 +126,7 @@ pub fn engine_error_payload(error: &anyhow::Error) -> EngineErrorPayload {
     EngineErrorPayload { code, message }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PreviewSourceKind {
     QuickDictate,
@@ -892,6 +913,10 @@ fn add_gap_segment(
         language_code: "und".to_string(),
         segment_order: 0,
         confidence: None,
+        speaker_id: None,
+        speaker_ids: None,
+        speaker_attribution: crate::speaker_reconciliation::SpeakerAttribution::None,
+        speaker_confidence: None,
     });
 }
 
@@ -989,6 +1014,12 @@ pub(crate) fn build_transcript_result(
         quality_status,
         recovered_region_count,
         warnings,
+        diarization_status: DiarizationStatus::NotRequested,
+        diarization_model_id: None,
+        diarization_warning: None,
+        diarization_policy_version: None,
+        speakers: Vec::new(),
+        diarization_turns: Vec::new(),
     }
 }
 
@@ -1226,6 +1257,10 @@ fn run_whisper_with_state(
             language_code: detected_language.clone(),
             segment_order: index as i32,
             confidence: Some(speech_confidence),
+            speaker_id: None,
+            speaker_ids: None,
+            speaker_attribution: crate::speaker_reconciliation::SpeakerAttribution::None,
+            speaker_confidence: None,
         });
     }
 
@@ -1272,6 +1307,12 @@ fn run_whisper_with_state(
         quality_status: TranscriptQualityStatus::Clean,
         recovered_region_count: 0,
         warnings: Vec::new(),
+        diarization_status: DiarizationStatus::NotRequested,
+        diarization_model_id: None,
+        diarization_warning: None,
+        diarization_policy_version: None,
+        speakers: Vec::new(),
+        diarization_turns: Vec::new(),
     })
 }
 
@@ -1358,6 +1399,10 @@ mod tests {
             language_code: language.to_string(),
             segment_order: 12,
             confidence: Some(0.9),
+            speaker_id: None,
+            speaker_ids: None,
+            speaker_attribution: crate::speaker_reconciliation::SpeakerAttribution::None,
+            speaker_confidence: None,
         }
     }
 

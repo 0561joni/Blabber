@@ -20,8 +20,9 @@ The model is downloaded separately from the pinned Hugging Face revision
 
 ## sherpa-onnx
 
-The planned offline speaker-diarization runtime is pinned to sherpa-onnx
-1.13.5. sherpa-onnx is licensed under Apache-2.0.
+The offline speaker-diarization runtime is pinned to sherpa-onnx 1.13.5 and
+runs in an isolated local worker process. sherpa-onnx is licensed under
+Apache-2.0.
 
 Upstream: https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.5
 

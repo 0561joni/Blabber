@@ -248,6 +248,8 @@ export function SettingsScreen({
           isDefault: false,
         },
       ];
+  const diarizationModel = downloadableModels.find((model) => model.capability === "diarization");
+  const diarizationReady = diarizationModel?.installed === true;
 
   async function beginShortcutCapture() {
     setErrorMessage(null);
@@ -633,7 +635,7 @@ export function SettingsScreen({
               {isDownloadsExpanded ? (
                 <div className="downloadable-models">
                   {downloadableModels.map((model) => {
-                    const isInstalled = installedModels.some(
+                    const isInstalled = model.installed || installedModels.some(
                       (installed) => installed.id === model.id,
                     );
                     const isUnavailable = model.availability !== "available";
@@ -655,13 +657,14 @@ export function SettingsScreen({
                           <div className="downloadable-model-heading">
                             <strong>{model.modelName}</strong>
                             <span className="downloadable-model-meta">
-                              {formatModelProfile(model.profile)} · {formatModelSize(model.sizeBytes)} · {model.engine === "qwen3_asr_c" ? "Qwen" : "Whisper"}
+                              {formatModelProfile(model.profile)} · {model.sizeBytes > 0 ? formatModelSize(model.sizeBytes) : "Size pending"} · {model.capability === "diarization" ? "Diarization" : model.engine === "qwen3_asr_c" ? "Qwen" : "Whisper"}
                             </span>
                           </div>
                           <p className="muted">{model.description}</p>
                           {model.requirements ? (
                             <p className="downloadable-model-meta">{model.requirements}</p>
                           ) : null}
+                          {model.availabilityReason ? <p className="downloadable-model-meta">{model.availabilityReason}</p> : null}
                           {isDownloading ? (
                             <div className="model-download-progress">
                               <div className="model-download-progress-track">
@@ -716,7 +719,7 @@ export function SettingsScreen({
                             {isInstalled
                               ? "Installed"
                               : isUnavailable
-                                ? "Unavailable"
+                                ? model.availability === "pending_license_review" ? "Review pending" : "Unavailable"
                                 : isDownloading
                                 ? "Downloading"
                                 : downloadStatus?.state === "failed"
@@ -738,7 +741,7 @@ export function SettingsScreen({
                             }}
                           >
                             {isUnavailable
-                              ? "Not supported"
+                              ? model.availability === "pending_license_review" ? "License review pending" : "Not supported"
                               : isDownloading
                               ? "Cancel download"
                               : isInstalled
@@ -753,6 +756,21 @@ export function SettingsScreen({
                   })}
                 </div>
               ) : null}
+            </div>
+          </article>
+
+          <article className="glass-subtle settings-card settings-card-wide">
+            <div className="field-stack">
+              <span>Speaker diarization</span>
+              <p className="muted" style={{ margin: 0 }}>
+                Identify speakers after in-app Quick Dictate recordings and file transcriptions. Global-shortcut dictation stays optimized for immediate insertion.
+              </p>
+              {!diarizationReady ? <p className="warning-text" style={{ margin: 0 }}>{diarizationModel?.availabilityReason ?? "Install the verified diarization model package to enable these controls."}</p> : null}
+              <div className="settings-option-list">
+                <div className="setting-row"><div className="setting-copy"><p className="setting-title">File Transcribe</p><p className="muted">Run speaker identification after ASR.</p></div><div className="setting-control"><button type="button" className={settings.fileDiarizationEnabled ? "switch-button is-on" : "switch-button"} aria-pressed={settings.fileDiarizationEnabled} disabled={!diarizationReady || isSaving} onClick={() => void handleChange("fileDiarizationEnabled", !settings.fileDiarizationEnabled)}><span className="switch-thumb" /></button><span className="setting-state">{settings.fileDiarizationEnabled ? "Enabled" : "Disabled"}</span></div></div>
+                <div className="setting-row"><div className="setting-copy"><p className="setting-title">In-app Quick Dictate</p><p className="muted">Run only for recordings started inside Blabber.</p></div><div className="setting-control"><button type="button" className={settings.quickDictateDiarizationEnabled ? "switch-button is-on" : "switch-button"} aria-pressed={settings.quickDictateDiarizationEnabled} disabled={!diarizationReady || isSaving} onClick={() => void handleChange("quickDictateDiarizationEnabled", !settings.quickDictateDiarizationEnabled)}><span className="switch-thumb" /></button><span className="setting-state">{settings.quickDictateDiarizationEnabled ? "Enabled" : "Disabled"}</span></div></div>
+                <div className="setting-row"><div className="setting-copy"><p className="setting-title">Speaker count</p><p className="muted">Automatic clustering is recommended; choose an exact count when known.</p></div><div className="setting-control"><select value={settings.diarizationSpeakerCount ?? "auto"} disabled={!diarizationReady || isSaving} onChange={(event) => void handleChange("diarizationSpeakerCount", event.target.value === "auto" ? null : Number(event.target.value))}><option value="auto">Automatic</option>{Array.from({ length: 20 }, (_, index) => index + 1).map((count) => <option value={count} key={count}>{count}</option>)}</select></div></div>
+              </div>
             </div>
           </article>
 

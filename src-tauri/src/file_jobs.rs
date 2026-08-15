@@ -21,6 +21,7 @@ use crate::settings::AppSettings;
 use crate::storage::{self, TranscriptSummary};
 use crate::transcription_worker::{self, WorkerOutput, WorkerRequest};
 use crate::vocabulary;
+use crate::{diarization, diarization_worker, model_downloads};
 
 const FILE_TRANSCRIPTION_STATUS_EVENT: &str = "file-transcription-status";
 const WATCHDOG_TIMEOUT_MS: i64 = 120_000;
@@ -32,9 +33,11 @@ pub enum FileTranscriptionJobStage {
     Queued,
     Preparing,
     Transcribing,
+    Diarizing,
     Saving,
     Completed,
     Failed,
+    Canceled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,7 +184,7 @@ impl FileTranscriptionController {
         };
 
         if removed_from_queue || active_cancelled {
-            self.fail_job(
+            self.cancel_job(
                 job_id,
                 "File transcription canceled.",
                 "The file transcription was canceled by the user.".to_string(),
@@ -346,7 +349,7 @@ impl FileTranscriptionController {
             ));
         }
 
-        let corrected = vocabulary::correct_transcript_result(&self.db_path, transcript)?;
+        let mut corrected = vocabulary::correct_transcript_result(&self.db_path, transcript)?;
         if !corrected.warnings.is_empty() {
             self.log_job(
                 &request.job_id,
@@ -358,6 +361,45 @@ impl FileTranscriptionController {
                     corrected.warnings.len()
                 ),
             );
+        }
+        if settings.file_diarization_enabled {
+            self.update_status(
+                &request.job_id,
+                FileTranscriptionJobStage::Diarizing,
+                "Identifying speakers locally...",
+                None,
+                request.source_file.duration_ms,
+                request.source_file.duration_ms,
+                None,
+                None,
+                None,
+            )?;
+            if let Some(package_path) =
+                model_downloads::installed_diarization_package_path(&self.models_dir)
+            {
+                let worker_request = diarization_worker::WorkerRequest {
+                    job_id: request.job_id.clone(),
+                    audio_path: request.source_file.file_path.clone().into(),
+                    package_path,
+                    exact_speaker_count: settings.diarization_speaker_count,
+                    spec_version: diarization::DIARIZATION_MODEL_SPEC_V1.manifest_version,
+                };
+                match diarization_worker::run_subprocess_worker(
+                    &worker_request,
+                    Some(cancelled.as_ref()),
+                ) {
+                    Ok(turns) => diarization::apply_turns_to_transcript(&mut corrected, turns),
+                    Err(error) if error.to_string().starts_with("DIARIZATION_CANCELED:") => {
+                        return Err(error)
+                    }
+                    Err(error) => diarization::mark_failure(&mut corrected, error.to_string()),
+                }
+            } else {
+                diarization::mark_failure(
+                    &mut corrected,
+                    "The verified diarization model package is not installed.",
+                );
+            }
         }
         let wall_duration_ms = started_at.elapsed().as_millis() as i64;
 
@@ -690,6 +732,27 @@ impl FileTranscriptionController {
         self.log_job(job_id, "failed", &error_message);
     }
 
+    fn cancel_job(&self, job_id: &str, status_text: &str, error_message: String) {
+        if self
+            .current_status(job_id)
+            .is_some_and(|status| is_terminal(&status.stage))
+        {
+            return;
+        }
+        let _ = self.update_status(
+            job_id,
+            FileTranscriptionJobStage::Canceled,
+            status_text,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(error_message.clone()),
+        );
+        self.log_job(job_id, "canceled", &error_message);
+    }
+
     fn persist_status(&self, status: FileTranscriptionStatusEvent) {
         {
             let mut statuses = self
@@ -792,6 +855,8 @@ fn now_ms() -> i64 {
 fn is_terminal(stage: &FileTranscriptionJobStage) -> bool {
     matches!(
         stage,
-        FileTranscriptionJobStage::Completed | FileTranscriptionJobStage::Failed
+        FileTranscriptionJobStage::Completed
+            | FileTranscriptionJobStage::Failed
+            | FileTranscriptionJobStage::Canceled
     )
 }

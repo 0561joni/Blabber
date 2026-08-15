@@ -26,6 +26,12 @@ pub enum SpeakerAttribution {
     Overlap,
 }
 
+impl Default for SpeakerAttribution {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SegmentAttribution {
     pub attribution: SpeakerAttribution,

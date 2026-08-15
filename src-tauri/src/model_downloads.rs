@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
 use crate::asr::{discover_installed_models, LocalTranscriptionEngine, TranscriptionEngine};
+use crate::diarization::DIARIZATION_MODEL_ID;
 #[cfg(test)]
 use crate::qwen_asr::QWEN_REQUIRED_ARTIFACTS;
 use crate::qwen_asr::{
@@ -26,12 +27,17 @@ use crate::storage;
 
 const MODEL_DOWNLOAD_EVENT: &str = "model-download-status";
 pub const VAD_MODEL_NAME: &str = "ggml-silero-v6.2.0.bin";
+pub const DIARIZATION_MODEL_DIR: &str = "sherpa-diarization-pyannote3-eres2net-v1";
+pub const MODEL_COMPLETE_FILE: &str = ".complete.json";
+/// Flip only after the pinned artifact manifest and redistribution terms are reviewed.
+pub const DIARIZATION_ARTIFACTS_REVIEWED: bool = false;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelAvailability {
     Available,
     UnsupportedPlatform,
+    PendingLicenseReview,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -53,6 +59,8 @@ pub struct DownloadableModel {
     pub profile: ModelProfile,
     pub availability: ModelAvailability,
     pub requirements: Option<String>,
+    pub availability_reason: Option<String>,
+    pub installed: bool,
     pub artifact_count: u32,
     pub capability: ModelCapability,
 }
@@ -130,11 +138,15 @@ impl ModelDownloadManager {
             .into_iter()
             .find(|entry| entry.id == model_id)
             .ok_or_else(|| anyhow!("Unknown model download: {model_id}"))?;
-        if spec.availability() != ModelAvailability::Available {
-            return Err(anyhow!(
-                "MODEL_UNSUPPORTED_PLATFORM: {} is currently downloadable on macOS and Linux only",
+        match spec.availability() {
+            ModelAvailability::Available => {}
+            ModelAvailability::UnsupportedPlatform => return Err(anyhow!(
+                "MODEL_UNSUPPORTED_PLATFORM: {} is not available on this platform",
                 spec.model_name
-            ));
+            )),
+            ModelAvailability::PendingLicenseReview => return Err(anyhow!(
+                "MODEL_LICENSE_REVIEW_PENDING: The diarization weights are not downloadable until their redistribution terms and pinned hashes have been reviewed."
+            )),
         }
 
         let mut active = self
@@ -605,11 +617,15 @@ struct DownloadableModelSpec {
     revision: Option<&'static str>,
     artifacts: &'static [ModelArtifactSpec],
     qwen_platform_limited: bool,
+    capability: ModelCapability,
+    pending_license_review: bool,
 }
 
 impl DownloadableModelSpec {
     fn availability(&self) -> ModelAvailability {
-        if self.qwen_platform_limited && !qwen_asr::platform_supported() {
+        if self.pending_license_review {
+            ModelAvailability::PendingLicenseReview
+        } else if self.qwen_platform_limited && !qwen_asr::platform_supported() {
             ModelAvailability::UnsupportedPlatform
         } else {
             ModelAvailability::Available
@@ -657,6 +673,23 @@ fn downloadable_specs() -> Vec<DownloadableModelSpec> {
             revision: Some(QWEN_MODEL_REVISION),
             artifacts: QWEN_ARTIFACTS,
             qwen_platform_limited: true,
+            capability: ModelCapability::Asr,
+            pending_license_review: false,
+        },
+        DownloadableModelSpec {
+            id: DIARIZATION_MODEL_ID,
+            engine: "sherpa-onnx",
+            model_name: "Offline speaker diarization",
+            description: "Local speaker separation using pyannote segmentation and ERes2Net embeddings.",
+            requirements: Some("CPU-only · model redistribution review pending"),
+            size_bytes: 0,
+            profile: ModelProfile::Balanced,
+            layout: InstallLayout::Directory { directory_name: DIARIZATION_MODEL_DIR },
+            revision: None,
+            artifacts: &[],
+            qwen_platform_limited: false,
+            capability: ModelCapability::Diarization,
+            pending_license_review: true,
         },
     ]
 }
@@ -692,6 +725,8 @@ fn whisper_spec(
         revision: None,
         artifacts,
         qwen_platform_limited: false,
+        capability: ModelCapability::Asr,
+        pending_license_review: false,
     }
 }
 
@@ -715,10 +750,12 @@ fn vad_model_spec() -> DownloadableModelSpec {
             "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987"
         ),
         qwen_platform_limited: false,
+        capability: ModelCapability::Vad,
+        pending_license_review: false,
     }
 }
 
-pub fn list_downloadable_models() -> Vec<DownloadableModel> {
+pub fn list_downloadable_models(models_dir: Option<&Path>) -> Vec<DownloadableModel> {
     downloadable_specs()
         .into_iter()
         .map(|spec| DownloadableModel {
@@ -730,10 +767,40 @@ pub fn list_downloadable_models() -> Vec<DownloadableModel> {
             profile: spec.profile,
             availability: spec.availability(),
             requirements: spec.requirements.map(ToString::to_string),
+            availability_reason: match spec.availability() {
+                ModelAvailability::PendingLicenseReview => Some(format!("The sherpa-onnx {} runtime is integrated, but downloads remain disabled until the upstream weight licenses, immutable artifact URLs, sizes, and SHA-256 hashes have been reviewed and pinned.", crate::diarization::SHERPA_ONNX_VERSION)),
+                ModelAvailability::UnsupportedPlatform => Some("This runtime is not supported on the current platform.".to_string()),
+                ModelAvailability::Available => None,
+            },
+            installed: models_dir.is_some_and(|dir| model_is_installed(&spec, dir)),
             artifact_count: spec.artifacts.len() as u32,
-            capability: ModelCapability::Asr,
+            capability: spec.capability,
         })
         .collect()
+}
+
+fn model_is_installed(spec: &DownloadableModelSpec, models_dir: &Path) -> bool {
+    if spec.pending_license_review {
+        return false;
+    }
+    match spec.layout {
+        InstallLayout::File { file_name } => models_dir.join(file_name).is_file(),
+        InstallLayout::Directory { directory_name } => models_dir
+            .join(directory_name)
+            .join(MODEL_COMPLETE_FILE)
+            .is_file(),
+    }
+}
+
+pub fn installed_diarization_package_path(models_dir: &Path) -> Option<PathBuf> {
+    if !DIARIZATION_ARTIFACTS_REVIEWED {
+        return None;
+    }
+    let directory = models_dir.join(DIARIZATION_MODEL_DIR);
+    let complete = directory.join(MODEL_COMPLETE_FILE);
+    let segmentation = directory.join("segmentation.onnx");
+    let embedding = directory.join("embedding.onnx");
+    (complete.is_file() && segmentation.is_file() && embedding.is_file()).then_some(directory)
 }
 
 #[cfg(test)]
@@ -768,6 +835,18 @@ mod tests {
             assert_eq!(artifact.size_bytes, *size);
             assert_eq!(artifact.sha256, *sha256);
         }
+    }
+
+    #[test]
+    fn diarization_weights_remain_gated_until_reviewed() {
+        let spec = downloadable_specs()
+            .into_iter()
+            .find(|spec| spec.id == DIARIZATION_MODEL_ID)
+            .expect("diarization model card");
+        assert_eq!(spec.capability, ModelCapability::Diarization);
+        assert_eq!(spec.availability(), ModelAvailability::PendingLicenseReview);
+        assert!(spec.artifacts.is_empty());
+        assert!(!DIARIZATION_ARTIFACTS_REVIEWED);
     }
 
     #[test]

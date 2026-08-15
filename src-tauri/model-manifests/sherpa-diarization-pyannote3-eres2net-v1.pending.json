@@ -1,0 +1,29 @@
+{
+  "modelId": "sherpa-diarization-pyannote3-eres2net-v1",
+  "manifestVersion": 1,
+  "runtime": {
+    "name": "sherpa-onnx",
+    "version": "1.13.5",
+    "provider": "cpu"
+  },
+  "reviewStatus": "pending_license_review",
+  "requiredArtifactSlots": [
+    {
+      "path": "segmentation.onnx",
+      "role": "pyannote_segmentation",
+      "sourceUrl": null,
+      "sizeBytes": null,
+      "sha256": null,
+      "license": null
+    },
+    {
+      "path": "embedding.onnx",
+      "role": "eres2net_speaker_embedding",
+      "sourceUrl": null,
+      "sizeBytes": null,
+      "sha256": null,
+      "license": null
+    }
+  ],
+  "enablementRule": "Do not expose downloads or enable diarization until every null field is reviewed and pinned."
+}

@@ -407,6 +407,10 @@ fn decode_with_recovery(
         Err(error) => clean_error(error),
         Ok(_) => "Qwen output failed validation".to_string(),
     });
+    let prompt_leakage_detected = initial_reason
+        .as_deref()
+        .map(|value| value.starts_with("dictionary prompt leakage"))
+        .unwrap_or(false);
     let mut prompt_cleared = false;
     if let Some(prompt) = prompt {
         prompt_cleared = context.set_prompt(None).is_ok();
@@ -416,26 +420,33 @@ fn decode_with_recovery(
                 if invalid_output_reason(&retry.text, samples, &[]).is_none() {
                     let _ = context.set_prompt(Some(prompt));
                     return RecoveryOutput {
-                        segments: output_to_segments(&retry, start_ms, end_ms),
+                        segments: output_to_segments(retry, start_ms, end_ms),
                         warnings: vec![warning(start_ms, end_ms, reason, 2, "recovered")],
                     };
                 }
             }
-            if initial_reason
-                .as_deref()
-                .map(|value| value.starts_with("dictionary prompt leakage"))
-                .unwrap_or(false)
-            {
-                if let Ok(initial) = initial {
-                    let _ = context.set_prompt(Some(prompt));
+        }
+    }
+
+    if prompt_leakage_detected {
+        if let Ok(initial) = &initial {
+            if let Some(trimmed_text) = trim_prompt_leakage_suffix(&initial.text, prompt_terms) {
+                let trimmed = NativeOutput {
+                    text: trimmed_text,
+                    language: initial.language.clone(),
+                };
+                if invalid_output_reason(&trimmed.text, samples, &[]).is_none() {
+                    if prompt_cleared {
+                        let _ = context.set_prompt(prompt);
+                    }
                     return RecoveryOutput {
-                        segments: output_to_segments(&initial, start_ms, end_ms),
+                        segments: output_to_segments(&trimmed, start_ms, end_ms),
                         warnings: vec![warning(
                             start_ms,
                             end_ms,
                             reason,
-                            2,
-                            "prompt_leakage_preserved",
+                            if prompt_cleared { 2 } else { 1 },
+                            "prompt_leakage_trimmed",
                         )],
                     };
                 }
@@ -452,12 +463,20 @@ fn decode_with_recovery(
                 warnings: vec![warning(start_ms, end_ms, reason, 3, "split_recovery")],
             };
             for piece in [left, right] {
+                // If clearing the native prompt failed, keep validating child
+                // chunks against the dictionary terms instead of treating a
+                // still-prompted decode as clean.
+                let (piece_prompt, piece_prompt_terms) = if prompt_cleared {
+                    (None, &[][..])
+                } else {
+                    (prompt, prompt_terms)
+                };
                 let recovered = decode_with_recovery(
                     context,
                     prepared,
                     piece,
-                    None,
-                    &[],
+                    piece_prompt,
+                    piece_prompt_terms,
                     progress,
                     progress_ceiling,
                     false,
@@ -500,6 +519,9 @@ fn prompt_leakage_reason(text: &str, prompt_terms: &[String]) -> Option<String> 
     if prompt_terms.len() < 3 {
         return None;
     }
+    if prompt_leakage_suffix_start(text, prompt_terms).is_some() {
+        return Some("dictionary prompt leakage was appended to the decoded text".to_string());
+    }
     let normalized_text = normalize_text(text);
     let transcript_words = normalized_text.split_whitespace().count();
     if transcript_words == 0 {
@@ -523,6 +545,100 @@ fn prompt_leakage_reason(text: &str, prompt_terms: &[String]) -> Option<String> 
         .then(|| "dictionary prompt leakage dominated the decoded text".to_string())
 }
 
+#[derive(Debug)]
+struct TextWord {
+    start: usize,
+    normalized: String,
+}
+
+/// Remove a contiguous, prompt-ordered dictionary list at the end of decoded
+/// text. This is only used after the broader leakage detector has fired and a
+/// clean no-prompt retry failed, so ordinary mentions of vocabulary terms are
+/// left to the retry result.
+fn trim_prompt_leakage_suffix(text: &str, prompt_terms: &[String]) -> Option<String> {
+    let suffix_start = prompt_leakage_suffix_start(text, prompt_terms)?;
+    let prefix = text[..suffix_start]
+        .trim_end()
+        .trim_end_matches([',', ';', ':', '-', '–', '—'])
+        .trim_end();
+    (!prefix.is_empty()).then(|| prefix.to_string())
+}
+
+fn prompt_leakage_suffix_start(text: &str, prompt_terms: &[String]) -> Option<usize> {
+    let words = text_words(text);
+    if words.is_empty() {
+        return None;
+    }
+    let term_patterns = prompt_terms
+        .iter()
+        .map(|term| {
+            normalize_text(term)
+                .split_whitespace()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    for suffix_start in 0..words.len() {
+        let mut word_cursor = suffix_start;
+        let mut term_cursor = 0usize;
+        let mut matched_terms = 0usize;
+
+        while word_cursor < words.len() {
+            let Some((matched_index, pattern)) = term_patterns
+                .iter()
+                .enumerate()
+                .skip(term_cursor)
+                .find(|(_, pattern)| {
+                    !pattern.is_empty()
+                        && words[word_cursor..]
+                            .iter()
+                            .map(|word| word.normalized.as_str())
+                            .take(pattern.len())
+                            .eq(pattern.iter().map(String::as_str))
+                })
+            else {
+                break;
+            };
+
+            word_cursor += pattern.len();
+            term_cursor = matched_index + 1;
+            matched_terms += 1;
+        }
+
+        if word_cursor == words.len() && matched_terms >= 3 {
+            return Some(words[suffix_start].start);
+        }
+    }
+
+    None
+}
+
+fn text_words(text: &str) -> Vec<TextWord> {
+    let mut words = Vec::new();
+    let mut word_start = None;
+
+    for (index, character) in text.char_indices() {
+        if character.is_alphanumeric() {
+            word_start.get_or_insert(index);
+        } else if let Some(start) = word_start.take() {
+            let normalized = normalize_text(&text[start..index]);
+            if !normalized.is_empty() {
+                words.push(TextWord { start, normalized });
+            }
+        }
+    }
+
+    if let Some(start) = word_start {
+        let normalized = normalize_text(&text[start..]);
+        if !normalized.is_empty() {
+            words.push(TextWord { start, normalized });
+        }
+    }
+
+    words
+}
+
 fn output_to_segments(output: &NativeOutput, start_ms: i64, end_ms: i64) -> Vec<TranscriptSegment> {
     if output.text.trim().is_empty() {
         return Vec::new();
@@ -540,6 +656,10 @@ fn output_to_segments(output: &NativeOutput, start_ms: i64, end_ms: i64) -> Vec<
             .to_string(),
         segment_order: 0,
         confidence: None,
+        speaker_id: None,
+        speaker_ids: None,
+        speaker_attribution: crate::speaker_reconciliation::SpeakerAttribution::None,
+        speaker_confidence: None,
     }]
 }
 
@@ -556,6 +676,10 @@ fn gap_segment(start_ms: i64, end_ms: i64) -> TranscriptSegment {
         language_code: "und".to_string(),
         segment_order: 0,
         confidence: None,
+        speaker_id: None,
+        speaker_ids: None,
+        speaker_attribution: crate::speaker_reconciliation::SpeakerAttribution::None,
+        speaker_confidence: None,
     }
 }
 
@@ -870,6 +994,52 @@ mod tests {
         ];
         assert!(prompt_leakage_reason("Redis, PostgreSQL, CUDA", &terms).is_some());
         assert!(prompt_leakage_reason("We deployed Redis after the migration", &terms).is_none());
+        assert!(prompt_leakage_reason(
+            "This is a deliberately long spoken sentence with enough ordinary words that the dictionary terms do not dominate the transcription at all. Redis, PostgreSQL, CUDA",
+            &terms
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn detects_reported_dictionary_suffix_leakage() {
+        let terms = vec![
+            "Tremblaye".to_string(),
+            "FBN".to_string(),
+            "GAFL".to_string(),
+            "Savencia".to_string(),
+            "Excelia".to_string(),
+            "Junior Harmony".to_string(),
+            "ChatGPT".to_string(),
+            "GitHub".to_string(),
+            "LinkedIn".to_string(),
+            "OpenAI".to_string(),
+            "WhatsApp".to_string(),
+            "YouTube".to_string(),
+        ];
+        let transcript = "Le bien familial la Tremblaye qui est en. Tremblaye, FBN, GAFL, Savencia, Excelia, Junior Harmony, ChatGPT, GitHub, LinkedIn, OpenAI, WhatsApp, YouTube";
+
+        assert!(prompt_leakage_reason(transcript, &terms).is_some());
+        assert_eq!(
+            trim_prompt_leakage_suffix(transcript, &terms).as_deref(),
+            Some("Le bien familial la Tremblaye qui est en.")
+        );
+    }
+
+    #[test]
+    fn dictionary_suffix_trimming_does_not_remove_ordinary_mentions() {
+        let terms = vec![
+            "Tremblaye".to_string(),
+            "FBN".to_string(),
+            "GAFL".to_string(),
+        ];
+
+        assert!(trim_prompt_leakage_suffix(
+            "Tremblaye worked with FBN and GAFL on the project.",
+            &terms
+        )
+        .is_none());
+        assert!(trim_prompt_leakage_suffix("Tremblaye, FBN, GAFL", &terms).is_none());
     }
 
     #[test]

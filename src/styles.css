@@ -415,3 +415,12 @@ select:focus-visible {
     transition: none !important;
   }
 }
+
+.transcript-title-row,.speaker-roster{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.speaker-transcript-viewer{margin-top:18px;padding:18px;border-radius:16px;background:rgba(255,255,255,.46);border:1px solid rgba(75,61,52,.1)}
+.speaker-roster{margin-bottom:16px}.speaker-chip{border-width:1px}.speaker-segment-list{display:grid;gap:14px}
+.speaker-segment{display:grid;grid-template-columns:minmax(112px,150px) 1fr;gap:16px;align-items:start}
+.speaker-segment p{margin:3px 0 0;line-height:1.58;white-space:pre-wrap}.speaker-label{display:inline-flex;border-radius:999px;padding:5px 9px;font-size:.78rem;font-weight:700}
+.speaker-time{color:var(--text-muted);font-size:.75rem;font-variant-numeric:tabular-nums}
+.speaker-color-0{color:#6f3b8c;background:#efe2f7;border-color:#d8bfe8}.speaker-color-1{color:#165f68;background:#dff3f1;border-color:#b6ded9}.speaker-color-2{color:#8a4d13;background:#faead4;border-color:#efcf9f}.speaker-color-3{color:#315d98;background:#e1ebf8;border-color:#bfd1ea}.speaker-color-4{color:#7a3d50;background:#f7e2e8;border-color:#e9bdca}.speaker-color-5{color:#53651d;background:#edf1d9;border-color:#d2dca9}.warning-text{color:#94551d}
+@media(max-width:720px){.speaker-segment{grid-template-columns:1fr;gap:5px}}

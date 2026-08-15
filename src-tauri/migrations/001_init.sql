@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS settings (
   ,quick_dictate_diarization_enabled INTEGER NOT NULL DEFAULT 0
   ,diarization_min_speakers INTEGER NULL
   ,diarization_max_speakers INTEGER NULL
+  ,diarization_speaker_count INTEGER NULL
 );
 
 CREATE TABLE IF NOT EXISTS transcripts (

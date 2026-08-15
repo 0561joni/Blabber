@@ -3,6 +3,33 @@ use serde::{Deserialize, Serialize};
 pub const SHERPA_ONNX_VERSION: &str = "1.13.5";
 pub const DIARIZATION_MODEL_ID: &str = "sherpa-diarization-pyannote3-eres2net-v1";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiarizationStatus {
+    NotRequested,
+    Pending,
+    Running,
+    Completed,
+    CompletedWithUncertainty,
+    Failed,
+    Canceled,
+    NotEnoughSpeech,
+}
+
+impl Default for DiarizationStatus {
+    fn default() -> Self {
+        Self::NotRequested
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptSpeaker {
+    pub speaker_id: String,
+    pub display_name: String,
+    pub speaker_order: i32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiarizationModelSpec {
@@ -81,6 +108,81 @@ pub fn normalize_turns(mut turns: Vec<RawDiarizationTurn>) -> Vec<DiarizationTur
             })
         })
         .collect()
+}
+
+pub fn speakers_from_turns(turns: &[DiarizationTurn]) -> Vec<TranscriptSpeaker> {
+    use std::collections::HashSet;
+    let mut seen = HashSet::new();
+    let mut speakers = Vec::new();
+    for turn in turns {
+        for speaker_id in &turn.speaker_ids {
+            if seen.insert(speaker_id.clone()) {
+                let speaker_order = speakers.len() as i32;
+                speakers.push(TranscriptSpeaker {
+                    speaker_id: speaker_id.clone(),
+                    display_name: format!("Speaker {}", speaker_order + 1),
+                    speaker_order,
+                });
+            }
+        }
+    }
+    speakers
+}
+
+pub fn apply_turns_to_transcript(
+    result: &mut crate::asr::TranscriptResult,
+    raw_turns: Vec<RawDiarizationTurn>,
+) {
+    let turns = normalize_turns(raw_turns);
+    if turns.is_empty() {
+        result.diarization_status = DiarizationStatus::NotEnoughSpeech;
+        result.diarization_model_id = Some(DIARIZATION_MODEL_ID.to_string());
+        result.diarization_warning =
+            Some("Not enough distinct speech was available to identify speakers.".to_string());
+        result.diarization_policy_version =
+            Some(crate::speaker_reconciliation::DIARIZATION_POLICY_VERSION);
+        return;
+    }
+    let speakers = speakers_from_turns(&turns);
+    let mut uncertain = false;
+    for segment in &mut result.segments {
+        let attribution = crate::speaker_reconciliation::reconcile_segment(
+            segment.start_ms,
+            segment.end_ms,
+            &turns,
+        );
+        segment.speaker_id = attribution.speaker_id;
+        segment.speaker_ids =
+            (!attribution.speaker_ids.is_empty()).then_some(attribution.speaker_ids);
+        segment.speaker_attribution = attribution.attribution;
+        segment.speaker_confidence = attribution.confidence;
+        uncertain |= matches!(
+            segment.speaker_attribution,
+            crate::speaker_reconciliation::SpeakerAttribution::Uncertain
+                | crate::speaker_reconciliation::SpeakerAttribution::Overlap
+        );
+    }
+    result.diarization_status = if uncertain {
+        DiarizationStatus::CompletedWithUncertainty
+    } else {
+        DiarizationStatus::Completed
+    };
+    result.diarization_model_id = Some(DIARIZATION_MODEL_ID.to_string());
+    result.diarization_warning = uncertain.then(|| {
+        "Some transcript segments contain overlapping or uncertain speaker attribution.".to_string()
+    });
+    result.diarization_policy_version =
+        Some(crate::speaker_reconciliation::DIARIZATION_POLICY_VERSION);
+    result.speakers = speakers;
+    result.diarization_turns = turns;
+}
+
+pub fn mark_failure(result: &mut crate::asr::TranscriptResult, warning: impl Into<String>) {
+    result.diarization_status = DiarizationStatus::Failed;
+    result.diarization_model_id = Some(DIARIZATION_MODEL_ID.to_string());
+    result.diarization_warning = Some(warning.into());
+    result.diarization_policy_version =
+        Some(crate::speaker_reconciliation::DIARIZATION_POLICY_VERSION);
 }
 
 #[cfg(test)]

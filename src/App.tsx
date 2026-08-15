@@ -401,6 +401,7 @@ export function App() {
           item.stage === "queued" ||
           item.stage === "preparing" ||
           item.stage === "transcribing" ||
+          item.stage === "diarizing" ||
           item.stage === "saving",
       )
     ) {
@@ -854,7 +855,7 @@ export function App() {
             {screen === "history" ? (
               <HistoryScreen
                 transcripts={transcripts}
-                onCopyTranscript={copyTranscriptToClipboard}
+                onTranscriptUpdated={(updated) => setTranscripts((current) => current.map((item) => item.id === updated.id ? updated : item))}
                 onDelete={removeTranscript}
                 onDeleteAll={removeAllTranscripts}
               />

@@ -21,6 +21,10 @@ import type {
   TranscriptionPreviewRequest,
   TranscriptionPreviewResponse,
   TranscriptSummary,
+  TranscriptDetail,
+  TranscriptCopyVariant,
+  TranscriptExportFormat,
+  TranscriptExportResult,
   UpdateVocabularyTermInput,
   VocabularyTerm,
 } from "../types/domain";
@@ -46,8 +50,7 @@ const mockSettings: AppSettings = {
   volumeDuckingEnabled: true,
   fileDiarizationEnabled: false,
   quickDictateDiarizationEnabled: false,
-  diarizationMinSpeakers: null,
-  diarizationMaxSpeakers: null,
+  diarizationSpeakerCount: null,
 };
 
 const mockTranscripts: TranscriptSummary[] = [];
@@ -112,6 +115,8 @@ const mockDownloadableModels: DownloadableModel[] = [
     sizeBytes: 77_691_713,
     profile: "fast",
     availability: "available",
+    availabilityReason: null,
+    installed: true,
     requirements: null,
     artifactCount: 1,
     capability: "asr",
@@ -124,6 +129,8 @@ const mockDownloadableModels: DownloadableModel[] = [
     sizeBytes: 487_601_967,
     profile: "balanced",
     availability: "available",
+    availabilityReason: null,
+    installed: true,
     requirements: null,
     artifactCount: 1,
     capability: "asr",
@@ -136,6 +143,8 @@ const mockDownloadableModels: DownloadableModel[] = [
     sizeBytes: 1_533_763_059,
     profile: "accurate",
     availability: "available",
+    availabilityReason: null,
+    installed: true,
     requirements: null,
     artifactCount: 1,
     capability: "asr",
@@ -148,6 +157,8 @@ const mockDownloadableModels: DownloadableModel[] = [
     sizeBytes: 1_624_555_275,
     profile: "accurate",
     availability: "available",
+    availabilityReason: null,
+    installed: true,
     requirements: null,
     artifactCount: 1,
     capability: "asr",
@@ -160,6 +171,8 @@ const mockDownloadableModels: DownloadableModel[] = [
     sizeBytes: 574_041_195,
     profile: "accurate",
     availability: "available",
+    availabilityReason: null,
+    installed: true,
     requirements: null,
     artifactCount: 1,
     capability: "asr",
@@ -173,9 +186,26 @@ const mockDownloadableModels: DownloadableModel[] = [
     sizeBytes: 4_703_041_355,
     profile: "accurate",
     availability: "available",
+    availabilityReason: null,
+    installed: true,
     requirements: "macOS or Linux · 16 GB RAM recommended · CPU-only",
     artifactCount: 7,
     capability: "asr",
+  },
+  {
+    id: "sherpa-diarization-pyannote3-eres2net-v1",
+    engine: "sherpa-onnx",
+    modelName: "Offline speaker diarization",
+    description: "Local speaker separation using pyannote segmentation and ERes2Net embeddings.",
+    sizeBytes: 0,
+    profile: "balanced",
+    availability: "pending_license_review",
+    availabilityReason:
+      "Downloads remain disabled until the upstream model-weight licenses and immutable hashes are reviewed.",
+    installed: false,
+    requirements: "CPU-only · model redistribution review pending",
+    artifactCount: 0,
+    capability: "diarization",
   },
 ];
 const mockModelDownloadListeners = new Set<(status: ModelDownloadStatus) => void>();
@@ -571,6 +601,74 @@ export async function deleteAllTranscripts(): Promise<void> {
   return invoke("delete_all_transcripts");
 }
 
+export async function getTranscript(transcriptId: string): Promise<TranscriptDetail> {
+  if (!isTauriRuntime()) {
+    const summary = mockTranscripts.find((item) => item.id === transcriptId);
+    if (!summary) throw new Error("Transcript not found.");
+    return {
+      ...summary,
+      fullText: summary.plainText,
+      timestampedText: summary.plainText,
+      transcriptionWarnings: [],
+      diarizationModelId: null,
+      diarizationWarning: null,
+      diarizationPolicyVersion: null,
+      segments: [{
+        id: `${summary.id}:0`, startMs: 0, endMs: summary.durationMs ?? 0,
+        text: summary.plainText, languageCode: summary.detectedLanguages[0] ?? "und",
+        segmentOrder: 0, confidence: null, speakerId: null, speakerIds: null,
+        speakerAttribution: "none", speakerConfidence: null,
+      }],
+      speakers: [],
+      diarizationTurns: [],
+    };
+  }
+  return invoke<TranscriptDetail>("get_transcript", { transcriptId });
+}
+
+export async function renameTranscript(transcriptId: string, title: string): Promise<TranscriptSummary> {
+  if (!isTauriRuntime()) {
+    const transcript = mockTranscripts.find((item) => item.id === transcriptId);
+    if (!transcript) throw new Error("Transcript not found.");
+    transcript.title = title.trim();
+    return transcript;
+  }
+  return invoke<TranscriptSummary>("rename_transcript", { transcriptId, title });
+}
+
+export async function renameTranscriptSpeaker(
+  transcriptId: string,
+  speakerId: string,
+  displayName: string,
+): Promise<TranscriptDetail> {
+  if (!isTauriRuntime()) return getTranscript(transcriptId);
+  return invoke<TranscriptDetail>("rename_transcript_speaker", {
+    transcriptId,
+    speakerId,
+    displayName,
+  });
+}
+
+export async function copyTranscript(
+  transcriptId: string,
+  variant: TranscriptCopyVariant,
+): Promise<void> {
+  if (!isTauriRuntime()) {
+    const transcript = await getTranscript(transcriptId);
+    await navigator.clipboard.writeText(transcript.plainText);
+    return;
+  }
+  return invoke("copy_transcript", { transcriptId, variant });
+}
+
+export async function exportTranscript(
+  transcriptId: string,
+  format: TranscriptExportFormat,
+): Promise<TranscriptExportResult> {
+  if (!isTauriRuntime()) return { path: null };
+  return invoke<TranscriptExportResult>("export_transcript", { transcriptId, format });
+}
+
 export async function copyTextToClipboard(text: string): Promise<void> {
   if (!isTauriRuntime()) {
     await navigator.clipboard.writeText(text);
@@ -674,6 +772,12 @@ export async function startFileTranscription(
         qualityStatus: "clean",
         recoveredRegionCount: 0,
         warnings: [],
+        diarizationStatus: "not_requested",
+        diarizationModelId: null,
+        diarizationWarning: null,
+        diarizationPolicyVersion: null,
+        speakers: [],
+        diarizationTurns: [],
         segments: [
           {
             id: crypto.randomUUID(),
@@ -799,7 +903,7 @@ export async function cancelFileTranscription(jobId: string): Promise<void> {
     if (current) {
       emitMockFileTranscriptionStatus({
         ...current,
-        stage: "failed",
+        stage: "canceled",
         progressPercent: current.progressPercent,
         statusText: "File transcription canceled.",
         errorMessage: "The file transcription was canceled by the user.",

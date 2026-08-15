@@ -9,6 +9,7 @@ import type {
   QuickDictationStatusResponse,
   RecordingStatusResponse,
   TranscriptionPreviewResponse,
+  TranscriptResult,
 } from "../types/domain";
 
 type ReadinessItem = "model" | "shortcut" | "accessibility";
@@ -460,7 +461,7 @@ export function HomeScreen({
                 </p>
               ) : (
                 <>
-                  <p className="muted">{preview.result?.plainText}</p>
+                  {preview.result ? <InlineSpeakerTranscript result={preview.result} /> : null}
                   <p className="preview-model-footer muted">
                     Model: {preview.resolvedModel?.modelName ?? preview.result?.modelName ?? "Missing model"}
                   </p>
@@ -529,12 +530,12 @@ export function HomeScreen({
                       <div className="progress-track" aria-hidden="true">
                         <div
                           className={
-                            item.stage === "queued" || item.stage === "preparing"
+                            item.stage === "queued" || item.stage === "preparing" || item.stage === "diarizing"
                               ? "progress-fill indeterminate"
                               : "progress-fill"
                           }
                           style={
-                            item.stage === "queued" || item.stage === "preparing"
+                            item.stage === "queued" || item.stage === "preparing" || item.stage === "diarizing"
                               ? undefined
                               : { width: `${progressPercent(item)}%` }
                           }
@@ -556,9 +557,7 @@ export function HomeScreen({
                   {item.result ? (
                     <>
                       <div className="text-surface compact-text-surface">
-                        <p className={item.isExpanded ? undefined : "clamped-text"}>
-                          {item.result.result.plainText}
-                        </p>
+                        {item.isExpanded ? <InlineSpeakerTranscript result={item.result.result} /> : <p className="clamped-text">{item.result.result.plainText}</p>}
                       </div>
                       <div className="toolbar">
                         <button
@@ -733,14 +732,14 @@ function liveStateLabel(state: string) {
 }
 
 function isFileQueueWorking(stage: FileQueueItem["stage"]) {
-  return stage === "queued" || stage === "preparing" || stage === "transcribing" || stage === "saving";
+  return stage === "queued" || stage === "preparing" || stage === "transcribing" || stage === "diarizing" || stage === "saving";
 }
 
 function progressPercent(item: FileQueueItem) {
   if (item.stage === "saving" || item.stage === "completed") {
     return 100;
   }
-  if (item.stage === "failed") {
+  if (item.stage === "failed" || item.stage === "canceled") {
     return Math.max(item.progressPercent ?? 0, 0);
   }
   return Math.min(Math.max(item.progressPercent ?? 0, 0), 100);
@@ -755,11 +754,34 @@ function fileStageLabel(stage: FileQueueItem["stage"]) {
       return "Preparing";
     case "transcribing":
       return "Transcribing";
+    case "diarizing":
+      return "Identifying speakers";
     case "saving":
       return "Saving";
     case "completed":
       return "Done";
     case "failed":
       return "Failed";
+    case "canceled":
+      return "Canceled";
   }
+}
+
+function InlineSpeakerTranscript({ result }: { result: TranscriptResult }) {
+  if (result.speakers.length === 0 || result.segments.length === 0) {
+    return <p className="muted">{result.plainText}</p>;
+  }
+  const name = (id: string) => result.speakers.find((speaker) => speaker.speakerId === id)?.displayName ?? id;
+  return <div className="speaker-segment-list">{result.segments.map((segment) => {
+    const label = segment.speakerAttribution === "assigned" && segment.speakerId
+      ? name(segment.speakerId)
+      : segment.speakerAttribution === "overlap"
+        ? (segment.speakerIds ?? []).map(name).join(" + ")
+        : segment.speakerAttribution === "uncertain"
+          ? "Uncertain speaker"
+          : "Unknown speaker";
+    const speakerId = segment.speakerId ?? segment.speakerIds?.[0];
+    const color = Math.max(0, result.speakers.find((speaker) => speaker.speakerId === speakerId)?.speakerOrder ?? 0) % 6;
+    return <div className="speaker-segment" key={segment.id}><span className={`speaker-label speaker-color-${color}`}>{label}</span><p>{segment.text}</p></div>;
+  })}{result.diarizationWarning ? <p className="warning-text">{result.diarizationWarning}</p> : null}</div>;
 }

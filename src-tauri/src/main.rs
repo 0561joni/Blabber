@@ -8,6 +8,8 @@ mod audio_files;
 mod audio_preprocess;
 mod autostart;
 mod desktop_shell;
+mod diarization;
+mod diarization_worker;
 mod dictation;
 mod file_jobs;
 mod insertion;
@@ -18,8 +20,10 @@ mod platform;
 mod qwen_asr;
 mod settings;
 mod sound;
+mod speaker_reconciliation;
 mod storage;
 mod system_volume;
+mod transcript_commands;
 mod transcript_stitching;
 mod transcription_policy;
 mod transcription_quality;
@@ -41,9 +45,10 @@ use model_downloads::{DownloadableModel, ModelDownloadStatus};
 use serde::Serialize;
 use settings::{AppSettings, HealthCheckResponse, InsertBehavior, SettingsPatch};
 use std::process::Command;
-use storage::TranscriptSummary;
+use storage::{TranscriptDetail, TranscriptSummary};
 use tauri::{DragDropEvent, Emitter, Manager, WebviewEvent, Window, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
+use transcript_commands::{TranscriptCopyVariant, TranscriptExportFormat, TranscriptExportResult};
 use vocabulary::{CreateVocabularyTermInput, UpdateVocabularyTermInput, VocabularyTerm};
 
 #[tauri::command]
@@ -121,6 +126,15 @@ fn update_settings(
     state: tauri::State<'_, AppState>,
     patch: SettingsPatch,
 ) -> Result<AppSettings, String> {
+    if (patch.file_diarization_enabled == Some(true)
+        || patch.quick_dictate_diarization_enabled == Some(true))
+        && model_downloads::installed_diarization_package_path(&state.models_dir).is_none()
+    {
+        return Err(
+            "Install a verified diarization model package before enabling speaker identification."
+                .to_string(),
+        );
+    }
     let settings =
         storage::update_settings(state.inner(), patch).map_err(|error| error.to_string())?;
     state
@@ -164,6 +178,59 @@ fn delete_all_transcripts(state: tauri::State<'_, AppState>) -> Result<(), Strin
 }
 
 #[tauri::command]
+fn get_transcript(
+    state: tauri::State<'_, AppState>,
+    transcript_id: String,
+) -> Result<TranscriptDetail, String> {
+    storage::get_transcript(state.inner(), &transcript_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn rename_transcript(
+    state: tauri::State<'_, AppState>,
+    transcript_id: String,
+    title: String,
+) -> Result<TranscriptSummary, String> {
+    storage::rename_transcript(state.inner(), &transcript_id, &title)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn rename_transcript_speaker(
+    state: tauri::State<'_, AppState>,
+    transcript_id: String,
+    speaker_id: String,
+    display_name: String,
+) -> Result<TranscriptDetail, String> {
+    storage::rename_transcript_speaker(state.inner(), &transcript_id, &speaker_id, &display_name)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn copy_transcript(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    transcript_id: String,
+    variant: TranscriptCopyVariant,
+) -> Result<(), String> {
+    let detail = storage::get_transcript(state.inner(), &transcript_id)
+        .map_err(|error| error.to_string())?;
+    transcript_commands::copy(&app, &detail, variant).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn export_transcript(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    transcript_id: String,
+    format: TranscriptExportFormat,
+) -> Result<TranscriptExportResult, String> {
+    let detail = storage::get_transcript(state.inner(), &transcript_id)
+        .map_err(|error| error.to_string())?;
+    transcript_commands::export(&app, &detail, format).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn copy_text_to_clipboard(app: tauri::AppHandle, text: String) -> Result<(), String> {
     app.clipboard()
         .write_text(text)
@@ -176,8 +243,8 @@ fn list_installed_models(state: tauri::State<'_, AppState>) -> Result<Vec<Instal
 }
 
 #[tauri::command]
-fn list_downloadable_models() -> Vec<DownloadableModel> {
-    model_downloads::list_downloadable_models()
+fn list_downloadable_models(state: tauri::State<'_, AppState>) -> Vec<DownloadableModel> {
+    model_downloads::list_downloadable_models(Some(&state.models_dir))
 }
 
 #[tauri::command]
@@ -287,7 +354,7 @@ async fn preview_transcription(
                 fixed_language: request.fixed_language.clone(),
                 timestamps: request.timestamps,
                 prefer_gpu: request.prefer_gpu,
-                file_path,
+                file_path: file_path.clone(),
                 context_prompt: vocabulary_prompt.as_ref().map(|prompt| prompt.text.clone()),
                 context_terms: vocabulary_prompt
                     .as_ref()
@@ -299,8 +366,42 @@ async fn preview_transcription(
 
         Ok(match result {
             Ok(result) => {
-                let corrected = vocabulary::correct_transcript_result(&app_state.db_path, result)
-                    .map_err(|error| error.to_string())?;
+                let mut corrected =
+                    vocabulary::correct_transcript_result(&app_state.db_path, result)
+                        .map_err(|error| error.to_string())?;
+                if request.source_kind == asr::PreviewSourceKind::QuickDictate {
+                    let settings = storage::get_settings_from_db_path(&app_state.db_path)
+                        .map_err(|error| error.to_string())?;
+                    if settings.quick_dictate_diarization_enabled {
+                        if let Some(package_path) =
+                            model_downloads::installed_diarization_package_path(
+                                &app_state.models_dir,
+                            )
+                        {
+                            let worker_request = diarization_worker::WorkerRequest {
+                                job_id: corrected.job_id.clone(),
+                                audio_path: file_path.into(),
+                                package_path,
+                                exact_speaker_count: settings.diarization_speaker_count,
+                                spec_version: diarization::DIARIZATION_MODEL_SPEC_V1
+                                    .manifest_version,
+                            };
+                            match diarization_worker::run_subprocess_worker(&worker_request, None) {
+                                Ok(turns) => {
+                                    diarization::apply_turns_to_transcript(&mut corrected, turns)
+                                }
+                                Err(error) => {
+                                    diarization::mark_failure(&mut corrected, error.to_string())
+                                }
+                            }
+                        } else {
+                            diarization::mark_failure(
+                                &mut corrected,
+                                "The verified diarization model package is not installed.",
+                            );
+                        }
+                    }
+                }
                 TranscriptionPreviewResponse {
                     source_kind: request.source_kind,
                     resolved_model,
@@ -560,6 +661,9 @@ fn main() {
     if std::env::args().any(|arg| arg == transcription_worker::WORKER_ARG) {
         std::process::exit(transcription_worker::run_stdio_worker());
     }
+    if std::env::args().any(|arg| arg == diarization_worker::WORKER_ARG) {
+        std::process::exit(diarization_worker::run_stdio_worker());
+    }
 
     // On Linux, handle `blabber --dictate-toggle` before Tauri initialises.
     // This connects to the running instance's IPC socket, sends a toggle
@@ -645,6 +749,11 @@ fn main() {
             list_transcripts,
             delete_transcript,
             delete_all_transcripts,
+            get_transcript,
+            rename_transcript,
+            rename_transcript_speaker,
+            copy_transcript,
+            export_transcript,
             copy_text_to_clipboard,
             list_installed_models,
             list_downloadable_models,

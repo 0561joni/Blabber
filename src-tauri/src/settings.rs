@@ -69,6 +69,10 @@ pub struct AppSettings {
     pub save_history: bool,
     pub sounds_enabled: bool,
     pub volume_ducking_enabled: bool,
+    pub file_diarization_enabled: bool,
+    pub quick_dictate_diarization_enabled: bool,
+    /// `None` lets clustering choose automatically; otherwise this is an exact count.
+    pub diarization_speaker_count: Option<i32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -92,4 +96,7 @@ pub struct SettingsPatch {
     pub save_history: Option<bool>,
     pub sounds_enabled: Option<bool>,
     pub volume_ducking_enabled: Option<bool>,
+    pub file_diarization_enabled: Option<bool>,
+    pub quick_dictate_diarization_enabled: Option<bool>,
+    pub diarization_speaker_count: Option<Option<i32>>,
 }

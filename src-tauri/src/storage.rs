@@ -8,12 +8,16 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::app_state::AppState;
-use crate::asr::{InstalledModel, TranscriptQualityStatus, TranscriptResult};
+use crate::asr::{
+    InstalledModel, TranscriptQualityStatus, TranscriptResult, TranscriptSegment, TranscriptWarning,
+};
 use crate::audio_files::SelectedSourceFile;
+use crate::diarization::{DiarizationStatus, DiarizationTurn, TranscriptSpeaker};
 use crate::settings::{
     AppSettings, DefaultMode, InsertBehavior, LanguageMode, ModelProfile, SettingsPatch,
     ShortcutMode,
 };
+use crate::speaker_reconciliation::SpeakerAttribution;
 
 const INIT_MIGRATION: &str = include_str!("../migrations/001_init.sql");
 
@@ -49,6 +53,24 @@ pub struct TranscriptSummary {
     pub model_name: Option<String>,
     pub quality_status: TranscriptQualityStatus,
     pub recovered_region_count: i32,
+    pub diarization_status: DiarizationStatus,
+    pub speaker_count: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptDetail {
+    #[serde(flatten)]
+    pub summary: TranscriptSummary,
+    pub full_text: String,
+    pub timestamped_text: String,
+    pub transcription_warnings: Vec<TranscriptWarning>,
+    pub diarization_model_id: Option<String>,
+    pub diarization_warning: Option<String>,
+    pub diarization_policy_version: Option<u32>,
+    pub segments: Vec<TranscriptSegment>,
+    pub speakers: Vec<TranscriptSpeaker>,
+    pub diarization_turns: Vec<DiarizationTurn>,
 }
 
 #[derive(Debug, Clone)]
@@ -248,10 +270,20 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
         volume_ducking_enabled: patch
             .volume_ducking_enabled
             .unwrap_or(current.volume_ducking_enabled),
+        file_diarization_enabled: patch
+            .file_diarization_enabled
+            .unwrap_or(current.file_diarization_enabled),
+        quick_dictate_diarization_enabled: patch
+            .quick_dictate_diarization_enabled
+            .unwrap_or(current.quick_dictate_diarization_enabled),
+        diarization_speaker_count: patch
+            .diarization_speaker_count
+            .unwrap_or(current.diarization_speaker_count),
     };
+    validate_diarization_speaker_count(next.diarization_speaker_count)?;
     let connection = open_connection_by_path(db_path)?;
     connection.execute(
-        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18 WHERE id = 1",
+        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19, quick_dictate_diarization_enabled = ?20, diarization_speaker_count = ?21 WHERE id = 1",
         params![
             to_default_mode(next.default_mode),
             next.shortcut,
@@ -271,6 +303,9 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
             next.save_history,
             next.sounds_enabled,
             next.volume_ducking_enabled,
+            next.file_diarization_enabled,
+            next.quick_dictate_diarization_enabled,
+            next.diarization_speaker_count,
         ],
     )?;
     get_settings_from_db_path(db_path)
@@ -409,70 +444,7 @@ pub fn record_file_transcription_performance(
 }
 
 pub fn update_settings(state: &AppState, patch: SettingsPatch) -> Result<AppSettings> {
-    let current = get_settings(state)?;
-    let next = AppSettings {
-        default_mode: patch.default_mode.unwrap_or(current.default_mode),
-        shortcut: patch.shortcut.unwrap_or(current.shortcut),
-        shortcut_mode: patch.shortcut_mode.unwrap_or(current.shortcut_mode),
-        language_mode: patch.language_mode.unwrap_or(current.language_mode),
-        fixed_language: patch.fixed_language.unwrap_or(current.fixed_language),
-        preferred_input_device: patch
-            .preferred_input_device
-            .unwrap_or(current.preferred_input_device),
-        insert_behavior: patch.insert_behavior.unwrap_or(current.insert_behavior),
-        launch_at_login_enabled: patch
-            .launch_at_login_enabled
-            .unwrap_or(current.launch_at_login_enabled),
-        gpu_enabled: patch.gpu_enabled.unwrap_or(current.gpu_enabled),
-        shortcut_dictation_model_profile: patch
-            .shortcut_dictation_model_profile
-            .unwrap_or(current.shortcut_dictation_model_profile),
-        shortcut_dictation_selected_model_id: patch
-            .shortcut_dictation_selected_model_id
-            .unwrap_or(current.shortcut_dictation_selected_model_id),
-        quick_dictate_model_profile: patch
-            .quick_dictate_model_profile
-            .unwrap_or(current.quick_dictate_model_profile),
-        quick_dictate_selected_model_id: patch
-            .quick_dictate_selected_model_id
-            .unwrap_or(current.quick_dictate_selected_model_id),
-        file_transcribe_model_profile: patch
-            .file_transcribe_model_profile
-            .unwrap_or(current.file_transcribe_model_profile),
-        file_transcribe_selected_model_id: patch
-            .file_transcribe_selected_model_id
-            .unwrap_or(current.file_transcribe_selected_model_id),
-        save_history: patch.save_history.unwrap_or(current.save_history),
-        sounds_enabled: patch.sounds_enabled.unwrap_or(current.sounds_enabled),
-        volume_ducking_enabled: patch
-            .volume_ducking_enabled
-            .unwrap_or(current.volume_ducking_enabled),
-    };
-    let connection = open_connection(state)?;
-    connection.execute(
-        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18 WHERE id = 1",
-        params![
-            to_default_mode(next.default_mode),
-            next.shortcut,
-            to_shortcut_mode(next.shortcut_mode),
-            to_language_mode(next.language_mode),
-            next.fixed_language,
-            next.preferred_input_device,
-            to_insert_behavior(next.insert_behavior),
-            next.launch_at_login_enabled,
-            next.gpu_enabled,
-            to_model_profile(next.shortcut_dictation_model_profile),
-            next.shortcut_dictation_selected_model_id,
-            to_model_profile(next.quick_dictate_model_profile),
-            next.quick_dictate_selected_model_id,
-            to_model_profile(next.file_transcribe_model_profile),
-            next.file_transcribe_selected_model_id,
-            next.save_history,
-            next.sounds_enabled,
-            next.volume_ducking_enabled,
-        ],
-    )?;
-    get_settings(state)
+    update_settings_for_db_path(&state.db_path, patch)
 }
 
 pub fn list_transcripts(state: &AppState, query: Option<String>) -> Result<Vec<TranscriptSummary>> {
@@ -482,11 +454,11 @@ pub fn list_transcripts(state: &AppState, query: Option<String>) -> Result<Vec<T
         .map(|value| format!("%{}%", value.trim().to_lowercase()));
     let mut statement = if normalized_query.is_some() {
         connection.prepare(
-            "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count FROM transcripts WHERE lower(title) LIKE ?1 OR lower(plain_text) LIKE ?1 ORDER BY datetime(created_at) DESC",
+            "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count, diarization_status, speaker_count FROM transcripts WHERE lower(title) LIKE ?1 OR lower(plain_text) LIKE ?1 ORDER BY datetime(created_at) DESC",
         )?
     } else {
         connection.prepare(
-            "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count FROM transcripts ORDER BY datetime(created_at) DESC",
+            "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count, diarization_status, speaker_count FROM transcripts ORDER BY datetime(created_at) DESC",
         )?
     };
     let rows = if let Some(value) = normalized_query {
@@ -520,6 +492,46 @@ pub fn delete_all_transcripts(state: &AppState) -> Result<()> {
     Ok(())
 }
 
+pub fn get_transcript(state: &AppState, transcript_id: &str) -> Result<TranscriptDetail> {
+    let connection = open_connection(state)?;
+    fetch_transcript_detail(&connection, transcript_id)
+}
+
+pub fn rename_transcript(
+    state: &AppState,
+    transcript_id: &str,
+    title: &str,
+) -> Result<TranscriptSummary> {
+    let title = validate_name(title, 200, "Transcript title")?;
+    let connection = open_connection(state)?;
+    let changed = connection.execute(
+        "UPDATE transcripts SET title = ?2 WHERE id = ?1",
+        params![transcript_id, title],
+    )?;
+    if changed == 0 {
+        anyhow::bail!("Transcript not found.");
+    }
+    fetch_transcript_summary(&connection, transcript_id)
+}
+
+pub fn rename_transcript_speaker(
+    state: &AppState,
+    transcript_id: &str,
+    speaker_id: &str,
+    display_name: &str,
+) -> Result<TranscriptDetail> {
+    let display_name = validate_name(display_name, 80, "Speaker name")?;
+    let connection = open_connection(state)?;
+    let changed = connection.execute(
+        "UPDATE transcript_speakers SET display_name = ?3 WHERE transcript_id = ?1 AND speaker_id = ?2",
+        params![transcript_id, speaker_id, display_name],
+    )?;
+    if changed == 0 {
+        anyhow::bail!("Speaker not found in transcript.");
+    }
+    fetch_transcript_detail(&connection, transcript_id)
+}
+
 fn open_connection(state: &AppState) -> Result<Connection> {
     open_connection_by_path(&state.db_path)
 }
@@ -533,7 +545,7 @@ fn open_connection_by_path(db_path: &Path) -> Result<Connection> {
 
 fn query_settings(connection: &Connection) -> Result<AppSettings> {
     let settings = connection.query_row(
-        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled FROM settings WHERE id = 1",
+        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled, quick_dictate_diarization_enabled, diarization_speaker_count FROM settings WHERE id = 1",
         [],
         map_settings_row,
     )?;
@@ -663,6 +675,7 @@ fn ensure_settings_columns(connection: &Connection) -> Result<()> {
         ),
         ("diarization_min_speakers", "INTEGER NULL"),
         ("diarization_max_speakers", "INTEGER NULL"),
+        ("diarization_speaker_count", "INTEGER NULL"),
     ] {
         if !columns.iter().any(|column| column == name) {
             connection.execute(
@@ -671,6 +684,13 @@ fn ensure_settings_columns(connection: &Connection) -> Result<()> {
             )?;
         }
     }
+    connection.execute(
+        "UPDATE settings SET diarization_speaker_count = diarization_min_speakers
+         WHERE diarization_speaker_count IS NULL
+           AND diarization_min_speakers IS NOT NULL
+           AND diarization_min_speakers = diarization_max_speakers",
+        [],
+    )?;
 
     if added_quick_dictate_columns {
         connection.execute(
@@ -890,11 +910,99 @@ fn fetch_transcript_summary(
     transcript_id: &str,
 ) -> Result<TranscriptSummary> {
     let transcript = connection.query_row(
-        "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count FROM transcripts WHERE id = ?1",
+        "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count, diarization_status, speaker_count FROM transcripts WHERE id = ?1",
         [transcript_id],
         map_transcript_summary_row,
     )?;
     Ok(transcript)
+}
+
+fn fetch_transcript_detail(
+    connection: &Connection,
+    transcript_id: &str,
+) -> Result<TranscriptDetail> {
+    let summary = fetch_transcript_summary(connection, transcript_id)?;
+    let (full_text, timestamped_text, warnings_raw, diarization_model_id, diarization_warning, policy): (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<u32>,
+    ) = connection.query_row(
+        "SELECT full_text, timestamped_text, transcription_warnings, diarization_model_id, diarization_warning, diarization_policy_version FROM transcripts WHERE id = ?1",
+        [transcript_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+    )?;
+
+    let mut segment_statement = connection.prepare(
+        "SELECT id, start_ms, end_ms, text, COALESCE(language_code, 'und') AS language_code, segment_order, confidence, speaker_id, speaker_ids_json, speaker_attribution, speaker_confidence
+         FROM transcript_segments WHERE transcript_id = ?1 ORDER BY segment_order ASC",
+    )?;
+    let segments = segment_statement
+        .query_map([transcript_id], |row| {
+            let speaker_ids_raw: Option<String> = row.get("speaker_ids_json")?;
+            Ok(TranscriptSegment {
+                id: row.get("id")?,
+                start_ms: row.get("start_ms")?,
+                end_ms: row.get("end_ms")?,
+                text: row.get("text")?,
+                language_code: row.get("language_code")?,
+                segment_order: row.get("segment_order")?,
+                confidence: row.get("confidence")?,
+                speaker_id: row.get("speaker_id")?,
+                speaker_ids: speaker_ids_raw.and_then(|value| serde_json::from_str(&value).ok()),
+                speaker_attribution: parse_speaker_attribution(row.get("speaker_attribution")?)?,
+                speaker_confidence: row.get("speaker_confidence")?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    let mut speaker_statement = connection.prepare(
+        "SELECT speaker_id, display_name, speaker_order FROM transcript_speakers WHERE transcript_id = ?1 ORDER BY speaker_order ASC",
+    )?;
+    let speakers = speaker_statement
+        .query_map([transcript_id], |row| {
+            Ok(TranscriptSpeaker {
+                speaker_id: row.get("speaker_id")?,
+                display_name: row.get("display_name")?,
+                speaker_order: row.get("speaker_order")?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    let mut turns_statement = connection.prepare(
+        "SELECT id, start_ms, end_ms, speaker_ids_json, confidence, is_overlap, is_uncertain, turn_order
+         FROM diarization_turns WHERE transcript_id = ?1 ORDER BY turn_order ASC",
+    )?;
+    let diarization_turns = turns_statement
+        .query_map([transcript_id], |row| {
+            let speaker_ids_raw: String = row.get("speaker_ids_json")?;
+            Ok(DiarizationTurn {
+                id: row.get("id")?,
+                start_ms: row.get("start_ms")?,
+                end_ms: row.get("end_ms")?,
+                speaker_ids: serde_json::from_str(&speaker_ids_raw).unwrap_or_default(),
+                confidence: row.get("confidence")?,
+                is_overlap: row.get("is_overlap")?,
+                is_uncertain: row.get("is_uncertain")?,
+                turn_order: row.get("turn_order")?,
+            })
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    Ok(TranscriptDetail {
+        summary,
+        full_text,
+        timestamped_text,
+        transcription_warnings: serde_json::from_str(&warnings_raw).unwrap_or_default(),
+        diarization_model_id,
+        diarization_warning,
+        diarization_policy_version: policy,
+        segments,
+        speakers,
+        diarization_turns,
+    })
 }
 
 fn insert_transcript(
@@ -909,8 +1017,8 @@ fn insert_transcript(
     let languages = serde_json::to_string(&result.detected_languages)?;
     let warnings = serde_json::to_string(&result.warnings)?;
     transaction.execute(
-        "INSERT INTO transcripts (id, created_at, source_type, title, full_text, plain_text, timestamped_text, detected_languages, duration_ms, status, model_name, quality_status, recovered_region_count, transcription_warnings)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO transcripts (id, created_at, source_type, title, full_text, plain_text, timestamped_text, detected_languages, duration_ms, status, model_name, quality_status, recovered_region_count, transcription_warnings, diarization_status, diarization_model_id, diarization_warning, diarization_policy_version, speaker_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         params![
             transcript_id,
             &created_at,
@@ -926,13 +1034,18 @@ fn insert_transcript(
             to_transcript_quality_status(result.quality_status),
             result.recovered_region_count,
             warnings,
+            to_diarization_status(result.diarization_status),
+            &result.diarization_model_id,
+            &result.diarization_warning,
+            result.diarization_policy_version,
+            if result.speakers.is_empty() { None } else { Some(result.speakers.len() as i32) },
         ],
     )?;
 
     for segment in &result.segments {
         transaction.execute(
-            "INSERT INTO transcript_segments (id, transcript_id, start_ms, end_ms, text, language_code, speaker_label, confidence, segment_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8)",
+            "INSERT INTO transcript_segments (id, transcript_id, start_ms, end_ms, text, language_code, speaker_label, confidence, segment_order, speaker_id, speaker_ids_json, speaker_attribution, speaker_confidence)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 &segment.id,
                 transcript_id,
@@ -942,6 +1055,28 @@ fn insert_transcript(
                 &segment.language_code,
                 segment.confidence,
                 segment.segment_order,
+                &segment.speaker_id,
+                segment.speaker_ids.as_ref().map(serde_json::to_string).transpose()?,
+                to_speaker_attribution(segment.speaker_attribution),
+                segment.speaker_confidence,
+            ],
+        )?;
+    }
+
+    for speaker in &result.speakers {
+        transaction.execute(
+            "INSERT INTO transcript_speakers (transcript_id, speaker_id, display_name, speaker_order) VALUES (?1, ?2, ?3, ?4)",
+            params![transcript_id, &speaker.speaker_id, &speaker.display_name, speaker.speaker_order],
+        )?;
+    }
+    for turn in &result.diarization_turns {
+        transaction.execute(
+            "INSERT INTO diarization_turns (id, transcript_id, start_ms, end_ms, speaker_ids_json, confidence, is_overlap, is_uncertain, turn_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                format!("{transcript_id}:{}", turn.id), transcript_id, turn.start_ms, turn.end_ms,
+                serde_json::to_string(&turn.speaker_ids)?, turn.confidence, turn.is_overlap,
+                turn.is_uncertain, turn.turn_order
             ],
         )?;
     }
@@ -1001,7 +1136,17 @@ fn map_settings_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AppSettings> {
         save_history: row.get("save_history")?,
         sounds_enabled: row.get("sounds_enabled")?,
         volume_ducking_enabled: row.get("volume_ducking_enabled")?,
+        file_diarization_enabled: row.get("file_diarization_enabled")?,
+        quick_dictate_diarization_enabled: row.get("quick_dictate_diarization_enabled")?,
+        diarization_speaker_count: row.get("diarization_speaker_count")?,
     })
+}
+
+fn validate_diarization_speaker_count(value: Option<i32>) -> Result<()> {
+    if value.is_some_and(|count| !(1..=20).contains(&count)) {
+        anyhow::bail!("Speaker count must be between 1 and 20.");
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -1100,7 +1245,66 @@ fn map_transcript_summary_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Trans
         model_name: row.get("model_name")?,
         quality_status: parse_transcript_quality_status(row.get("quality_status")?)?,
         recovered_region_count: row.get("recovered_region_count")?,
+        diarization_status: parse_diarization_status(row.get("diarization_status")?)?,
+        speaker_count: row.get("speaker_count")?,
     })
+}
+
+fn parse_diarization_status(value: String) -> rusqlite::Result<DiarizationStatus> {
+    match value.as_str() {
+        "not_requested" => Ok(DiarizationStatus::NotRequested),
+        "pending" => Ok(DiarizationStatus::Pending),
+        "running" => Ok(DiarizationStatus::Running),
+        "completed" => Ok(DiarizationStatus::Completed),
+        "completed_with_uncertainty" => Ok(DiarizationStatus::CompletedWithUncertainty),
+        "failed" => Ok(DiarizationStatus::Failed),
+        "canceled" => Ok(DiarizationStatus::Canceled),
+        "not_enough_speech" => Ok(DiarizationStatus::NotEnoughSpeech),
+        _ => Err(rusqlite::Error::InvalidQuery),
+    }
+}
+
+fn to_diarization_status(value: DiarizationStatus) -> &'static str {
+    match value {
+        DiarizationStatus::NotRequested => "not_requested",
+        DiarizationStatus::Pending => "pending",
+        DiarizationStatus::Running => "running",
+        DiarizationStatus::Completed => "completed",
+        DiarizationStatus::CompletedWithUncertainty => "completed_with_uncertainty",
+        DiarizationStatus::Failed => "failed",
+        DiarizationStatus::Canceled => "canceled",
+        DiarizationStatus::NotEnoughSpeech => "not_enough_speech",
+    }
+}
+
+fn parse_speaker_attribution(value: String) -> rusqlite::Result<SpeakerAttribution> {
+    match value.as_str() {
+        "none" => Ok(SpeakerAttribution::None),
+        "assigned" => Ok(SpeakerAttribution::Assigned),
+        "uncertain" => Ok(SpeakerAttribution::Uncertain),
+        "overlap" => Ok(SpeakerAttribution::Overlap),
+        _ => Err(rusqlite::Error::InvalidQuery),
+    }
+}
+
+fn to_speaker_attribution(value: SpeakerAttribution) -> &'static str {
+    match value {
+        SpeakerAttribution::None => "none",
+        SpeakerAttribution::Assigned => "assigned",
+        SpeakerAttribution::Uncertain => "uncertain",
+        SpeakerAttribution::Overlap => "overlap",
+    }
+}
+
+fn validate_name<'a>(value: &'a str, max_chars: usize, label: &str) -> Result<&'a str> {
+    let value = value.trim();
+    if value.is_empty() {
+        anyhow::bail!("{label} cannot be empty.");
+    }
+    if value.chars().count() > max_chars {
+        anyhow::bail!("{label} cannot exceed {max_chars} characters.");
+    }
+    Ok(value)
 }
 
 fn parse_transcript_quality_status(value: String) -> rusqlite::Result<TranscriptQualityStatus> {
@@ -1254,5 +1458,80 @@ mod tests {
             )
             .expect("quality defaults");
         assert_eq!(values, ("clean".to_string(), 0, "[]".to_string()));
+    }
+
+    #[test]
+    fn speaker_metadata_roundtrips_atomically() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        connection.execute_batch(INIT_MIGRATION).expect("schema");
+        let transaction = connection.unchecked_transaction().expect("transaction");
+        let result = TranscriptResult {
+            job_id: "job".into(),
+            model_name: "test".into(),
+            full_text: "Hello".into(),
+            plain_text: "Hello".into(),
+            timestamped_text: "[00:00 - 00:01] en: Hello".into(),
+            detected_languages: vec!["en".into()],
+            segments: vec![TranscriptSegment {
+                id: "segment".into(),
+                start_ms: 0,
+                end_ms: 1_000,
+                text: "Hello".into(),
+                language_code: "en".into(),
+                segment_order: 0,
+                confidence: Some(0.9),
+                speaker_id: Some("speaker_0".into()),
+                speaker_ids: Some(vec!["speaker_0".into()]),
+                speaker_attribution: SpeakerAttribution::Assigned,
+                speaker_confidence: Some(1.0),
+            }],
+            quality_status: TranscriptQualityStatus::Clean,
+            recovered_region_count: 0,
+            warnings: vec![],
+            diarization_status: DiarizationStatus::Completed,
+            diarization_model_id: Some(crate::diarization::DIARIZATION_MODEL_ID.into()),
+            diarization_warning: None,
+            diarization_policy_version: Some(1),
+            speakers: vec![TranscriptSpeaker {
+                speaker_id: "speaker_0".into(),
+                display_name: "Speaker 1".into(),
+                speaker_order: 0,
+            }],
+            diarization_turns: vec![DiarizationTurn {
+                id: "turn_0".into(),
+                start_ms: 0,
+                end_ms: 1_000,
+                speaker_ids: vec!["speaker_0".into()],
+                confidence: None,
+                is_overlap: false,
+                is_uncertain: false,
+                turn_order: 0,
+            }],
+        };
+        insert_transcript(
+            &transaction,
+            "transcript",
+            SourceType::FileUpload,
+            "Test".into(),
+            &result,
+            Some(1_000),
+        )
+        .expect("insert transcript");
+        transaction.commit().expect("commit");
+
+        let detail = fetch_transcript_detail(&connection, "transcript").expect("detail");
+        assert_eq!(detail.summary.speaker_count, Some(1));
+        assert_eq!(detail.segments[0].speaker_id.as_deref(), Some("speaker_0"));
+        assert_eq!(detail.speakers[0].display_name, "Speaker 1");
+        assert_eq!(detail.diarization_turns.len(), 1);
+    }
+
+    #[test]
+    fn exact_speaker_count_is_bounded() {
+        assert!(validate_diarization_speaker_count(None).is_ok());
+        assert!(validate_diarization_speaker_count(Some(1)).is_ok());
+        assert!(validate_diarization_speaker_count(Some(20)).is_ok());
+        assert!(validate_diarization_speaker_count(Some(0)).is_err());
+        assert!(validate_diarization_speaker_count(Some(21)).is_err());
     }
 }

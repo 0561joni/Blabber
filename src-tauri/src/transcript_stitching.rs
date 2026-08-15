@@ -64,6 +64,10 @@ mod tests {
             language_code: "en".to_string(),
             segment_order: 0,
             confidence: Some(0.8),
+            speaker_id: None,
+            speaker_ids: None,
+            speaker_attribution: crate::speaker_reconciliation::SpeakerAttribution::None,
+            speaker_confidence: None,
         }
     }
 
