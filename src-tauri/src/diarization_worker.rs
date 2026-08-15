@@ -19,6 +19,17 @@ use crate::diarization::{RawDiarizationTurn, DIARIZATION_MODEL_SPEC_V1};
 
 pub const WORKER_ARG: &str = "--diarize-worker";
 
+#[derive(Debug)]
+pub struct DiarizationWorkerCanceled;
+
+impl std::fmt::Display for DiarizationWorkerCanceled {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("diarization canceled")
+    }
+}
+
+impl std::error::Error for DiarizationWorkerCanceled {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkerRequest {
@@ -219,10 +230,14 @@ pub fn read_worker_output_lines<R: io::Read + Send + 'static>(
     })
 }
 
-pub fn run_subprocess_worker(
+pub fn run_subprocess_worker<F>(
     request: &WorkerRequest,
     cancelled: Option<&AtomicBool>,
-) -> Result<Vec<RawDiarizationTurn>> {
+    mut on_activity: F,
+) -> Result<Vec<RawDiarizationTurn>>
+where
+    F: FnMut(),
+{
     let executable = std::env::current_exe().context("failed to locate app executable")?;
     let mut child = Command::new(executable)
         .arg(WORKER_ARG)
@@ -247,10 +262,12 @@ pub fn run_subprocess_worker(
             let _ = child.kill();
             let _ = child.wait();
             let _ = reader.join();
-            return Err(anyhow!("DIARIZATION_CANCELED: diarization canceled"));
+            return Err(DiarizationWorkerCanceled.into());
         }
         match receiver.recv_timeout(Duration::from_millis(250)) {
-            Ok(Ok(WorkerOutput::Heartbeat)) => last_output = Instant::now(),
+            Ok(Ok(WorkerOutput::Heartbeat)) => {
+                record_worker_activity(&mut last_output, &mut on_activity)
+            }
             Ok(Ok(WorkerOutput::Result { turns })) => {
                 let status = child.wait()?;
                 let _ = reader.join();
@@ -293,6 +310,14 @@ pub fn run_subprocess_worker(
     }
 }
 
+fn record_worker_activity<F>(last_output: &mut Instant, on_activity: &mut F)
+where
+    F: FnMut(),
+{
+    *last_output = Instant::now();
+    on_activity();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,5 +328,22 @@ mod tests {
         assert_eq!(turns.len(), 3);
         assert_eq!(turns[1].cluster_ids, vec![0, 1]);
         assert_eq!((turns[1].start_ms, turns[1].end_ms), (500, 1_000));
+    }
+
+    #[test]
+    fn heartbeat_refreshes_liveness_and_notifies_the_caller() {
+        let mut last_output = Instant::now() - Duration::from_secs(30);
+        let mut activity_count = 0;
+
+        record_worker_activity(&mut last_output, &mut || activity_count += 1);
+
+        assert_eq!(activity_count, 1);
+        assert!(last_output.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn cancellation_has_a_typed_error() {
+        let error = anyhow::Error::from(DiarizationWorkerCanceled);
+        assert!(error.is::<DiarizationWorkerCanceled>());
     }
 }

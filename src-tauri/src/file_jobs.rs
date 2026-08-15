@@ -3,7 +3,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -75,7 +75,71 @@ pub struct FileTranscriptionStatusEvent {
 #[derive(Clone)]
 struct ActiveFileTranscriptionRun {
     job_id: String,
-    cancelled: Arc<AtomicBool>,
+    control: Arc<FileJobRunControl>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileJobCancellationReason {
+    None = 0,
+    Watchdog = 1,
+    User = 2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WatchdogDisposition {
+    PreserveAsr,
+    FailJob,
+}
+
+#[derive(Debug)]
+struct FileJobRunControl {
+    cancelled: AtomicBool,
+    cancellation_reason: AtomicU8,
+}
+
+impl FileJobRunControl {
+    fn new() -> Self {
+        Self {
+            cancelled: AtomicBool::new(false),
+            cancellation_reason: AtomicU8::new(FileJobCancellationReason::None as u8),
+        }
+    }
+
+    fn request_user_cancellation(&self) {
+        self.cancellation_reason
+            .store(FileJobCancellationReason::User as u8, Ordering::SeqCst);
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    fn request_watchdog_cancellation(&self) {
+        let _ = self.cancellation_reason.compare_exchange(
+            FileJobCancellationReason::None as u8,
+            FileJobCancellationReason::Watchdog as u8,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    fn stop(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    fn reason(&self) -> FileJobCancellationReason {
+        match self.cancellation_reason.load(Ordering::SeqCst) {
+            value if value == FileJobCancellationReason::Watchdog as u8 => {
+                FileJobCancellationReason::Watchdog
+            }
+            value if value == FileJobCancellationReason::User as u8 => {
+                FileJobCancellationReason::User
+            }
+            _ => FileJobCancellationReason::None,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -85,6 +149,7 @@ pub struct FileTranscriptionController {
     models_dir: PathBuf,
     db_path: PathBuf,
     statuses: Arc<Mutex<HashMap<String, FileTranscriptionStatusEvent>>>,
+    status_updates: Arc<Mutex<()>>,
     queued_requests: Arc<Mutex<VecDeque<FileTranscriptionRequest>>>,
     active_run: Arc<Mutex<Option<ActiveFileTranscriptionRun>>>,
     log_path: PathBuf,
@@ -107,6 +172,7 @@ impl FileTranscriptionController {
             models_dir,
             db_path,
             statuses: Arc::new(Mutex::new(HashMap::new())),
+            status_updates: Arc::new(Mutex::new(())),
             queued_requests: Arc::new(Mutex::new(VecDeque::new())),
             active_run: Arc::new(Mutex::new(None)),
             log_path,
@@ -173,7 +239,7 @@ impl FileTranscriptionController {
                 .expect("file transcription active mutex poisoned");
             if let Some(run) = active.as_ref() {
                 if run.job_id == job_id {
-                    run.cancelled.store(true, Ordering::SeqCst);
+                    run.control.request_user_cancellation();
                     true
                 } else {
                     false
@@ -220,7 +286,7 @@ impl FileTranscriptionController {
             return;
         };
 
-        let cancelled = Arc::new(AtomicBool::new(false));
+        let control = Arc::new(FileJobRunControl::new());
         {
             let mut active = self
                 .active_run
@@ -228,21 +294,21 @@ impl FileTranscriptionController {
                 .expect("file transcription active mutex poisoned");
             *active = Some(ActiveFileTranscriptionRun {
                 job_id: request.job_id.clone(),
-                cancelled: Arc::clone(&cancelled),
+                control: Arc::clone(&control),
             });
         }
 
         let controller = self.clone();
         thread::spawn(move || {
-            controller.run_job(request, cancelled);
+            controller.run_job(request, control);
         });
     }
 
-    fn run_job(&self, request: FileTranscriptionRequest, cancelled: Arc<AtomicBool>) {
-        let watchdog = self.spawn_watchdog(request.job_id.clone(), Arc::clone(&cancelled));
+    fn run_job(&self, request: FileTranscriptionRequest, control: Arc<FileJobRunControl>) {
+        let watchdog = self.spawn_watchdog(request.job_id.clone(), Arc::clone(&control));
 
-        let result = self.process_file_job(&request, Arc::clone(&cancelled));
-        cancelled.store(true, Ordering::SeqCst);
+        let result = self.process_file_job(&request, Arc::clone(&control));
+        control.stop();
 
         let _ = watchdog.join();
 
@@ -261,7 +327,7 @@ impl FileTranscriptionController {
     fn process_file_job(
         &self,
         request: &FileTranscriptionRequest,
-        cancelled: Arc<AtomicBool>,
+        control: Arc<FileJobRunControl>,
     ) -> Result<()> {
         self.update_status(
             &request.job_id,
@@ -339,11 +405,11 @@ impl FileTranscriptionController {
                     .map(|prompt| prompt.terms.clone())
                     .unwrap_or_default(),
             },
-            Arc::clone(&cancelled),
+            Arc::clone(&control),
             started_at,
         )?;
 
-        if cancelled.load(Ordering::SeqCst) {
+        if control.is_cancelled() {
             return Err(anyhow!(
                 "File transcription watchdog expired before completion."
             ));
@@ -374,6 +440,11 @@ impl FileTranscriptionController {
                 None,
                 None,
             )?;
+            self.log_job(
+                &request.job_id,
+                "diarizing",
+                &request.source_file.original_name,
+            );
             if let Some(package_path) =
                 model_downloads::installed_diarization_package_path(&self.models_dir)
             {
@@ -386,15 +457,44 @@ impl FileTranscriptionController {
                 };
                 match diarization_worker::run_subprocess_worker(
                     &worker_request,
-                    Some(cancelled.as_ref()),
+                    Some(&control.cancelled),
+                    || {
+                        self.refresh_diarization_activity(&request.job_id);
+                    },
                 ) {
-                    Ok(turns) => diarization::apply_turns_to_transcript(&mut corrected, turns),
-                    Err(error) if error.to_string().starts_with("DIARIZATION_CANCELED:") => {
-                        return Err(error)
+                    Ok(turns) => {
+                        self.log_job(&request.job_id, "diarization_completed", "success");
+                        diarization::apply_turns_to_transcript(&mut corrected, turns);
                     }
-                    Err(error) => diarization::mark_failure(&mut corrected, error.to_string()),
+                    Err(error) if error.is::<diarization_worker::DiarizationWorkerCanceled>() => {
+                        if preserve_asr_after_diarization_cancellation(control.reason()) {
+                            self.log_job(
+                                &request.job_id,
+                                "diarization_fallback",
+                                "worker stopped reporting activity",
+                            );
+                            diarization::mark_failure(
+                                &mut corrected,
+                                "Speaker identification stopped responding. The transcript was saved without speaker labels.",
+                            );
+                        } else {
+                            return Err(error);
+                        }
+                    }
+                    Err(error) => {
+                        self.log_job(&request.job_id, "diarization_fallback", &error.to_string());
+                        diarization::mark_failure(
+                            &mut corrected,
+                            "Speaker identification could not finish. The transcript was saved without speaker labels.",
+                        );
+                    }
                 }
             } else {
+                self.log_job(
+                    &request.job_id,
+                    "diarization_fallback",
+                    "verified model package unavailable",
+                );
                 diarization::mark_failure(
                     &mut corrected,
                     "Speaker identification is enabled, but its model is still installing or unavailable. The transcript was saved without speaker labels.",
@@ -485,7 +585,7 @@ impl FileTranscriptionController {
         &self,
         request: &FileTranscriptionRequest,
         engine_request: EngineFileTranscriptionRequest,
-        cancelled: Arc<AtomicBool>,
+        control: Arc<FileJobRunControl>,
         started_at: Instant,
     ) -> Result<TranscriptResult> {
         let executable = std::env::current_exe()
@@ -530,7 +630,7 @@ impl FileTranscriptionController {
         let mut last_decoder_activity = Instant::now();
 
         loop {
-            if cancelled.load(Ordering::SeqCst) {
+            if control.is_cancelled() {
                 let _ = child.kill();
                 let _ = child.wait();
                 let _ = output_reader.join();
@@ -649,14 +749,18 @@ impl FileTranscriptionController {
         )
     }
 
-    fn spawn_watchdog(&self, job_id: String, cancelled: Arc<AtomicBool>) -> thread::JoinHandle<()> {
+    fn spawn_watchdog(
+        &self,
+        job_id: String,
+        control: Arc<FileJobRunControl>,
+    ) -> thread::JoinHandle<()> {
         let controller = self.clone();
         thread::spawn(move || loop {
-            if cancelled.load(Ordering::SeqCst) {
+            if control.is_cancelled() {
                 break;
             }
             thread::sleep(Duration::from_millis(1500));
-            if cancelled.load(Ordering::SeqCst) {
+            if control.is_cancelled() {
                 break;
             }
             let Some(status) = controller.current_status(&job_id) else {
@@ -665,17 +769,45 @@ impl FileTranscriptionController {
             if is_terminal(&status.stage) {
                 break;
             }
-            if now_ms() - status.updated_at_ms > WATCHDOG_TIMEOUT_MS {
-                cancelled.store(true, Ordering::SeqCst);
-                controller.fail_job(
-                    &job_id,
-                    "File transcription timed out.",
-                    "The file job stopped reporting progress and was cancelled.".to_string(),
-                );
-                controller.log_job(&job_id, "failed", "watchdog timeout");
+            if watchdog_expired(&status, now_ms()) {
+                control.request_watchdog_cancellation();
+                if watchdog_disposition(&status.stage) == WatchdogDisposition::PreserveAsr {
+                    controller.log_job(
+                        &job_id,
+                        "diarization_watchdog",
+                        "worker stopped reporting activity; preserving ASR result",
+                    );
+                } else {
+                    controller.fail_job(
+                        &job_id,
+                        "File transcription timed out.",
+                        "The file job stopped reporting progress and was cancelled.".to_string(),
+                    );
+                    controller.log_job(&job_id, "failed", "watchdog timeout");
+                }
                 break;
             }
         })
+    }
+
+    fn refresh_diarization_activity(&self, job_id: &str) {
+        let _status_update = self
+            .status_updates
+            .lock()
+            .expect("file transcription status update mutex poisoned");
+        let refreshed = {
+            let mut statuses = self
+                .statuses
+                .lock()
+                .expect("file transcription status mutex poisoned");
+            statuses
+                .get_mut(job_id)
+                .and_then(|status| refresh_diarization_status(status, now_ms()))
+        };
+
+        if let Some(status) = refreshed {
+            self.emit_status(status);
+        }
     }
 
     fn update_status(
@@ -754,6 +886,10 @@ impl FileTranscriptionController {
     }
 
     fn persist_status(&self, status: FileTranscriptionStatusEvent) {
+        let _status_update = self
+            .status_updates
+            .lock()
+            .expect("file transcription status update mutex poisoned");
         {
             let mut statuses = self
                 .statuses
@@ -762,6 +898,10 @@ impl FileTranscriptionController {
             statuses.insert(status.job_id.clone(), status.clone());
         }
 
+        self.emit_status(status);
+    }
+
+    fn emit_status(&self, status: FileTranscriptionStatusEvent) {
         if let Err(error) = self
             .app
             .emit(FILE_TRANSCRIPTION_STATUS_EVENT, status.clone())
@@ -786,7 +926,7 @@ impl FileTranscriptionController {
                 .expect("file transcription active mutex poisoned");
             if let Some(run) = active.as_ref() {
                 if run.job_id == job_id {
-                    run.cancelled.store(true, Ordering::SeqCst);
+                    run.control.stop();
                 }
             }
             *active = None;
@@ -852,6 +992,33 @@ fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
+fn refresh_diarization_status(
+    status: &mut FileTranscriptionStatusEvent,
+    refreshed_at_ms: i64,
+) -> Option<FileTranscriptionStatusEvent> {
+    if !matches!(status.stage, FileTranscriptionJobStage::Diarizing) {
+        return None;
+    }
+    status.updated_at_ms = refreshed_at_ms;
+    Some(status.clone())
+}
+
+fn watchdog_expired(status: &FileTranscriptionStatusEvent, current_time_ms: i64) -> bool {
+    current_time_ms - status.updated_at_ms > WATCHDOG_TIMEOUT_MS
+}
+
+fn watchdog_disposition(stage: &FileTranscriptionJobStage) -> WatchdogDisposition {
+    if matches!(stage, FileTranscriptionJobStage::Diarizing) {
+        WatchdogDisposition::PreserveAsr
+    } else {
+        WatchdogDisposition::FailJob
+    }
+}
+
+fn preserve_asr_after_diarization_cancellation(reason: FileJobCancellationReason) -> bool {
+    reason == FileJobCancellationReason::Watchdog
+}
+
 fn is_terminal(stage: &FileTranscriptionJobStage) -> bool {
     matches!(
         stage,
@@ -859,4 +1026,109 @@ fn is_terminal(stage: &FileTranscriptionJobStage) -> bool {
             | FileTranscriptionJobStage::Failed
             | FileTranscriptionJobStage::Canceled
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn status(
+        stage: FileTranscriptionJobStage,
+        updated_at_ms: i64,
+    ) -> FileTranscriptionStatusEvent {
+        FileTranscriptionStatusEvent {
+            job_id: "job-1".to_string(),
+            source_file: SelectedSourceFile {
+                file_path: "/tmp/audio.m4a".to_string(),
+                original_name: "audio.m4a".to_string(),
+                mime_type: "audio/mp4".to_string(),
+                size_bytes: 42,
+                duration_ms: Some(5_897_877),
+                sha256: None,
+            },
+            stage,
+            progress_percent: None,
+            processed_ms: Some(5_897_877),
+            total_ms: Some(5_897_877),
+            eta_seconds: None,
+            status_text: "Identifying speakers locally...".to_string(),
+            result: None,
+            error_message: None,
+            started_at_ms: 0,
+            updated_at_ms,
+        }
+    }
+
+    #[test]
+    fn diarization_activity_refreshes_only_the_timestamp() {
+        let mut current = status(FileTranscriptionJobStage::Diarizing, 10);
+        let refreshed = refresh_diarization_status(&mut current, 2_000).expect("refreshed");
+
+        assert_eq!(refreshed.updated_at_ms, 2_000);
+        assert_eq!(refreshed.status_text, "Identifying speakers locally...");
+        assert_eq!(refreshed.progress_percent, None);
+        assert_eq!(refreshed.processed_ms, Some(5_897_877));
+        assert_eq!(refreshed.total_ms, Some(5_897_877));
+        assert!(matches!(
+            refreshed.stage,
+            FileTranscriptionJobStage::Diarizing
+        ));
+    }
+
+    #[test]
+    fn late_heartbeat_does_not_revive_a_terminal_job() {
+        for stage in [
+            FileTranscriptionJobStage::Canceled,
+            FileTranscriptionJobStage::Failed,
+            FileTranscriptionJobStage::Completed,
+        ] {
+            let mut current = status(stage, 10);
+            assert!(refresh_diarization_status(&mut current, 2_000).is_none());
+            assert_eq!(current.updated_at_ms, 10);
+        }
+    }
+
+    #[test]
+    fn repeated_diarization_heartbeats_keep_a_long_job_fresh() {
+        let mut current = status(FileTranscriptionJobStage::Diarizing, 0);
+        for heartbeat_ms in (2_000..=300_000).step_by(2_000) {
+            let _ = refresh_diarization_status(&mut current, heartbeat_ms);
+            assert!(!watchdog_expired(&current, heartbeat_ms + 1_500));
+        }
+    }
+
+    #[test]
+    fn watchdog_preserves_asr_only_during_diarization() {
+        assert_eq!(
+            watchdog_disposition(&FileTranscriptionJobStage::Diarizing),
+            WatchdogDisposition::PreserveAsr
+        );
+        assert_eq!(
+            watchdog_disposition(&FileTranscriptionJobStage::Transcribing),
+            WatchdogDisposition::FailJob
+        );
+    }
+
+    #[test]
+    fn user_cancellation_takes_precedence_over_watchdog_cancellation() {
+        let control = FileJobRunControl::new();
+        control.request_watchdog_cancellation();
+        control.request_user_cancellation();
+
+        assert!(control.is_cancelled());
+        assert_eq!(control.reason(), FileJobCancellationReason::User);
+        assert!(!preserve_asr_after_diarization_cancellation(
+            control.reason()
+        ));
+    }
+
+    #[test]
+    fn watchdog_cancellation_preserves_the_completed_asr_result() {
+        let control = FileJobRunControl::new();
+        control.request_watchdog_cancellation();
+
+        assert!(preserve_asr_after_diarization_cancellation(
+            control.reason()
+        ));
+    }
 }

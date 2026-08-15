@@ -768,20 +768,20 @@ function fileStageLabel(stage: FileQueueItem["stage"]) {
 }
 
 function InlineSpeakerTranscript({ result }: { result: TranscriptResult }) {
-  if (result.speakers.length === 0 || result.segments.length === 0) {
-    return <p className="muted">{result.plainText}</p>;
-  }
   const name = (id: string) => result.speakers.find((speaker) => speaker.speakerId === id)?.displayName ?? id;
-  return <div className="speaker-segment-list">{result.segments.map((segment) => {
-    const label = segment.speakerAttribution === "assigned" && segment.speakerId
-      ? name(segment.speakerId)
-      : segment.speakerAttribution === "overlap"
-        ? (segment.speakerIds ?? []).map(name).join(" + ")
-        : segment.speakerAttribution === "uncertain"
-          ? "Uncertain speaker"
-          : "Unknown speaker";
-    const speakerId = segment.speakerId ?? segment.speakerIds?.[0];
-    const color = Math.max(0, result.speakers.find((speaker) => speaker.speakerId === speakerId)?.speakerOrder ?? 0) % 6;
-    return <div className="speaker-segment" key={segment.id}><span className={`speaker-label speaker-color-${color}`}>{label}</span><p>{segment.text}</p></div>;
-  })}{result.diarizationWarning ? <p className="warning-text">{result.diarizationWarning}</p> : null}</div>;
+  return <>{result.speakers.length === 0 || result.segments.length === 0
+    ? <p className="muted">{result.plainText}</p>
+    : <div className="speaker-segment-list">{result.segments.map((segment) => {
+      const label = segment.speakerAttribution === "assigned" && segment.speakerId
+        ? name(segment.speakerId)
+        : segment.speakerAttribution === "overlap"
+          ? (segment.speakerIds ?? []).map(name).join(" + ")
+          : segment.speakerAttribution === "uncertain"
+            ? "Uncertain speaker"
+            : "Unknown speaker";
+      const speakerId = segment.speakerId ?? segment.speakerIds?.[0];
+      const color = Math.max(0, result.speakers.find((speaker) => speaker.speakerId === speakerId)?.speakerOrder ?? 0) % 6;
+      return <div className="speaker-segment" key={segment.id}><span className={`speaker-label speaker-color-${color}`}>{label}</span><p>{segment.text}</p></div>;
+    })}</div>}
+  {result.diarizationWarning ? <p className="warning-text">{result.diarizationWarning}</p> : null}</>;
 }
