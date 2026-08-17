@@ -26,12 +26,12 @@ use crate::storage;
 
 const MODEL_DOWNLOAD_EVENT: &str = "model-download-status";
 pub const VAD_MODEL_NAME: &str = "ggml-silero-v6.2.0.bin";
-pub const DIARIZATION_MODEL_DIR: &str = "sherpa-diarization-pyannote3-eres2net-v1";
+pub const DIARIZATION_MODEL_DIR: &str = "sherpa-diarization-pyannote3-eres2net-voxceleb-v2";
 /// Shared completion marker for every directory-based model package.
 /// Keep the historical filename so existing Qwen installations remain valid.
 pub const MODEL_COMPLETE_FILE: &str = ".blabber-model.json";
 pub const DIARIZATION_ARTIFACTS_REVIEWED: bool = true;
-pub const DIARIZATION_TOTAL_SIZE: i64 = 45_586_539;
+pub const DIARIZATION_TOTAL_SIZE: i64 = 32_478_041;
 pub const DIARIZATION_REVISION: &str = "segmentation@340b52f1f5cd12d45a30fa284691417eaad2ff92+embedding@8be2a75c9ed7a590538b268e46fbb65e1aa9d208";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -660,9 +660,9 @@ const DIARIZATION_ARTIFACTS: &[ModelArtifactSpec] = &[
     },
     ModelArtifactSpec {
         path: "embedding.onnx",
-        size_bytes: 39_593_761,
-        url: "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/8be2a75c9ed7a590538b268e46fbb65e1aa9d208/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx?download=true",
-        sha256: "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b",
+        size_bytes: 26_485_263,
+        url: "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/8be2a75c9ed7a590538b268e46fbb65e1aa9d208/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx?download=true",
+        sha256: "c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5",
     },
 ];
 
@@ -691,8 +691,8 @@ fn downloadable_specs() -> Vec<DownloadableModelSpec> {
             id: DIARIZATION_MODEL_ID,
             engine: "sherpa-onnx",
             model_name: "Offline speaker diarization",
-            description: "Local speaker separation using pyannote segmentation and ERes2Net embeddings.",
-            requirements: Some("CPU-only · approximately 46 MB download"),
+            description: "Local speaker separation using pyannote segmentation and VoxCeleb ERes2Net embeddings.",
+            requirements: Some("CPU-only · approximately 32 MB download"),
             size_bytes: DIARIZATION_TOTAL_SIZE,
             profile: ModelProfile::Balanced,
             layout: InstallLayout::Directory { directory_name: DIARIZATION_MODEL_DIR },
@@ -919,6 +919,21 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["segmentation.onnx", "embedding.onnx"]
         );
+        assert_eq!(spec.id, "sherpa-diarization-pyannote3-eres2net-voxceleb-v2");
+        assert_eq!(spec.size_bytes, 32_478_041);
+        assert_eq!(spec.artifacts[0].size_bytes, 5_992_778);
+        assert_eq!(
+            spec.artifacts[0].sha256,
+            "fed22097bca974bad329a930b60865703766ff89f05fa09060bf6fd44e92e319"
+        );
+        assert_eq!(spec.artifacts[1].size_bytes, 26_485_263);
+        assert_eq!(
+            spec.artifacts[1].sha256,
+            "c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5"
+        );
+        assert!(spec.artifacts[1]
+            .url
+            .contains("3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx"));
         assert!(spec.artifacts.iter().all(|artifact| {
             artifact.sha256.len() == 64
                 && artifact

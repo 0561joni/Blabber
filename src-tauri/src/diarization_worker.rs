@@ -15,7 +15,7 @@ use sherpa_onnx::{
 };
 
 use crate::audio_preprocess;
-use crate::diarization::{RawDiarizationTurn, DIARIZATION_MODEL_SPEC_V1};
+use crate::diarization::{RawDiarizationTurn, DIARIZATION_MODEL_SPEC_V2};
 
 pub const WORKER_ARG: &str = "--diarize-worker";
 
@@ -67,15 +67,11 @@ fn run_stdio_worker_inner() -> Result<()> {
         .context("failed to read diarization worker request")?;
     let request: WorkerRequest =
         serde_json::from_str(&input).context("failed to parse diarization worker request")?;
-    if request.spec_version != DIARIZATION_MODEL_SPEC_V1.manifest_version {
+    if request.spec_version != DIARIZATION_MODEL_SPEC_V2.manifest_version {
         return Err(anyhow!("Unsupported diarization manifest version."));
     }
-    if request
-        .exact_speaker_count
-        .is_some_and(|count| !(1..=20).contains(&count))
-    {
-        return Err(anyhow!("Speaker count must be between 1 and 20."));
-    }
+    crate::diarization::validate_speaker_count_hint(request.exact_speaker_count)
+        .map_err(anyhow::Error::msg)?;
 
     let finished = Arc::new(AtomicBool::new(false));
     let stdout = Arc::new(Mutex::new(io::stdout()));
@@ -114,10 +110,10 @@ fn diarize(request: &WorkerRequest) -> Result<Vec<RawDiarizationTurn>> {
         },
         clustering: FastClusteringConfig {
             num_clusters: request.exact_speaker_count.unwrap_or(-1),
-            threshold: DIARIZATION_MODEL_SPEC_V1.clustering_threshold,
+            threshold: DIARIZATION_MODEL_SPEC_V2.clustering_threshold,
         },
-        min_duration_on: DIARIZATION_MODEL_SPEC_V1.min_duration_on_seconds,
-        min_duration_off: DIARIZATION_MODEL_SPEC_V1.min_duration_off_seconds,
+        min_duration_on: DIARIZATION_MODEL_SPEC_V2.min_duration_on_seconds,
+        min_duration_off: DIARIZATION_MODEL_SPEC_V2.min_duration_off_seconds,
     };
     let diarizer = OfflineSpeakerDiarization::create(&config)
         .ok_or_else(|| anyhow!("sherpa-onnx could not initialize the diarization models."))?;

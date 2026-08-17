@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const DIARIZATION_MODEL_ID: &str = "sherpa-diarization-pyannote3-eres2net-v1";
+pub const DIARIZATION_MODEL_ID: &str = "sherpa-diarization-pyannote3-eres2net-voxceleb-v2";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,14 +40,26 @@ pub struct DiarizationModelSpec {
     pub num_clusters: i32,
 }
 
-pub const DIARIZATION_MODEL_SPEC_V1: DiarizationModelSpec = DiarizationModelSpec {
-    manifest_version: 1,
+pub const DIARIZATION_MODEL_SPEC_V2: DiarizationModelSpec = DiarizationModelSpec {
+    manifest_version: 2,
     window_shift_ratio: 0.1,
     min_duration_on_seconds: 0.3,
     min_duration_off_seconds: 0.5,
-    clustering_threshold: 0.5,
+    // Sherpa documents 0.90 as a general baseline. The multilingual VoxCeleb
+    // package was calibrated on the long private-use meeting fixture: 1.10
+    // materially reduces fragmentation, while the sanity gate below still
+    // rejects pathological results and offers an exact-count repair.
+    clustering_threshold: 1.10,
     num_clusters: -1,
 };
+
+pub fn validate_speaker_count_hint(value: Option<i32>) -> Result<(), &'static str> {
+    if value.is_some_and(|count| !(1..=20).contains(&count)) {
+        Err("Speaker estimate must be between 1 and 20.")
+    } else {
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +68,51 @@ pub struct RawDiarizationTurn {
     pub end_ms: i64,
     pub cluster_ids: Vec<i32>,
     pub confidence: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiarizationDiagnostics {
+    pub cluster_count: usize,
+    pub turn_count: usize,
+    pub short_cluster_count: usize,
+}
+
+pub fn aggregate_diagnostics(turns: &[RawDiarizationTurn]) -> DiarizationDiagnostics {
+    use std::collections::HashMap;
+    let mut durations = HashMap::<i32, i64>::new();
+    for turn in turns {
+        let duration = (turn.end_ms - turn.start_ms).max(0);
+        for cluster in &turn.cluster_ids {
+            *durations.entry(*cluster).or_default() += duration;
+        }
+    }
+    DiarizationDiagnostics {
+        cluster_count: durations.len(),
+        turn_count: turns.len(),
+        short_cluster_count: durations
+            .values()
+            .filter(|duration| **duration < 10_000)
+            .count(),
+    }
+}
+
+pub fn overclustering_warning(
+    turns: &[RawDiarizationTurn],
+    speaker_count_hint: Option<i32>,
+) -> Option<String> {
+    if speaker_count_hint.is_some() {
+        return None;
+    }
+    let diagnostics = aggregate_diagnostics(turns);
+    let count = diagnostics.cluster_count;
+    let short = diagnostics.short_cluster_count;
+    if count > 20 || (count >= 12 && short * 2 > count) {
+        Some(format!(
+            "Speaker identification found {count} possible voices ({short} very brief). The transcript was saved without speaker labels; retry with an approximate speaker count."
+        ))
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -131,6 +188,7 @@ pub fn speakers_from_turns(turns: &[DiarizationTurn]) -> Vec<TranscriptSpeaker> 
 pub fn apply_turns_to_transcript(
     result: &mut crate::asr::TranscriptResult,
     raw_turns: Vec<RawDiarizationTurn>,
+    speaker_count_hint: Option<i32>,
 ) {
     let turns = normalize_turns(raw_turns);
     if turns.is_empty() {
@@ -140,6 +198,10 @@ pub fn apply_turns_to_transcript(
             Some("Not enough distinct speech was available to identify speakers.".to_string());
         result.diarization_policy_version =
             Some(crate::speaker_reconciliation::DIARIZATION_POLICY_VERSION);
+        result.diarization_clustering_threshold = speaker_count_hint
+            .is_none()
+            .then_some(DIARIZATION_MODEL_SPEC_V2.clustering_threshold);
+        result.diarization_speaker_count_hint = speaker_count_hint;
         return;
     }
     let speakers = speakers_from_turns(&turns);
@@ -158,6 +220,7 @@ pub fn apply_turns_to_transcript(
         uncertain |= matches!(
             segment.speaker_attribution,
             crate::speaker_reconciliation::SpeakerAttribution::Uncertain
+                | crate::speaker_reconciliation::SpeakerAttribution::Likely
                 | crate::speaker_reconciliation::SpeakerAttribution::Overlap
         );
     }
@@ -168,10 +231,15 @@ pub fn apply_turns_to_transcript(
     };
     result.diarization_model_id = Some(DIARIZATION_MODEL_ID.to_string());
     result.diarization_warning = uncertain.then(|| {
-        "Some transcript segments contain overlapping or uncertain speaker attribution.".to_string()
+        "Some transcript segments contain likely, overlapping, or uncertain speaker attribution."
+            .to_string()
     });
     result.diarization_policy_version =
         Some(crate::speaker_reconciliation::DIARIZATION_POLICY_VERSION);
+    result.diarization_clustering_threshold = speaker_count_hint
+        .is_none()
+        .then_some(DIARIZATION_MODEL_SPEC_V2.clustering_threshold);
+    result.diarization_speaker_count_hint = speaker_count_hint;
     result.speakers = speakers;
     result.diarization_turns = turns;
 }
@@ -213,5 +281,63 @@ mod tests {
         assert_eq!(turns[1].speaker_ids, ["speaker_1"]);
         assert_eq!(turns[2].speaker_ids, ["speaker_0", "speaker_1"]);
         assert!(turns[2].is_overlap);
+    }
+
+    #[test]
+    fn rejects_fragmented_automatic_clusters_but_not_a_hint() {
+        let turns = (0..21)
+            .map(|speaker| RawDiarizationTurn {
+                start_ms: speaker * 1000,
+                end_ms: speaker * 1000 + 500,
+                cluster_ids: vec![speaker as i32],
+                confidence: None,
+            })
+            .collect::<Vec<_>>();
+        assert!(overclustering_warning(&turns, None).is_some());
+        assert!(overclustering_warning(&turns, Some(7)).is_none());
+    }
+
+    #[test]
+    fn automatic_threshold_is_conservative() {
+        assert_eq!(DIARIZATION_MODEL_SPEC_V2.manifest_version, 2);
+        assert_eq!(DIARIZATION_MODEL_SPEC_V2.clustering_threshold, 1.10);
+        assert_eq!(DIARIZATION_MODEL_SPEC_V2.num_clusters, -1);
+    }
+
+    #[test]
+    fn sanity_check_accepts_normal_two_seven_and_fifteen_speaker_results() {
+        for count in [2, 7, 15] {
+            let turns = (0..count)
+                .map(|speaker| RawDiarizationTurn {
+                    start_ms: speaker * 20_000,
+                    end_ms: speaker * 20_000 + 15_000,
+                    cluster_ids: vec![speaker as i32],
+                    confidence: None,
+                })
+                .collect::<Vec<_>>();
+            assert!(overclustering_warning(&turns, None).is_none());
+        }
+    }
+
+    #[test]
+    fn sanity_check_rejects_twelve_clusters_when_most_are_brief() {
+        let turns = (0..12)
+            .map(|speaker| RawDiarizationTurn {
+                start_ms: speaker * 20_000,
+                end_ms: speaker * 20_000 + if speaker < 7 { 5_000 } else { 15_000 },
+                cluster_ids: vec![speaker as i32],
+                confidence: None,
+            })
+            .collect::<Vec<_>>();
+        assert!(overclustering_warning(&turns, None).is_some());
+    }
+
+    #[test]
+    fn speaker_count_hint_accepts_only_one_through_twenty() {
+        assert!(validate_speaker_count_hint(None).is_ok());
+        assert!(validate_speaker_count_hint(Some(1)).is_ok());
+        assert!(validate_speaker_count_hint(Some(20)).is_ok());
+        assert!(validate_speaker_count_hint(Some(0)).is_err());
+        assert!(validate_speaker_count_hint(Some(21)).is_err());
     }
 }

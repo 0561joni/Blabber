@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { formatShortcutForDisplay } from "../lib/formatting";
+import { IconButton } from "../components/IconButton";
 import {
   cancelModelDownload,
   cancelRecordingSession,
@@ -570,15 +571,14 @@ export function SettingsScreen({
                   {microphoneTestMessage ??
                     "Run a live test before using the shortcut. If the meter stays flat while you speak, Blabber is not receiving signal from the selected microphone."}
                 </p>
-                <button
-                  type="button"
-                  className="small-action-button"
+                <IconButton
+                  icon={isTestingMicrophone ? "stop" : "microphoneActive"}
+                  label={isTestingMicrophone ? "Stop microphone test" : "Start microphone test"}
+                  state={isTestingMicrophone ? "selected" : "default"}
                   onClick={() => {
                     void toggleMicrophoneTest();
                   }}
-                >
-                  {isTestingMicrophone ? "Stop test" : "Start test"}
-                </button>
+                />
               </div>
             </div>
           </article>
@@ -614,16 +614,15 @@ export function SettingsScreen({
                 </p>
               </div>
               <div className="setting-control">
-                <button
-                  type="button"
-                  className="small-action-button"
+                <IconButton
+                  icon="folder"
+                  label={modelsFolderButtonLabel}
+                  state={isOpeningModelsFolder ? "busy" : "default"}
                   disabled={isOpeningModelsFolder}
                   onClick={() => {
                     void handleOpenModelsFolder();
                   }}
-                >
-                  {isOpeningModelsFolder ? "Opening..." : modelsFolderButtonLabel}
-                </button>
+                />
               </div>
             </div>
           </article>
@@ -744,28 +743,21 @@ export function SettingsScreen({
                                     ? "Downloaded"
                                     : "Available"}
                           </span>
-                          <button
-                            type="button"
-                            className="small-action-button"
-                            disabled={isUnavailable || isInstalled || anotherDownloadActive}
-                            onClick={() => {
-                              if (isDownloading) {
-                                void handleCancelModelDownload(model.id);
-                              } else {
-                                void handleDownloadModel(model.id);
-                              }
-                            }}
-                          >
-                            {isUnavailable
-                              ? "Not supported"
-                              : isDownloading
-                              ? "Cancel download"
-                              : isInstalled
-                                ? "Installed"
-                                : anotherDownloadActive
-                                  ? "Wait for active download"
-                                  : "Download"}
-                          </button>
+                          {!isUnavailable && !isInstalled ? (
+                            <IconButton
+                              icon={isDownloading ? "xCircle" : downloadStatus?.state === "failed" ? "retry" : "download"}
+                              label={isDownloading ? `Cancel download of ${model.modelName}` : downloadStatus?.state === "failed" ? `Retry download of ${model.modelName}` : `Download ${model.modelName}`}
+                              tone={isDownloading ? "danger" : "default"}
+                              disabled={!isDownloading && anotherDownloadActive}
+                              onClick={() => {
+                                if (isDownloading) {
+                                  void handleCancelModelDownload(model.id);
+                                } else {
+                                  void handleDownloadModel(model.id);
+                                }
+                              }}
+                            />
+                          ) : null}
                         </div>
                       </article>
                     );
@@ -794,7 +786,7 @@ export function SettingsScreen({
                             : diarizationStatus?.state === "failed"
                               ? "The speaker model could not be installed."
                               : "Preparing the speaker model download…"
-                          : `Downloads ${formatModelSize(diarizationModel?.sizeBytes ?? 45_586_539)} the first time you turn this on.`}
+                          : `Downloads ${formatModelSize(diarizationModel?.sizeBytes ?? 32_478_041)} the first time you turn this on.`}
                     </p>
                   </div>
                   <div className="setting-control">
@@ -846,14 +838,12 @@ export function SettingsScreen({
                     <p className="error-text model-download-error">
                       {diarizationStatus.errorMessage ?? "The speaker model download failed."}
                     </p>
-                    <button
-                      type="button"
-                      className="small-action-button"
+                    <IconButton
+                      icon="retry"
+                      label="Retry speaker model download"
                       disabled={anotherDownloadActive}
                       onClick={() => diarizationModel && void handleDownloadModel(diarizationModel.id)}
-                    >
-                      Retry
-                    </button>
+                    />
                   </div>
                 ) : null}
                 {!diarizationModel || diarizationModel.availability !== "available" ? (
@@ -902,18 +892,19 @@ export function SettingsScreen({
                     : displayedShortcut}
                 </div>
                 <div className="shortcut-actions">
-                  <button
-                    type="button"
-                    className="primary-button"
+                  <IconButton
+                    icon="keyboardEdit"
+                    label={isCapturingShortcut ? "Listening for shortcut" : "Set custom shortcut"}
+                    state={isCapturingShortcut ? "busy" : "default"}
                     disabled={isSaving || isCapturingShortcut}
                     onClick={() => {
                       void beginShortcutCapture();
                     }}
-                  >
-                    {isCapturingShortcut ? "Listening..." : "Set custom"}
-                  </button>
-                  <button
-                    type="button"
+                  />
+                  <IconButton
+                    icon={isCapturingShortcut ? "xCircle" : "reset"}
+                    label={isCapturingShortcut ? "Cancel shortcut capture" : "Reset shortcut to default"}
+                    tone={isCapturingShortcut ? "danger" : "default"}
                     disabled={isSaving || (!isCapturingShortcut && settings.shortcut === DEFAULT_SHORTCUT)}
                     onClick={() => {
                       if (isCapturingShortcut) {
@@ -922,9 +913,7 @@ export function SettingsScreen({
                       }
                       void handleChange("shortcut", DEFAULT_SHORTCUT);
                     }}
-                  >
-                    {isCapturingShortcut ? "Cancel" : "Reset to default"}
-                  </button>
+                  />
                 </div>
               </div>
               <p className="muted shortcut-hint">

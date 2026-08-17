@@ -1,14 +1,11 @@
 {
-  "modelId": "sherpa-diarization-pyannote3-eres2net-v1",
-  "manifestVersion": 1,
-  "runtime": {
-    "name": "sherpa-onnx",
-    "version": "1.13.5",
-    "provider": "cpu"
-  },
+  "modelId": "sherpa-diarization-pyannote3-eres2net-voxceleb-v2",
+  "manifestVersion": 2,
+  "runtime": { "name": "sherpa-onnx", "version": "1.13.5", "provider": "cpu" },
   "reviewStatus": "reviewed",
-  "reviewedAt": "2026-08-15",
+  "reviewedAt": "2026-08-16",
   "privateUseOnly": true,
+  "totalSizeBytes": 32478041,
   "packageRevision": "segmentation@340b52f1f5cd12d45a30fa284691417eaad2ff92+embedding@8be2a75c9ed7a590538b268e46fbb65e1aa9d208",
   "artifacts": [
     {
@@ -23,14 +20,14 @@
     },
     {
       "path": "embedding.onnx",
-      "role": "eres2net_speaker_embedding",
-      "sourceUrl": "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/8be2a75c9ed7a590538b268e46fbb65e1aa9d208/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx?download=true",
+      "role": "eres2net_voxceleb_speaker_embedding",
+      "sourceUrl": "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/8be2a75c9ed7a590538b268e46fbb65e1aa9d208/3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx?download=true",
       "sourceRevision": "8be2a75c9ed7a590538b268e46fbb65e1aa9d208",
-      "sizeBytes": 39593761,
-      "sha256": "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b",
+      "sizeBytes": 26485263,
+      "sha256": "c59158379255ad66e161679cca6af8d52d51e389e3224ab7d7a7baae295c2db5",
       "license": "Apache-2.0",
       "licenseUrl": "https://github.com/modelscope/3D-Speaker/blob/main/LICENSE"
     }
   ],
-  "provenanceDecision": "For this private-use build, download the ungated sherpa-compatible ONNX conversion of the MIT-licensed pyannote segmentation 3.0 model rather than requiring access to pyannote's contact-sharing-gated repository. Re-review before external distribution."
+  "provenanceDecision": "For this private multilingual build, use the ungated sherpa-compatible pyannote conversion with the Apache-2.0 ERes2Net VoxCeleb embedding. Re-review before external distribution."
 }

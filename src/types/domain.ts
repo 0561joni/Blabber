@@ -15,7 +15,7 @@ export type InsertBehavior = "paste" | "clipboard_only";
 export type ModelProfile = "fast" | "balanced" | "accurate";
 export type ModelCapability = "asr" | "vad" | "diarization";
 export type DiarizationStatus = "not_requested" | "pending" | "running" | "completed" | "completed_with_uncertainty" | "failed" | "canceled" | "not_enough_speech";
-export type SpeakerAttribution = "none" | "assigned" | "uncertain" | "overlap";
+export type SpeakerAttribution = "none" | "assigned" | "likely" | "uncertain" | "overlap";
 export type ShortcutMode = "push_to_talk" | "toggle";
 
 export interface HealthCheckResponse {
@@ -184,6 +184,8 @@ export interface TranscriptResult {
   diarizationModelId: string | null;
   diarizationWarning: string | null;
   diarizationPolicyVersion: number | null;
+  diarizationClusteringThreshold: number | null;
+  diarizationSpeakerCountHint: number | null;
   speakers: TranscriptSpeaker[];
   diarizationTurns: DiarizationTurn[];
 }
@@ -195,6 +197,8 @@ export interface TranscriptDetail extends TranscriptSummary {
   diarizationModelId: string | null;
   diarizationWarning: string | null;
   diarizationPolicyVersion: number | null;
+  diarizationClusteringThreshold: number | null;
+  diarizationSpeakerCountHint: number | null;
   segments: TranscriptSegment[];
   speakers: TranscriptSpeaker[];
   diarizationTurns: DiarizationTurn[];
@@ -253,6 +257,23 @@ export interface InputDeviceOption {
 export interface FileTranscriptionRequest {
   jobId: string;
   sourceFile: SelectedSourceFile;
+  speakerCountHint: number | null;
+}
+
+export interface RediarizationRequest {
+  jobId: string;
+  transcriptId: string;
+  sourceFile: SelectedSourceFile | null;
+  speakerCountHint: number | null;
+}
+
+export type RediarizationStage = "queued" | "validating" | "diarizing" | "saving" | "completed" | "failed" | "canceled";
+export interface RediarizationStatusEvent {
+  jobId: string;
+  transcriptId: string;
+  stage: RediarizationStage;
+  statusText: string;
+  errorMessage: string | null;
 }
 
 export type FileTranscriptionJobStage =

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { ComponentProps } from "react";
-import type { FileQueueItem, TranscriptResult } from "../types/domain";
+import { useState, type ComponentProps } from "react";
+import type { AppSettings, FileQueueItem, TranscriptResult } from "../types/domain";
 import { HomeScreen } from "./HomeScreen";
 
 const baseProps: ComponentProps<typeof HomeScreen> = {
@@ -27,6 +27,8 @@ const baseProps: ComponentProps<typeof HomeScreen> = {
   onResolveReadiness: vi.fn(),
   fileQueueItems: [],
   isFileDragActive: false,
+  speakerCountHint: null,
+  onSpeakerCountHintChange: vi.fn(),
   onStartRecording: vi.fn(),
   onStopAndTranscribeRecording: vi.fn(),
   onCancelRecording: vi.fn(),
@@ -37,6 +39,21 @@ const baseProps: ComponentProps<typeof HomeScreen> = {
   onToggleFileTranscript: vi.fn(),
   onCopyFileTranscript: vi.fn(),
 };
+
+const diarizationSettings: AppSettings = {
+  defaultMode: "file_transcribe", shortcut: "CmdOrCtrl+Shift+Space", shortcutMode: "push_to_talk",
+  languageMode: "auto", fixedLanguage: null, preferredInputDevice: null, insertBehavior: "paste",
+  launchAtLoginEnabled: false, gpuEnabled: true, shortcutDictationModelProfile: "balanced",
+  shortcutDictationSelectedModelId: null, quickDictateModelProfile: "balanced",
+  quickDictateSelectedModelId: null, fileTranscribeModelProfile: "balanced",
+  fileTranscribeSelectedModelId: null, saveHistory: true, soundsEnabled: true,
+  volumeDuckingEnabled: true, fileDiarizationEnabled: true,
+};
+
+function SpeakerHintHarness({ onPickFiles }: { onPickFiles: (hint: number | null) => void }) {
+  const [hint, setHint] = useState<number | null>(null);
+  return <HomeScreen {...baseProps} settings={diarizationSettings} speakerCountHint={hint} onSpeakerCountHintChange={setHint} onPickFiles={onPickFiles} />;
+}
 
 const transcriptResult: TranscriptResult = {
   jobId: "job-1",
@@ -50,10 +67,12 @@ const transcriptResult: TranscriptResult = {
   recoveredRegionCount: 0,
   warnings: [],
   diarizationStatus: "failed",
-  diarizationModelId: "sherpa-diarization-pyannote3-eres2net-v1",
+  diarizationModelId: "sherpa-diarization-pyannote3-eres2net-voxceleb-v2",
   diarizationWarning:
     "Speaker identification stopped responding. The transcript was saved without speaker labels.",
   diarizationPolicyVersion: 1,
+  diarizationClusteringThreshold: 1.1,
+  diarizationSpeakerCountHint: null,
   speakers: [],
   diarizationTurns: [],
 };
@@ -120,6 +139,24 @@ describe("HomeScreen Accessibility readiness action", () => {
 });
 
 describe("HomeScreen file diarization status", () => {
+  it("uses named symbols for dictate, upload, and automatic speaker hint", () => {
+    render(<HomeScreen {...baseProps} settings={diarizationSettings} />);
+    expect(screen.getByRole("button", { name: "Hold to dictate to clipboard" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upload audio files" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Speaker hint: Automatic" })).toBeTruthy();
+  });
+
+  it("captures a session-only speaker estimate when Upload is pressed", () => {
+    const onPickFiles = vi.fn();
+    render(<SpeakerHintHarness onPickFiles={onPickFiles} />);
+    fireEvent.click(screen.getByRole("button", { name: "Speaker hint: Automatic" }));
+    fireEvent.change(screen.getByLabelText("Approximate speaker count"), { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use estimate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload audio files" }));
+
+    expect(onPickFiles).toHaveBeenCalledWith(7);
+  });
+
   it("keeps diarization visibly active and indeterminate", () => {
     render(
       <HomeScreen
@@ -150,5 +187,41 @@ describe("HomeScreen file diarization status", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText("A completed transcript.")).toBeTruthy();
+  });
+});
+
+describe("HomeScreen file transcript disclosure", () => {
+  it("uses a compact title-level disclosure instead of a bottom text button", () => {
+    const onToggleFileTranscript = vi.fn();
+    render(
+      <HomeScreen
+        {...baseProps}
+        fileQueueItems={[fileQueueItem({ isExpanded: false })]}
+        onToggleFileTranscript={onToggleFileTranscript}
+      />,
+    );
+    const disclosure = screen.getByRole("button", {
+      name: "Expand transcript for audio.m4a",
+    });
+
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure.closest(".file-queue-title-row")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show full text" })).toBeNull();
+    fireEvent.click(disclosure);
+    expect(onToggleFileTranscript).toHaveBeenCalledWith("job-1");
+  });
+
+  it("keeps the collapse control linked from the header to expanded text", () => {
+    render(<HomeScreen {...baseProps} fileQueueItems={[fileQueueItem({ isExpanded: true })]} />);
+    const disclosure = screen.getByRole("button", {
+      name: "Collapse transcript for audio.m4a",
+    });
+    const controlledId = disclosure.getAttribute("aria-controls");
+
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(disclosure.classList.contains("is-expanded")).toBe(true);
+    expect(controlledId).toBe("file-transcript-job-1");
+    expect(document.getElementById(controlledId!)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show less" })).toBeNull();
   });
 });

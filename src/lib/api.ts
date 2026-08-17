@@ -14,6 +14,8 @@ import type {
   QuickDictationStatusResponse,
   RecordingResult,
   RecordingStatusResponse,
+  RediarizationRequest,
+  RediarizationStatusEvent,
   SelectedSourceFile,
   SettingsPatch,
   StartFileTranscriptionResponse,
@@ -191,16 +193,16 @@ const mockDownloadableModels: DownloadableModel[] = [
     capability: "asr",
   },
   {
-    id: "sherpa-diarization-pyannote3-eres2net-v1",
+    id: "sherpa-diarization-pyannote3-eres2net-voxceleb-v2",
     engine: "sherpa-onnx",
     modelName: "Offline speaker diarization",
-    description: "Local speaker separation using pyannote segmentation and ERes2Net embeddings.",
-    sizeBytes: 45_586_539,
+    description: "Local speaker separation using pyannote segmentation and VoxCeleb ERes2Net embeddings.",
+    sizeBytes: 32_478_041,
     profile: "balanced",
     availability: "available",
     availabilityReason: null,
     installed: false,
-    requirements: "CPU-only · approximately 46 MB download",
+    requirements: "CPU-only · approximately 32 MB download",
     artifactCount: 2,
     capability: "diarization",
   },
@@ -629,6 +631,8 @@ export async function getTranscript(transcriptId: string): Promise<TranscriptDet
       diarizationModelId: null,
       diarizationWarning: null,
       diarizationPolicyVersion: null,
+      diarizationClusteringThreshold: null,
+      diarizationSpeakerCountHint: null,
       segments: [{
         id: `${summary.id}:0`, startMs: 0, endMs: summary.durationMs ?? 0,
         text: summary.plainText, languageCode: summary.detectedLanguages[0] ?? "und",
@@ -663,6 +667,24 @@ export async function renameTranscriptSpeaker(
     speakerId,
     displayName,
   });
+}
+
+export async function rediarizeTranscript(request: RediarizationRequest): Promise<TranscriptDetail> {
+  if (!isTauriRuntime()) return getTranscript(request.transcriptId);
+  return invoke<TranscriptDetail>("rediarize_transcript", { request });
+}
+
+export async function cancelRediarization(jobId: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke<void>("cancel_rediarization", { jobId });
+}
+
+export async function listenRediarizationStatus(
+  handler: (status: RediarizationStatusEvent) => void,
+): Promise<() => void> {
+  if (!isTauriRuntime()) return () => undefined;
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<RediarizationStatusEvent>("rediarization-status", (event) => handler(event.payload));
 }
 
 export async function copyTranscript(
@@ -792,6 +814,8 @@ export async function startFileTranscription(
         diarizationModelId: null,
         diarizationWarning: null,
         diarizationPolicyVersion: null,
+        diarizationClusteringThreshold: null,
+        diarizationSpeakerCountHint: request.speakerCountHint,
         speakers: [],
         diarizationTurns: [],
         segments: [

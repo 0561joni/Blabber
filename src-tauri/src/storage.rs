@@ -68,6 +68,8 @@ pub struct TranscriptDetail {
     pub diarization_model_id: Option<String>,
     pub diarization_warning: Option<String>,
     pub diarization_policy_version: Option<u32>,
+    pub diarization_clustering_threshold: Option<f32>,
+    pub diarization_speaker_count_hint: Option<i32>,
     pub segments: Vec<TranscriptSegment>,
     pub speakers: Vec<TranscriptSpeaker>,
     pub diarization_turns: Vec<DiarizationTurn>,
@@ -488,6 +490,66 @@ pub fn get_transcript(state: &AppState, transcript_id: &str) -> Result<Transcrip
     fetch_transcript_detail(&connection, transcript_id)
 }
 
+pub fn get_source_file(state: &AppState, transcript_id: &str) -> Result<SelectedSourceFile> {
+    let connection = open_connection(state)?;
+    connection.query_row(
+        "SELECT local_path, original_name, mime_type, size_bytes, duration_ms, sha256 FROM source_files WHERE transcript_id = ?1",
+        [transcript_id],
+        |row| Ok(SelectedSourceFile {
+            file_path: row.get(0)?, original_name: row.get(1)?, mime_type: row.get(2)?,
+            size_bytes: row.get(3)?, duration_ms: row.get(4)?, sha256: row.get(5)?,
+        }),
+    ).context("SOURCE_FILE_REQUIRED: original source audio is unavailable")
+}
+
+pub fn replace_transcript_diarization(
+    state: &AppState,
+    transcript_id: &str,
+    result: &TranscriptResult,
+    replacement_source: Option<&SelectedSourceFile>,
+) -> Result<TranscriptDetail> {
+    let mut connection = open_connection(state)?;
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "UPDATE transcripts SET diarization_status=?2, diarization_model_id=?3, diarization_warning=?4, diarization_policy_version=?5, speaker_count=?6, diarization_clustering_threshold=?7, diarization_speaker_count_hint=?8 WHERE id=?1",
+        params![transcript_id, to_diarization_status(result.diarization_status), &result.diarization_model_id,
+            &result.diarization_warning, result.diarization_policy_version,
+            if result.speakers.is_empty() { None } else { Some(result.speakers.len() as i32) },
+            result.diarization_clustering_threshold, result.diarization_speaker_count_hint],
+    )?;
+    for segment in &result.segments {
+        transaction.execute(
+            "UPDATE transcript_segments SET speaker_id=?2, speaker_ids_json=?3, speaker_attribution=?4, speaker_confidence=?5 WHERE id=?1 AND transcript_id=?6",
+            params![&segment.id, &segment.speaker_id,
+                segment.speaker_ids.as_ref().map(serde_json::to_string).transpose()?,
+                to_speaker_attribution(segment.speaker_attribution), segment.speaker_confidence, transcript_id],
+        )?;
+    }
+    transaction.execute(
+        "DELETE FROM transcript_speakers WHERE transcript_id=?1",
+        [transcript_id],
+    )?;
+    transaction.execute(
+        "DELETE FROM diarization_turns WHERE transcript_id=?1",
+        [transcript_id],
+    )?;
+    for speaker in &result.speakers {
+        transaction.execute("INSERT INTO transcript_speakers (transcript_id,speaker_id,display_name,speaker_order) VALUES (?1,?2,?3,?4)",
+            params![transcript_id, &speaker.speaker_id, &speaker.display_name, speaker.speaker_order])?;
+    }
+    for turn in &result.diarization_turns {
+        transaction.execute("INSERT INTO diarization_turns (id,transcript_id,start_ms,end_ms,speaker_ids_json,confidence,is_overlap,is_uncertain,turn_order) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![format!("{transcript_id}:{}", turn.id), transcript_id, turn.start_ms, turn.end_ms,
+                serde_json::to_string(&turn.speaker_ids)?, turn.confidence, turn.is_overlap, turn.is_uncertain, turn.turn_order])?;
+    }
+    if let Some(source) = replacement_source {
+        transaction.execute("UPDATE source_files SET local_path=?2, original_name=?3, mime_type=?4, size_bytes=?5, duration_ms=?6, sha256=?7 WHERE transcript_id=?1",
+            params![transcript_id, &source.file_path, &source.original_name, &source.mime_type, source.size_bytes, source.duration_ms, &source.sha256])?;
+    }
+    transaction.commit()?;
+    fetch_transcript_detail(&connection, transcript_id)
+}
+
 pub fn rename_transcript(
     state: &AppState,
     transcript_id: &str,
@@ -779,6 +841,8 @@ fn ensure_diarization_schema(connection: &Connection) -> Result<()> {
         ("diarization_model_id", "TEXT NULL"),
         ("diarization_warning", "TEXT NULL"),
         ("diarization_policy_version", "INTEGER NULL"),
+        ("diarization_clustering_threshold", "REAL NULL"),
+        ("diarization_speaker_count_hint", "INTEGER NULL"),
         ("speaker_count", "INTEGER NULL"),
     ] {
         if !transcript_columns.iter().any(|column| column == name) {
@@ -913,17 +977,19 @@ fn fetch_transcript_detail(
     transcript_id: &str,
 ) -> Result<TranscriptDetail> {
     let summary = fetch_transcript_summary(connection, transcript_id)?;
-    let (full_text, timestamped_text, warnings_raw, diarization_model_id, diarization_warning, policy): (
+    let (full_text, timestamped_text, warnings_raw, diarization_model_id, diarization_warning, policy, clustering_threshold, speaker_count_hint): (
         String,
         String,
         String,
         Option<String>,
         Option<String>,
         Option<u32>,
+        Option<f32>,
+        Option<i32>,
     ) = connection.query_row(
-        "SELECT full_text, timestamped_text, transcription_warnings, diarization_model_id, diarization_warning, diarization_policy_version FROM transcripts WHERE id = ?1",
+        "SELECT full_text, timestamped_text, transcription_warnings, diarization_model_id, diarization_warning, diarization_policy_version, diarization_clustering_threshold, diarization_speaker_count_hint FROM transcripts WHERE id = ?1",
         [transcript_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
     )?;
 
     let mut segment_statement = connection.prepare(
@@ -990,6 +1056,8 @@ fn fetch_transcript_detail(
         diarization_model_id,
         diarization_warning,
         diarization_policy_version: policy,
+        diarization_clustering_threshold: clustering_threshold,
+        diarization_speaker_count_hint: speaker_count_hint,
         segments,
         speakers,
         diarization_turns,
@@ -1008,8 +1076,8 @@ fn insert_transcript(
     let languages = serde_json::to_string(&result.detected_languages)?;
     let warnings = serde_json::to_string(&result.warnings)?;
     transaction.execute(
-        "INSERT INTO transcripts (id, created_at, source_type, title, full_text, plain_text, timestamped_text, detected_languages, duration_ms, status, model_name, quality_status, recovered_region_count, transcription_warnings, diarization_status, diarization_model_id, diarization_warning, diarization_policy_version, speaker_count)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+        "INSERT INTO transcripts (id, created_at, source_type, title, full_text, plain_text, timestamped_text, detected_languages, duration_ms, status, model_name, quality_status, recovered_region_count, transcription_warnings, diarization_status, diarization_model_id, diarization_warning, diarization_policy_version, speaker_count, diarization_clustering_threshold, diarization_speaker_count_hint)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
         params![
             transcript_id,
             &created_at,
@@ -1030,6 +1098,8 @@ fn insert_transcript(
             &result.diarization_warning,
             result.diarization_policy_version,
             if result.speakers.is_empty() { None } else { Some(result.speakers.len() as i32) },
+            result.diarization_clustering_threshold,
+            result.diarization_speaker_count_hint,
         ],
     )?;
 
@@ -1264,6 +1334,7 @@ fn parse_speaker_attribution(value: String) -> rusqlite::Result<SpeakerAttributi
         "none" => Ok(SpeakerAttribution::None),
         "assigned" => Ok(SpeakerAttribution::Assigned),
         "uncertain" => Ok(SpeakerAttribution::Uncertain),
+        "likely" => Ok(SpeakerAttribution::Likely),
         "overlap" => Ok(SpeakerAttribution::Overlap),
         _ => Err(rusqlite::Error::InvalidQuery),
     }
@@ -1274,6 +1345,7 @@ fn to_speaker_attribution(value: SpeakerAttribution) -> &'static str {
         SpeakerAttribution::None => "none",
         SpeakerAttribution::Assigned => "assigned",
         SpeakerAttribution::Uncertain => "uncertain",
+        SpeakerAttribution::Likely => "likely",
         SpeakerAttribution::Overlap => "overlap",
     }
 }
@@ -1474,6 +1546,8 @@ mod tests {
             diarization_model_id: Some(crate::diarization::DIARIZATION_MODEL_ID.into()),
             diarization_warning: None,
             diarization_policy_version: Some(1),
+            diarization_clustering_threshold: Some(1.1),
+            diarization_speaker_count_hint: None,
             speakers: vec![TranscriptSpeaker {
                 speaker_id: "speaker_0".into(),
                 display_name: "Speaker 1".into(),

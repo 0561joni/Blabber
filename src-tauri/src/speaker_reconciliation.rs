@@ -8,20 +8,27 @@ pub struct DiarizationPolicyV1 {
     pub dominant_segment_ratio: f64,
     pub maximum_overlap_ratio: f64,
     pub maximum_secondary_ratio: f64,
+    pub likely_voiced_ratio: f64,
+    pub likely_segment_ratio: f64,
+    pub likely_secondary_ratio: f64,
 }
 pub const DIARIZATION_POLICY_V1: DiarizationPolicyV1 = DiarizationPolicyV1 {
     dominant_voiced_ratio: 0.80,
     dominant_segment_ratio: 0.60,
     maximum_overlap_ratio: 0.15,
     maximum_secondary_ratio: 0.20,
+    likely_voiced_ratio: 0.65,
+    likely_segment_ratio: 0.50,
+    likely_secondary_ratio: 0.30,
 };
-pub const DIARIZATION_POLICY_VERSION: u32 = 1;
+pub const DIARIZATION_POLICY_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SpeakerAttribution {
     None,
     Assigned,
+    Likely,
     Uncertain,
     Overlap,
 }
@@ -100,6 +107,18 @@ pub fn reconcile_segment(
             speaker_ids: vec![dominant.clone()],
             confidence: Some((*dominant_ms as f64 / voiced as f64) as f32),
         }
+    } else if *dominant_ms as f64 / voiced as f64 >= policy.likely_voiced_ratio
+        && *dominant_ms as f64 / duration as f64 >= policy.likely_segment_ratio
+        && second_ms as f64 / duration as f64 <= policy.likely_secondary_ratio
+    {
+        let mut ids: Vec<_> = candidates.into_iter().collect();
+        ids.sort();
+        SegmentAttribution {
+            attribution: SpeakerAttribution::Likely,
+            speaker_id: Some(dominant.clone()),
+            speaker_ids: ids,
+            confidence: Some((*dominant_ms as f64 / voiced as f64) as f32),
+        }
     } else {
         let mut ids: Vec<_> = candidates.into_iter().collect();
         ids.sort();
@@ -154,9 +173,19 @@ mod tests {
     #[test]
     fn weak_coverage_is_uncertain() {
         assert_eq!(
-            reconcile_segment(0, 1000, &[turn(0, 500, &["speaker_0"])]).attribution,
+            reconcile_segment(0, 1000, &[turn(0, 490, &["speaker_0"])]).attribution,
             SpeakerAttribution::Uncertain
         );
+    }
+    #[test]
+    fn clear_majority_is_likely() {
+        let x = reconcile_segment(
+            0,
+            1000,
+            &[turn(0, 600, &["speaker_0"]), turn(600, 900, &["speaker_1"])],
+        );
+        assert_eq!(x.attribution, SpeakerAttribution::Likely);
+        assert_eq!(x.speaker_id.as_deref(), Some("speaker_0"));
     }
     #[test]
     fn overlap_has_no_primary() {

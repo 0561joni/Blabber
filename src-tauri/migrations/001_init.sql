@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS transcripts (
   ,diarization_model_id TEXT NULL
   ,diarization_warning TEXT NULL
   ,diarization_policy_version INTEGER NULL
+  ,diarization_clustering_threshold REAL NULL
+  ,diarization_speaker_count_hint INTEGER NULL
   ,speaker_count INTEGER NULL
 );
 

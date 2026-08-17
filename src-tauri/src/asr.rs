@@ -80,6 +80,10 @@ pub struct TranscriptResult {
     #[serde(default)]
     pub diarization_policy_version: Option<u32>,
     #[serde(default)]
+    pub diarization_clustering_threshold: Option<f32>,
+    #[serde(default)]
+    pub diarization_speaker_count_hint: Option<i32>,
+    #[serde(default)]
     pub speakers: Vec<TranscriptSpeaker>,
     #[serde(default)]
     pub diarization_turns: Vec<DiarizationTurn>,
@@ -1018,6 +1022,8 @@ pub(crate) fn build_transcript_result(
         diarization_model_id: None,
         diarization_warning: None,
         diarization_policy_version: None,
+        diarization_clustering_threshold: None,
+        diarization_speaker_count_hint: None,
         speakers: Vec::new(),
         diarization_turns: Vec::new(),
     }
@@ -1311,6 +1317,8 @@ fn run_whisper_with_state(
         diarization_model_id: None,
         diarization_warning: None,
         diarization_policy_version: None,
+        diarization_clustering_threshold: None,
+        diarization_speaker_count_hint: None,
         speakers: Vec::new(),
         diarization_turns: Vec::new(),
     })

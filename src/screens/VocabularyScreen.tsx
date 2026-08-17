@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IconButton } from "../components/IconButton";
 import type {
   CreateVocabularyTermInput,
   UpdateVocabularyTermInput,
@@ -166,13 +167,12 @@ export function VocabularyScreen({
               <option value="exact_and_fuzzy">Allow close matches</option>
             </select>
           </label>
-          <button
-            className="primary-button"
+          <IconButton
+            icon="plus"
+            label="Add vocabulary term"
             disabled={isSaving || createDraft.canonical.trim().length === 0}
             onClick={() => void createTerm()}
-          >
-            Add vocabulary term
-          </button>
+          />
         </div>
 
         <div className="vocabulary-list">
@@ -255,22 +255,22 @@ export function VocabularyScreen({
                       </select>
                     </label>
                     <div className="toolbar action-segment">
-                      <button
-                        className="primary-button"
+                      <IconButton
+                        icon="check"
+                        label={`Save ${term.canonical}`}
+                        state="success"
                         disabled={isSaving || draft.canonical.trim().length === 0}
                         onClick={() => void saveEdit(term.id)}
-                      >
-                        Save
-                      </button>
-                      <button
+                      />
+                      <IconButton
+                        icon="xmark"
+                        label={`Cancel editing ${term.canonical}`}
                         disabled={isSaving}
                         onClick={() => {
                           setEditingId(null);
                           setEditDraft(EMPTY_EDITOR);
                         }}
-                      >
-                        Cancel
-                      </button>
+                      />
                     </div>
                   </div>
                 ) : (
@@ -284,12 +284,8 @@ export function VocabularyScreen({
                     <div className="toolbar action-segment">
                       {!term.isBuiltin ? (
                         <>
-                          <button disabled={isSaving} onClick={() => beginEdit(term)}>
-                            Edit
-                          </button>
-                          <button disabled={isSaving} onClick={() => void deleteTerm(term.id)}>
-                            Delete
-                          </button>
+                          <IconButton icon="pencil" label={`Edit ${term.canonical}`} disabled={isSaving} onClick={() => beginEdit(term)} />
+                          <IconButton icon="trash" label={`Delete ${term.canonical}`} tone="danger" disabled={isSaving} onClick={() => void deleteTerm(term.id)} />
                         </>
                       ) : null}
                     </div>

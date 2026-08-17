@@ -152,6 +152,7 @@ pub struct FileTranscriptionController {
     status_updates: Arc<Mutex<()>>,
     queued_requests: Arc<Mutex<VecDeque<FileTranscriptionRequest>>>,
     active_run: Arc<Mutex<Option<ActiveFileTranscriptionRun>>>,
+    processing_lock: Arc<Mutex<()>>,
     log_path: PathBuf,
 }
 
@@ -175,6 +176,7 @@ impl FileTranscriptionController {
             status_updates: Arc::new(Mutex::new(())),
             queued_requests: Arc::new(Mutex::new(VecDeque::new())),
             active_run: Arc::new(Mutex::new(None)),
+            processing_lock: Arc::new(Mutex::new(())),
             log_path,
         }
     }
@@ -219,6 +221,10 @@ impl FileTranscriptionController {
             .collect::<Vec<_>>();
         statuses.sort_by(|left, right| right.started_at_ms.cmp(&left.started_at_ms));
         statuses
+    }
+
+    pub fn processing_lock(&self) -> Arc<Mutex<()>> {
+        Arc::clone(&self.processing_lock)
     }
 
     pub fn cancel(&self, job_id: &str) -> Result<()> {
@@ -305,6 +311,10 @@ impl FileTranscriptionController {
     }
 
     fn run_job(&self, request: FileTranscriptionRequest, control: Arc<FileJobRunControl>) {
+        let _processing_guard = self
+            .processing_lock
+            .lock()
+            .expect("file processing mutex poisoned");
         let watchdog = self.spawn_watchdog(request.job_id.clone(), Arc::clone(&control));
 
         let result = self.process_file_job(&request, Arc::clone(&control));
@@ -452,8 +462,8 @@ impl FileTranscriptionController {
                     job_id: request.job_id.clone(),
                     audio_path: request.source_file.file_path.clone().into(),
                     package_path,
-                    exact_speaker_count: None,
-                    spec_version: diarization::DIARIZATION_MODEL_SPEC_V1.manifest_version,
+                    exact_speaker_count: request.speaker_count_hint,
+                    spec_version: diarization::DIARIZATION_MODEL_SPEC_V2.manifest_version,
                 };
                 match diarization_worker::run_subprocess_worker(
                     &worker_request,
@@ -463,8 +473,45 @@ impl FileTranscriptionController {
                     },
                 ) {
                     Ok(turns) => {
-                        self.log_job(&request.job_id, "diarization_completed", "success");
-                        diarization::apply_turns_to_transcript(&mut corrected, turns);
+                        let diagnostics = diarization::aggregate_diagnostics(&turns);
+                        if let Some(warning) =
+                            diarization::overclustering_warning(&turns, request.speaker_count_hint)
+                        {
+                            self.log_job(&request.job_id, "diarization_fallback", &warning);
+                            diarization::mark_failure(&mut corrected, warning);
+                        } else {
+                            diarization::apply_turns_to_transcript(
+                                &mut corrected,
+                                turns,
+                                request.speaker_count_hint,
+                            );
+                            let assigned = corrected
+                                .segments
+                                .iter()
+                                .filter(|segment| {
+                                    matches!(
+                                        segment.speaker_attribution,
+                                        crate::speaker_reconciliation::SpeakerAttribution::Assigned
+                                    )
+                                })
+                                .count();
+                            let likely = corrected
+                                .segments
+                                .iter()
+                                .filter(|segment| {
+                                    matches!(
+                                        segment.speaker_attribution,
+                                        crate::speaker_reconciliation::SpeakerAttribution::Likely
+                                    )
+                                })
+                                .count();
+                            let uncertain = corrected.segments.iter().filter(|segment| matches!(segment.speaker_attribution, crate::speaker_reconciliation::SpeakerAttribution::Uncertain | crate::speaker_reconciliation::SpeakerAttribution::Overlap)).count();
+                            self.log_job(
+                                &request.job_id,
+                                "diarization_completed",
+                                &format!("threshold={:.2} hint={:?} clusters={} turns={} short_clusters={} assigned={} likely={} uncertain_or_overlap={}", diarization::DIARIZATION_MODEL_SPEC_V2.clustering_threshold, request.speaker_count_hint, diagnostics.cluster_count, diagnostics.turn_count, diagnostics.short_cluster_count, assigned, likely, uncertain),
+                            );
+                        }
                     }
                     Err(error) if error.is::<diarization_worker::DiarizationWorkerCanceled>() => {
                         if preserve_asr_after_diarization_cancellation(control.reason()) {

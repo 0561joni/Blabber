@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { copyTextToClipboard } from "../lib/api";
+import { IconButton } from "./IconButton";
 import type {
   FileTranscriptionJobStage,
   FileTranscriptionStatusEvent,
@@ -66,16 +67,19 @@ export function FileTranscribePanel({
       </div>
 
       <div className="file-panel-actions">
-        <button
-          className="primary-button"
+        <IconButton
+          icon="folder"
+          label="Choose audio file"
           disabled={isTranscribing}
           onClick={() => void onPickFile()}
-        >
-          Choose audio file
-        </button>
-        <button disabled={!selectedFile || isTranscribing} onClick={() => void onTranscribe()}>
-          {isTranscribing ? "Working..." : "Transcribe file"}
-        </button>
+        />
+        <IconButton
+          icon="microphoneActive"
+          label={isTranscribing ? "Transcribing file" : "Transcribe file"}
+          state={isTranscribing ? "busy" : "default"}
+          disabled={!selectedFile || isTranscribing}
+          onClick={() => void onTranscribe()}
+        />
       </div>
 
       {jobStatus ? (
@@ -200,16 +204,19 @@ export function FileTranscribePanel({
               </div>
             ) : null}
             <div className="toolbar">
-              <button onClick={() => void handleCopyTranscript(transcription.result.plainText)}>
-                {copyState === "copied"
-                  ? "Copied"
-                  : copyState === "error"
-                    ? "Copy failed"
-                    : "Copy transcript"}
-              </button>
-              <button onClick={() => setShowFullTranscript((current) => !current)}>
-                {showFullTranscript ? "Show less" : "Show full text"}
-              </button>
+              <IconButton
+                icon={copyState === "copied" ? "check" : copyState === "error" ? "xmark" : "copy"}
+                label={copyState === "copied" ? "Transcript copied" : copyState === "error" ? "Copy failed" : "Copy transcript"}
+                state={copyState === "copied" ? "success" : copyState === "error" ? "error" : "default"}
+                onClick={() => void handleCopyTranscript(transcription.result.plainText)}
+              />
+              <IconButton
+                className="disclosure-icon-button"
+                icon="disclosure"
+                label={showFullTranscript ? "Show less" : "Show full text"}
+                aria-expanded={showFullTranscript}
+                onClick={() => setShowFullTranscript((current) => !current)}
+              />
               <span className="language-chip">
                 {transcription.result.detectedLanguages.join(", ") || "No language tags"}
               </span>

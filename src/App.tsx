@@ -34,6 +34,7 @@ import { HomeScreen } from "./screens/HomeScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { VocabularyScreen } from "./screens/VocabularyScreen";
+import { AppIcon, IconButton, type AppIconName } from "./components/IconButton";
 import { formatPasteShortcutForDisplay } from "./lib/formatting";
 import { useAccessibilityReadinessPolling } from "./hooks/useAccessibilityReadinessPolling";
 import type {
@@ -71,7 +72,7 @@ const TERMINAL_DICTATION_STATES = new Set([
   "error",
 ]);
 
-const NAV_ITEMS: Array<{ id: ScreenId; label: string; icon: NavIconName }> = [
+const NAV_ITEMS: Array<{ id: ScreenId; label: string; icon: AppIconName }> = [
   { id: "home", label: "Home", icon: "home" },
   { id: "settings", label: "Settings", icon: "gear" },
   { id: "vocabulary", label: "Vocabulary", icon: "book" },
@@ -100,6 +101,9 @@ export function App() {
   const [readiness, setReadiness] = useState<DictationReadiness | null>(null);
   const [fileQueueItems, setFileQueueItems] = useState<FileQueueItem[]>([]);
   const [isFileDragActive, setIsFileDragActive] = useState(false);
+  const [speakerCountHint, setSpeakerCountHint] = useState<number | null>(null);
+  const speakerCountHintRef = useRef<number | null>(null);
+  speakerCountHintRef.current = speakerCountHint;
   const currentScreenRef = useRef<ScreenId>("home");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [trayClosePrompt, setTrayClosePrompt] =
@@ -377,7 +381,7 @@ export function App() {
             if (currentScreenRef.current !== "home") return;
             try {
               const files = await prepareDroppedAudioFiles(event.payload);
-              enqueueSelectedFiles(files);
+              enqueueSelectedFiles(files, speakerCountHintRef.current);
             } catch (error) {
               showDroppedAudioError(error);
             }
@@ -679,12 +683,12 @@ export function App() {
     setVocabularyTerms((current) => current.filter((term) => term.id !== termId));
   }
 
-  async function enqueueFiles() {
+  async function enqueueFiles(speakerCountHint: number | null) {
     const files = await pickAudioFiles();
-    enqueueSelectedFiles(files);
+    enqueueSelectedFiles(files, speakerCountHint);
   }
 
-  function enqueueSelectedFiles(files: FileQueueItem["sourceFile"][]) {
+  function enqueueSelectedFiles(files: FileQueueItem["sourceFile"][], speakerCountHint: number | null) {
     if (files.length === 0) {
       return;
     }
@@ -695,6 +699,7 @@ export function App() {
       void startFileTranscription({
         jobId: item.id,
         sourceFile: item.sourceFile,
+        speakerCountHint,
       }).catch((error) => {
         const message = errorMessage(error, "Failed to transcribe the selected file.");
         setFileQueueItems((current) =>
@@ -713,7 +718,7 @@ export function App() {
     }
   }
 
-  async function handleDroppedFiles(fileList: FileList) {
+  async function handleDroppedFiles(fileList: FileList, speakerCountHint: number | null) {
     // Extract file paths from the HTML5 FileList.
     // In Tauri's webview, File objects from drag-and-drop carry the native path.
     // In a plain browser, we fall back to the file name.
@@ -726,7 +731,7 @@ export function App() {
     }
     try {
       const files = await prepareDroppedAudioFiles(paths);
-      enqueueSelectedFiles(files);
+      enqueueSelectedFiles(files, speakerCountHint);
     } catch (error) {
       showDroppedAudioError(error);
     }
@@ -775,18 +780,13 @@ export function App() {
       ) : null}
       <div className={sidebarExpanded ? "app-shell" : "app-shell sidebar-collapsed"}>
         <aside className="sidebar glass-panel glass-nav">
-          <button
-            type="button"
+          <IconButton
             className="sidebar-toggle"
-            aria-label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
-            title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+            icon={sidebarExpanded ? "chevronLeft" : "chevronRight"}
+            label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+            tooltipPlacement="bottom"
             onClick={() => setSidebarExpanded((current) => !current)}
-          >
-            <span className="nav-icon">
-              <NavIcon name={sidebarExpanded ? "chevron_left" : "chevron_right"} />
-            </span>
-            {sidebarExpanded ? <span className="nav-item-label">Collapse</span> : null}
-          </button>
+          />
 
           <nav className="nav-list">
             {NAV_ITEMS.map((item) => (
@@ -798,7 +798,7 @@ export function App() {
                 title={item.label}
               >
                 <span className="nav-icon">
-                  <NavIcon name={item.icon} />
+                  <AppIcon name={item.icon} />
                 </span>
                 <span className="nav-item-label">{item.label}</span>
               </button>
@@ -821,6 +821,8 @@ export function App() {
                 onResolveReadiness={handleResolveReadiness}
                 fileQueueItems={fileQueueItems}
                 isFileDragActive={isFileDragActive}
+                speakerCountHint={speakerCountHint}
+                onSpeakerCountHintChange={setSpeakerCountHint}
                 onStartRecording={beginManualRecording}
                 onStopAndTranscribeRecording={stopAndPreviewManualRecording}
                 onCancelRecording={cancelManualRecording}
@@ -1113,53 +1115,4 @@ function prependTranscriptUnique(
   next: TranscriptSummary,
 ): TranscriptSummary[] {
   return [next, ...current.filter((item) => item.id !== next.id)];
-}
-
-type NavIconName = "home" | "book" | "gear" | "clock" | "chevron_left" | "chevron_right";
-
-function NavIcon({ name }: { name: NavIconName }) {
-  switch (name) {
-    case "home":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 11.5 12 5l8 6.5" />
-          <path d="M6.5 10.5V19h11v-8.5" />
-        </svg>
-      );
-    case "book":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 5.5A2.5 2.5 0 0 1 8.5 3H18v16H8.5A2.5 2.5 0 0 0 6 21.5Z" />
-          <path d="M6 5.5V21.5" />
-          <path d="M9.5 7.5H15" />
-          <path d="M9.5 11H15" />
-        </svg>
-      );
-    case "gear":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m12 4 1.2 2.2 2.5.5.7 2.4 2 1.6-.8 2.4.8 2.4-2 1.6-.7 2.4-2.5.5L12 20l-1.2-2.2-2.5-.5-.7-2.4-2-1.6.8-2.4-.8-2.4 2-1.6.7-2.4 2.5-.5Z" />
-          <circle cx="12" cy="12" r="3.1" />
-        </svg>
-      );
-    case "clock":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="8.5" />
-          <path d="M12 7.8v4.6l3 1.8" />
-        </svg>
-      );
-    case "chevron_left":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m14.5 6-6 6 6 6" />
-        </svg>
-      );
-    case "chevron_right":
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m9.5 6 6 6-6 6" />
-        </svg>
-      );
-  }
 }

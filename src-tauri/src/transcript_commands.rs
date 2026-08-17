@@ -3,7 +3,7 @@ use std::fs;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, WebviewWindow};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
@@ -45,11 +45,21 @@ pub fn copy(
     app.clipboard().write_text(text).map_err(anyhow::Error::msg)
 }
 
-pub fn export(
+/// Opens a native save dialog and writes the selected export on the calling thread.
+///
+/// The dialog plugin's blocking API must only be called from a background thread.
+/// `export_transcript` enforces that by invoking this function with `spawn_blocking`.
+pub fn export_blocking(
     app: &AppHandle,
+    window: &WebviewWindow,
     detail: &TranscriptDetail,
     format: TranscriptExportFormat,
 ) -> Result<TranscriptExportResult> {
+    #[cfg(target_os = "macos")]
+    if unsafe { libc::pthread_main_np() } != 0 {
+        anyhow::bail!("Export must run outside the macOS main thread.");
+    }
+
     let (extension, label) = match format {
         TranscriptExportFormat::Txt => ("txt", "Plain text"),
         TranscriptExportFormat::Md => ("md", "Markdown"),
@@ -61,12 +71,17 @@ pub fn export(
     let selected = app
         .dialog()
         .file()
+        .set_parent(window)
         .set_title("Export transcript")
         .set_file_name(file_name)
         .add_filter(label, &[extension])
         .blocking_save_file();
-    let Some(FilePath::Path(path)) = selected else {
-        return Ok(TranscriptExportResult { path: None });
+    let path = match selected {
+        Some(FilePath::Path(path)) => path,
+        Some(FilePath::Url(_)) => {
+            anyhow::bail!("The selected export destination is not a local file.")
+        }
+        None => return Ok(TranscriptExportResult { path: None }),
     };
     let contents = format_transcript(detail, format)?;
     fs::write(&path, contents)
@@ -168,6 +183,9 @@ fn segment_label(
         SpeakerAttribution::Assigned => speaker_id
             .map(name)
             .unwrap_or_else(|| "Unknown speaker".into()),
+        SpeakerAttribution::Likely => speaker_id
+            .map(|id| format!("{}?", name(id)))
+            .unwrap_or_else(|| "Likely speaker?".into()),
         SpeakerAttribution::Overlap => speaker_ids
             .unwrap_or_default()
             .iter()
@@ -202,18 +220,21 @@ fn subtitle_time(ms: i64, webvtt: bool) -> String {
 }
 
 fn safe_file_stem(title: &str) -> String {
-    let stem = title
-        .chars()
-        .map(|character| {
-            if character.is_alphanumeric() || matches!(character, ' ' | '-' | '_') {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim()
-        .to_string();
+    const MAX_STEM_BYTES: usize = 180;
+    let mut stem = String::new();
+    for character in title.chars().map(|character| {
+        if character.is_alphanumeric() || matches!(character, ' ' | '-' | '_') {
+            character
+        } else {
+            '_'
+        }
+    }) {
+        if stem.len() + character.len_utf8() > MAX_STEM_BYTES {
+            break;
+        }
+        stem.push(character);
+    }
+    let stem = stem.trim().to_string();
     if stem.is_empty() {
         "transcript".into()
     } else {
@@ -229,5 +250,17 @@ mod tests {
     fn formats_subtitle_timestamps() {
         assert_eq!(subtitle_time(3_723_004, false), "01:02:03,004");
         assert_eq!(subtitle_time(3_723_004, true), "01:02:03.004");
+    }
+
+    #[test]
+    fn export_file_stems_are_sanitized_and_byte_bounded() {
+        assert_eq!(
+            safe_file_stem("Meeting: Team / Status"),
+            "Meeting_ Team _ Status"
+        );
+        let multibyte_title = "会".repeat(200);
+        let stem = safe_file_stem(&multibyte_title);
+        assert_eq!(stem.len(), 180);
+        assert_eq!(stem.chars().count(), 60);
     }
 }

@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -31,6 +33,7 @@ pub struct AppState {
     pub model_download_manager: ModelDownloadManager,
     pub desktop_shell: DesktopShellController,
     pub startup_notices: Arc<Mutex<Vec<String>>>,
+    pub rediarization_cancellations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
 
 impl AppState {
@@ -99,6 +102,7 @@ impl AppState {
             model_download_manager,
             desktop_shell,
             startup_notices: Arc::new(Mutex::new(Vec::new())),
+            rediarization_cancellations: Arc::new(Mutex::new(HashMap::new())),
         };
 
         storage::initialize_database(&state)?;

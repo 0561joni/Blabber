@@ -67,11 +67,11 @@ const asrModel: DownloadableModel = {
 };
 
 const diarizationModel: DownloadableModel = {
-  id: "sherpa-diarization-pyannote3-eres2net-v1",
+  id: "sherpa-diarization-pyannote3-eres2net-voxceleb-v2",
   engine: "sherpa-onnx",
   modelName: "Offline speaker diarization",
   description: "Local speaker separation",
-  sizeBytes: 45_586_539,
+  sizeBytes: 32_478_041,
   profile: "balanced",
   availability: "available",
   availabilityReason: null,
@@ -181,6 +181,15 @@ describe("Settings speaker identification", () => {
     });
   });
 
+  it("uses named symbols for microphone, folder, and shortcut actions", async () => {
+    render(<Harness onSave={vi.fn()} onReload={vi.fn().mockResolvedValue(undefined)} />);
+    await screen.findByText("Speaker identification");
+    expect(screen.getByRole("button", { name: "Start microphone test" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open in Finder" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Set custom shortcut" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reset shortcut to default" })).toBeTruthy();
+  });
+
   it("offers a retry without turning off the desired setting", async () => {
     render(<Harness onSave={vi.fn()} onReload={vi.fn().mockResolvedValue(undefined)} />);
     const row = await screen.findByText("Speaker identification");
@@ -189,7 +198,7 @@ describe("Settings speaker identification", () => {
     await act(async () => {
       await downloadListener?.(status("failed", null));
     });
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry speaker model download" }));
     expect(apiMocks.startModelDownload).toHaveBeenCalledWith(diarizationModel.id);
     expect(screen.getByText("Retry needed")).toBeTruthy();
   });

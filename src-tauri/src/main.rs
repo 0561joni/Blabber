@@ -42,9 +42,12 @@ use audio_files::{
 use dictation::QuickDictationStatusResponse;
 use file_jobs::{FileTranscriptionStatusEvent, StartFileTranscriptionResponse};
 use model_downloads::{DownloadableModel, ModelDownloadStatus};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use settings::{AppSettings, HealthCheckResponse, InsertBehavior, SettingsPatch};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use storage::{TranscriptDetail, TranscriptSummary};
 use tauri::{DragDropEvent, Emitter, Manager, WebviewEvent, Window, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -195,6 +198,201 @@ fn get_transcript(
     storage::get_transcript(state.inner(), &transcript_id).map_err(|error| error.to_string())
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RediarizationRequest {
+    job_id: String,
+    transcript_id: String,
+    source_file: Option<SelectedSourceFile>,
+    speaker_count_hint: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RediarizationStage {
+    Queued,
+    Validating,
+    Diarizing,
+    Saving,
+    Completed,
+    Failed,
+    Canceled,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RediarizationStatusEvent {
+    job_id: String,
+    transcript_id: String,
+    stage: RediarizationStage,
+    status_text: String,
+    error_message: Option<String>,
+}
+
+fn emit_rediarization_status(
+    app: &tauri::AppHandle,
+    request: &RediarizationRequest,
+    stage: RediarizationStage,
+    status_text: impl Into<String>,
+    error_message: Option<String>,
+) {
+    let _ = app.emit(
+        "rediarization-status",
+        RediarizationStatusEvent {
+            job_id: request.job_id.clone(),
+            transcript_id: request.transcript_id.clone(),
+            stage,
+            status_text: status_text.into(),
+            error_message,
+        },
+    );
+}
+
+#[tauri::command]
+async fn rediarize_transcript(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: RediarizationRequest,
+) -> Result<TranscriptDetail, String> {
+    diarization::validate_speaker_count_hint(request.speaker_count_hint).map_err(str::to_string)?;
+    let app_state = state.inner().clone();
+    let processing_lock = app_state.file_transcription_controller.processing_lock();
+    let cancelled = Arc::new(AtomicBool::new(false));
+    app_state
+        .rediarization_cancellations
+        .lock()
+        .map_err(|_| "Speaker retry state is unavailable.".to_string())?
+        .insert(request.job_id.clone(), Arc::clone(&cancelled));
+    emit_rediarization_status(
+        &app,
+        &request,
+        RediarizationStage::Queued,
+        "Waiting for local file processing…",
+        None,
+    );
+    let request_for_cleanup = request.clone();
+    let state_for_cleanup = app_state.clone();
+    let app_for_work = app.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || -> Result<TranscriptDetail, String> {
+        let _processing_guard = loop {
+            if cancelled.load(Ordering::SeqCst) {
+                emit_rediarization_status(&app_for_work, &request, RediarizationStage::Canceled, "Speaker retry canceled.", None);
+                return Err("REDIARIZATION_CANCELED: Speaker retry canceled.".into());
+            }
+            match processing_lock.try_lock() {
+                Ok(guard) => break guard,
+                Err(std::sync::TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(100)),
+                Err(std::sync::TryLockError::Poisoned(_)) => return Err("Local file processing is unavailable.".into()),
+            }
+        };
+        emit_rediarization_status(&app_for_work, &request, RediarizationStage::Validating, "Validating the source audio…", None);
+        let detail = storage::get_transcript(&app_state, &request.transcript_id)
+            .map_err(|error| error.to_string())?;
+        let stored = storage::get_source_file(&app_state, &request.transcript_id)
+            .map_err(|error| error.to_string())?;
+        let candidate = if let Some(source) = request.source_file.clone() {
+            source
+        } else if std::path::Path::new(&stored.file_path).is_file() {
+            audio_files::selected_source_file_from_path(stored.file_path.clone().into())
+                .map_err(|error| error.to_string())?
+        } else {
+            return Err("SOURCE_FILE_REQUIRED: Select the original audio file to retry speaker identification.".into());
+        };
+        let stored_hash = stored.sha256.as_ref().ok_or_else(|| {
+            "SOURCE_FILE_MISMATCH: This older transcript has no source hash and cannot be retried safely."
+                .to_string()
+        })?;
+        if candidate.sha256.as_ref() != Some(stored_hash) {
+            return Err(
+                "SOURCE_FILE_MISMATCH: The selected audio does not match this transcript.".into(),
+            );
+        }
+        let package_path = model_downloads::installed_diarization_package_path(&app_state.models_dir)
+            .ok_or_else(|| "The updated speaker model is still installing or unavailable.".to_string())?;
+        let worker_request = diarization_worker::WorkerRequest {
+            job_id: uuid::Uuid::new_v4().to_string(),
+            audio_path: candidate.file_path.clone().into(),
+            package_path,
+            exact_speaker_count: request.speaker_count_hint,
+            spec_version: diarization::DIARIZATION_MODEL_SPEC_V2.manifest_version,
+        };
+        emit_rediarization_status(&app_for_work, &request, RediarizationStage::Diarizing, "Identifying speakers locally…", None);
+        let turns = diarization_worker::run_subprocess_worker(&worker_request, Some(&cancelled), || {})
+            .map_err(|error| error.to_string())?;
+        if let Some(warning) = diarization::overclustering_warning(&turns, request.speaker_count_hint) {
+            return Err(warning);
+        }
+        let mut result = asr::TranscriptResult {
+            job_id: worker_request.job_id,
+            model_name: detail.summary.model_name.clone().unwrap_or_default(),
+            full_text: detail.full_text.clone(),
+            plain_text: detail.summary.plain_text.clone(),
+            timestamped_text: detail.timestamped_text.clone(),
+            detected_languages: detail.summary.detected_languages.clone(),
+            segments: detail.segments.clone(),
+            quality_status: detail.summary.quality_status,
+            recovered_region_count: detail.summary.recovered_region_count,
+            warnings: detail.transcription_warnings.clone(),
+            diarization_status: diarization::DiarizationStatus::Pending,
+            diarization_model_id: None,
+            diarization_warning: None,
+            diarization_policy_version: None,
+            diarization_clustering_threshold: None,
+            diarization_speaker_count_hint: None,
+            speakers: Vec::new(),
+            diarization_turns: Vec::new(),
+        };
+        diarization::apply_turns_to_transcript(&mut result, turns, request.speaker_count_hint);
+        emit_rediarization_status(&app_for_work, &request, RediarizationStage::Saving, "Saving speaker labels…", None);
+        storage::replace_transcript_diarization(&app_state, &request.transcript_id, &result, Some(&candidate))
+            .map_err(|error| error.to_string())
+    }).await.map_err(|error| error.to_string())?;
+    state_for_cleanup
+        .rediarization_cancellations
+        .lock()
+        .ok()
+        .map(|mut jobs| jobs.remove(&request_for_cleanup.job_id));
+    match &outcome {
+        Ok(_) => emit_rediarization_status(
+            &app,
+            &request_for_cleanup,
+            RediarizationStage::Completed,
+            "Speaker identification updated.",
+            None,
+        ),
+        Err(error) if error.contains("CANCELED") || error == "diarization canceled" => {
+            emit_rediarization_status(
+                &app,
+                &request_for_cleanup,
+                RediarizationStage::Canceled,
+                "Speaker retry canceled.",
+                None,
+            )
+        }
+        Err(error) => emit_rediarization_status(
+            &app,
+            &request_for_cleanup,
+            RediarizationStage::Failed,
+            "Speaker identification failed.",
+            Some(error.clone()),
+        ),
+    }
+    outcome
+}
+
+#[tauri::command]
+fn cancel_rediarization(state: tauri::State<'_, AppState>, job_id: String) -> Result<(), String> {
+    let jobs = state
+        .rediarization_cancellations
+        .lock()
+        .map_err(|_| "Speaker retry state is unavailable.".to_string())?;
+    let cancelled = jobs
+        .get(&job_id)
+        .ok_or_else(|| "Speaker retry is no longer active.".to_string())?;
+    cancelled.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
 #[tauri::command]
 fn rename_transcript(
     state: tauri::State<'_, AppState>,
@@ -229,15 +427,22 @@ fn copy_transcript(
 }
 
 #[tauri::command]
-fn export_transcript(
+async fn export_transcript(
     app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
     transcript_id: String,
     format: TranscriptExportFormat,
 ) -> Result<TranscriptExportResult, String> {
-    let detail = storage::get_transcript(state.inner(), &transcript_id)
-        .map_err(|error| error.to_string())?;
-    transcript_commands::export(&app, &detail, format).map_err(|error| error.to_string())
+    let app_state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let detail = storage::get_transcript(&app_state, &transcript_id)
+            .map_err(|error| error.to_string())?;
+        transcript_commands::export_blocking(&app, &window, &detail, format)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -414,6 +619,7 @@ fn start_file_transcription(
     state: tauri::State<'_, AppState>,
     request: UploadedFileTranscriptionRequest,
 ) -> Result<StartFileTranscriptionResponse, String> {
+    diarization::validate_speaker_count_hint(request.speaker_count_hint).map_err(str::to_string)?;
     Ok(state.file_transcription_controller.start(request))
 }
 
@@ -726,6 +932,8 @@ fn main() {
             delete_transcript,
             delete_all_transcripts,
             get_transcript,
+            rediarize_transcript,
+            cancel_rediarization,
             rename_transcript,
             rename_transcript_speaker,
             copy_transcript,

@@ -41,12 +41,12 @@ uses a contact-sharing download gate; this private-use build downloads the
 public conversion instead. The MIT license text is retained at
 `src-tauri/licenses/pyannote-segmentation-3.0-MIT.txt`.
 
-The ERes2Net speaker-embedding artifact comes from 3D-Speaker and is pinned to
+The ERes2Net VoxCeleb speaker-embedding artifact comes from 3D-Speaker and is pinned to
 revision `8be2a75c9ed7a590538b268e46fbb65e1aa9d208`. It is licensed under
 Apache-2.0; the license text is retained at
 `src-tauri/licenses/3D-Speaker-APACHE-2.0.txt`.
 
 The reviewed artifact manifest is
-`src-tauri/model-manifests/sherpa-diarization-pyannote3-eres2net-v1.json`.
+`src-tauri/model-manifests/sherpa-diarization-pyannote3-eres2net-voxceleb-v2.json`.
 The provenance decision must be reviewed again before distributing Blabber to
 other users.

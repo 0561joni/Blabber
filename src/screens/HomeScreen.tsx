@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dictatePress, dictateRelease } from "../lib/api";
 import { formatDuration, formatShortcutForDisplay } from "../lib/formatting";
+import { IconButton } from "../components/IconButton";
 import type {
   AppSettings,
   DictationReadiness,
@@ -26,12 +27,14 @@ interface HomeScreenProps {
   onResolveReadiness: (item: ReadinessItem) => void;
   fileQueueItems: FileQueueItem[];
   isFileDragActive: boolean;
+  speakerCountHint: number | null;
+  onSpeakerCountHintChange: (speakerCountHint: number | null) => void;
   onStartRecording: () => void;
   onStopAndTranscribeRecording: () => void;
   onCancelRecording: () => void;
   onResetDictation: () => void;
-  onPickFiles: () => void;
-  onDropFiles: (files: FileList) => void;
+  onPickFiles: (speakerCountHint: number | null) => void;
+  onDropFiles: (files: FileList, speakerCountHint: number | null) => void;
   onSetFileDragActive: (active: boolean) => void;
   onToggleFileTranscript: (itemId: string) => void;
   onCopyFileTranscript: (itemId: string, text: string) => void;
@@ -49,6 +52,8 @@ export function HomeScreen({
   onResolveReadiness,
   fileQueueItems,
   isFileDragActive,
+  speakerCountHint,
+  onSpeakerCountHintChange,
   onStartRecording,
   onStopAndTranscribeRecording,
   onCancelRecording,
@@ -66,6 +71,7 @@ export function HomeScreen({
   const shouldDisableRecordButton = isBusy && !isManualProcessing;
   const canStop = isListening || isPaused;
   const [isPttActive, setIsPttActive] = useState(false);
+  const [speakerHintOpen, setSpeakerHintOpen] = useState(false);
   const pttActiveRef = useRef(false);
   pttActiveRef.current = isPttActive;
   const dictationState = quickDictationStatus?.state ?? "idle";
@@ -212,10 +218,10 @@ export function HomeScreen({
       dragCounter.current = 0;
       onSetFileDragActive(false);
       if (e.dataTransfer.files.length > 0) {
-        onDropFiles(e.dataTransfer.files);
+        onDropFiles(e.dataTransfer.files, speakerCountHint);
       }
     },
-    [onSetFileDragActive, onDropFiles],
+    [onSetFileDragActive, onDropFiles, speakerCountHint],
   );
 
   return (
@@ -341,25 +347,17 @@ export function HomeScreen({
                 </span>
               </button>
 
-              <button
-                className={
-                  isPttActive
-                    ? "upload-action-button is-pressed"
-                    : "upload-action-button"
-                }
-                type="button"
-                disabled={pttDisabled}
-                aria-pressed={isPttActive}
-                aria-label={
+              <IconButton
+                className="home-primary-icon-action"
+                icon={isPttActive ? "microphoneActive" : "microphone"}
+                label={
                   isPttActive
                     ? "Release to transcribe to clipboard"
                     : "Hold to dictate to clipboard"
                 }
-                title={
-                  isPttActive
-                    ? "Release to transcribe — the result will be on your clipboard"
-                    : "Hold to dictate — release to copy the result to your clipboard"
-                }
+                state={isPttActive ? "selected" : "default"}
+                disabled={pttDisabled}
+                aria-pressed={isPttActive}
                 onPointerDown={(event) => {
                   void handlePttPress(event);
                 }}
@@ -378,43 +376,56 @@ export function HomeScreen({
                   }
                 }}
                 onContextMenu={(event) => event.preventDefault()}
-              >
-                <span className="upload-action-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 1v22" />
-                    <path d="M5 7a7 7 0 0 0 14 0" />
-                    <path d="M9 22h6" />
-                  </svg>
-                </span>
-                <span>{isPttActive ? "Release" : "Hold to dictate"}</span>
-              </button>
+              />
 
-              <button
-                className="upload-action-button"
-                type="button"
-                onClick={onPickFiles}
-                aria-label="Upload audio files"
-                title="Upload audio files"
-              >
-                <span className="upload-action-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 16V7" />
-                    <path d="m8.5 10.5 3.5-3.5 3.5 3.5" />
-                    <path d="M6.5 17.5h11" />
-                  </svg>
-                </span>
-                <span>Upload</span>
-              </button>
+              <IconButton
+                className="home-primary-icon-action"
+                icon="upload"
+                label="Upload audio files"
+                onClick={() => onPickFiles(speakerCountHint)}
+              />
+              {settings?.fileDiarizationEnabled ? (
+                <div className="speaker-hint-anchor">
+                  <IconButton
+                    className="speaker-hint-button"
+                    icon={speakerCountHint === null ? "personAutomatic" : "personCount"}
+                    badge={speakerCountHint ?? undefined}
+                    label={speakerCountHint === null ? "Speaker hint: Automatic" : `Speaker hint: About ${speakerCountHint}`}
+                    state={speakerHintOpen ? "selected" : "default"}
+                    aria-haspopup="dialog"
+                    aria-expanded={speakerHintOpen}
+                    onClick={() => setSpeakerHintOpen((open) => !open)}
+                  />
+                  {speakerHintOpen ? (
+                    <div className="speaker-hint-popover" role="dialog" aria-label="Speaker count hint">
+                      <button type="button" className={speakerCountHint === null ? "is-selected" : ""} onClick={() => { onSpeakerCountHintChange(null); setSpeakerHintOpen(false); }}>Automatic</button>
+                      <label>
+                        <span>About this many speakers</span>
+                        <input
+                          aria-label="Approximate speaker count"
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={speakerCountHint ?? 7}
+                          onChange={(event) => onSpeakerCountHintChange(Math.max(1, Math.min(20, Number(event.target.value) || 1)))}
+                        />
+                      </label>
+                      <p className="muted">Use only when you have a good estimate. The local runtime targets this count.</p>
+                      <button type="button" onClick={() => { onSpeakerCountHintChange(speakerCountHint ?? 7); setSpeakerHintOpen(false); }}>Use estimate</button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <div className="transport-secondary-actions">
-              <button
-                className="secondary-inline-button"
+              <IconButton
+                icon="xCircle"
+                label="Cancel recording"
+                tone="danger"
                 disabled={!canStop || isBusy}
                 onClick={onCancelRecording}
-              >
-                Cancel
-              </button>
+              />
             </div>
           </div>
 
@@ -517,7 +528,20 @@ export function HomeScreen({
                   <div className="file-queue-header">
                     <div>
                       <p className="eyebrow">Upload</p>
-                      <p className="transcript-title">{item.sourceFile.originalName}</p>
+                      <div className="file-queue-title-row">
+                        {item.result ? (
+                          <IconButton
+                            className={`disclosure-icon-button${item.isExpanded ? " is-expanded" : ""}`}
+                            icon="disclosure"
+                            label={`${item.isExpanded ? "Collapse" : "Expand"} transcript for ${item.sourceFile.originalName}`}
+                            size="compact"
+                            aria-expanded={item.isExpanded}
+                            aria-controls={`file-transcript-${item.id}`}
+                            onClick={() => onToggleFileTranscript(item.id)}
+                          />
+                        ) : null}
+                        <p className="transcript-title">{item.sourceFile.originalName}</p>
+                      </div>
                     </div>
                     <span className={`status-pill progress-pill stage-${item.stage}`}>
                       {fileStageLabel(item.stage)}
@@ -556,48 +580,25 @@ export function HomeScreen({
 
                   {item.result ? (
                     <>
-                      <div className="text-surface compact-text-surface">
+                      <div
+                        className="text-surface compact-text-surface"
+                        id={`file-transcript-${item.id}`}
+                      >
                         {item.isExpanded ? <InlineSpeakerTranscript result={item.result.result} /> : <p className="clamped-text">{item.result.result.plainText}</p>}
                       </div>
                       <div className="toolbar">
-                        <button
-                          className={`icon-toolbar-button copy-state-${item.copyState}`}
-                          type="button"
-                          onClick={() => onCopyFileTranscript(item.id, item.result!.result.plainText)}
-                          aria-label={
+                        <IconButton
+                          icon={item.copyState === "copied" ? "check" : item.copyState === "error" ? "xmark" : "copy"}
+                          label={
                             item.copyState === "copied"
                               ? "Transcript copied"
                               : item.copyState === "error"
                                 ? "Copy failed"
                                 : "Copy transcript"
                           }
-                          title={
-                            item.copyState === "copied"
-                              ? "Copied"
-                              : item.copyState === "error"
-                                ? "Copy failed"
-                                : "Copy transcript"
-                          }
-                        >
-                          {item.copyState === "copied" ? (
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                              <path d="M20 6 9 17l-5-5" />
-                            </svg>
-                          ) : item.copyState === "error" ? (
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                              <path d="M18 6 6 18" />
-                              <path d="m6 6 12 12" />
-                            </svg>
-                          ) : (
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                              <rect x="9" y="9" width="10" height="10" rx="2" />
-                              <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
-                            </svg>
-                          )}
-                        </button>
-                        <button type="button" onClick={() => onToggleFileTranscript(item.id)}>
-                          {item.isExpanded ? "Show less" : "Show full text"}
-                        </button>
+                          state={item.copyState === "copied" ? "success" : item.copyState === "error" ? "error" : "default"}
+                          onClick={() => onCopyFileTranscript(item.id, item.result!.result.plainText)}
+                        />
                         <span className="language-chip">
                           {item.result.result.detectedLanguages.join(", ") || "No language tags"}
                         </span>
@@ -621,14 +622,12 @@ export function HomeScreen({
               {liveStateLabel(liveState)}
             </span>
             {showResetAction ? (
-              <button
-                type="button"
-                className="secondary-inline-button live-reset-button"
+              <IconButton
+                icon="reset"
+                label="Reset dictation"
+                className="live-reset-button"
                 onClick={onResetDictation}
-                title="Restart the audio engine and re-arm the shortcut"
-              >
-                Reset dictation
-              </button>
+              />
             ) : null}
           </div>
         </div>
@@ -774,6 +773,8 @@ function InlineSpeakerTranscript({ result }: { result: TranscriptResult }) {
     : <div className="speaker-segment-list">{result.segments.map((segment) => {
       const label = segment.speakerAttribution === "assigned" && segment.speakerId
         ? name(segment.speakerId)
+        : segment.speakerAttribution === "likely" && segment.speakerId
+          ? `${name(segment.speakerId)}?`
         : segment.speakerAttribution === "overlap"
           ? (segment.speakerIds ?? []).map(name).join(" + ")
           : segment.speakerAttribution === "uncertain"

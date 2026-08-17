@@ -26,6 +26,7 @@ pub struct SelectedSourceFile {
 pub struct FileTranscriptionRequest {
     pub job_id: String,
     pub source_file: SelectedSourceFile,
+    pub speaker_count_hint: Option<i32>,
 }
 
 pub async fn pick_audio_files(window: &Window) -> Result<Vec<SelectedSourceFile>> {
