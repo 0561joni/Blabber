@@ -8,6 +8,8 @@ const apiMocks = vi.hoisted(() => ({
   rediarizeTranscript: vi.fn(),
   cancelRediarization: vi.fn(),
   listenRediarizationStatus: vi.fn(),
+  renameTranscript: vi.fn(),
+  renameTranscriptSpeaker: vi.fn(),
 }));
 
 vi.mock("../lib/api", async (importOriginal) => ({
@@ -17,6 +19,8 @@ vi.mock("../lib/api", async (importOriginal) => ({
   rediarizeTranscript: apiMocks.rediarizeTranscript,
   cancelRediarization: apiMocks.cancelRediarization,
   listenRediarizationStatus: apiMocks.listenRediarizationStatus,
+  renameTranscript: apiMocks.renameTranscript,
+  renameTranscriptSpeaker: apiMocks.renameTranscriptSpeaker,
 }));
 
 import { HistoryScreen } from "./HistoryScreen";
@@ -56,14 +60,18 @@ const detail: TranscriptDetail = {
 };
 
 function renderHistory() {
-  return render(
-    <HistoryScreen
-      transcripts={[transcript]}
-      onTranscriptUpdated={vi.fn()}
-      onDelete={vi.fn().mockResolvedValue(undefined)}
-      onDeleteAll={vi.fn().mockResolvedValue(undefined)}
-    />,
-  );
+  const onTranscriptUpdated = vi.fn();
+  return {
+    onTranscriptUpdated,
+    ...render(
+      <HistoryScreen
+        transcripts={[transcript]}
+        onTranscriptUpdated={onTranscriptUpdated}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+        onDeleteAll={vi.fn().mockResolvedValue(undefined)}
+      />,
+    ),
+  };
 }
 
 describe("HistoryScreen transcript export", () => {
@@ -73,6 +81,89 @@ describe("HistoryScreen transcript export", () => {
     apiMocks.rediarizeTranscript.mockReset();
     apiMocks.cancelRediarization.mockReset().mockResolvedValue(undefined);
     apiMocks.listenRediarizationStatus.mockReset().mockResolvedValue(() => undefined);
+    apiMocks.renameTranscript.mockReset().mockResolvedValue({ ...transcript, title: "New meeting title" });
+    apiMocks.renameTranscriptSpeaker.mockReset().mockResolvedValue(detail);
+  });
+
+  it("renames a transcript through an in-app editor", async () => {
+    const { onTranscriptUpdated } = renderHistory();
+    fireEvent.click(screen.getByRole("button", { name: "Rename transcript" }));
+
+    const input = screen.getByRole("textbox", { name: "Transcript title" });
+    expect((input as HTMLInputElement).value).toBe("Meeting");
+    fireEvent.change(input, { target: { value: "New meeting title" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save transcript title" }));
+
+    await waitFor(() => expect(apiMocks.renameTranscript).toHaveBeenCalledWith(transcript.id, "New meeting title"));
+    expect(onTranscriptUpdated).toHaveBeenCalledWith({ ...transcript, title: "New meeting title" });
+    expect(screen.getByText("Transcript renamed")).toBeTruthy();
+  });
+
+  it("renames speakers from both the roster and their transcript labels", async () => {
+    const detailWithSegment: TranscriptDetail = {
+      ...detail,
+      segments: [{
+        id: "segment-1",
+        startMs: 0,
+        endMs: 1_000,
+        text: "Hello there.",
+        languageCode: "en",
+        segmentOrder: 0,
+        confidence: null,
+        speakerId: "speaker_0",
+        speakerIds: ["speaker_0"],
+        speakerAttribution: "assigned",
+        speakerConfidence: 0.9,
+      }],
+    };
+    const aliceDetail = {
+      ...detailWithSegment,
+      speakers: [{ ...detailWithSegment.speakers[0], displayName: "Alice" }, detailWithSegment.speakers[1]],
+    };
+    const bobDetail = {
+      ...aliceDetail,
+      speakers: [{ ...aliceDetail.speakers[0], displayName: "Bob" }, aliceDetail.speakers[1]],
+    };
+    apiMocks.getTranscript.mockResolvedValue(detailWithSegment);
+    apiMocks.renameTranscriptSpeaker.mockResolvedValueOnce(aliceDetail).mockResolvedValueOnce(bobDetail);
+    renderHistory();
+    fireEvent.click(screen.getByRole("button", { name: "Expand transcript for Meeting" }));
+
+    const rosterRename = await screen.findByRole("button", { name: "Rename Speaker 1" });
+    fireEvent.click(rosterRename);
+    fireEvent.change(screen.getByRole("textbox", { name: "Speaker name" }), { target: { value: "Alice" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save speaker name" }));
+    await waitFor(() => expect(apiMocks.renameTranscriptSpeaker).toHaveBeenLastCalledWith(transcript.id, "speaker_0", "Alice"));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rename Alice in transcript" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Speaker name" }), { target: { value: "Bob" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save speaker name" }));
+    await waitFor(() => expect(apiMocks.renameTranscriptSpeaker).toHaveBeenLastCalledWith(transcript.id, "speaker_0", "Bob"));
+    expect(await screen.findByRole("button", { name: "Rename Bob in transcript" })).toBeTruthy();
+  });
+
+  it("lets each named speaker in an overlap label open the rename editor", async () => {
+    apiMocks.getTranscript.mockResolvedValue({
+      ...detail,
+      segments: [{
+        id: "overlap-1",
+        startMs: 0,
+        endMs: 1_000,
+        text: "We spoke together.",
+        languageCode: "en",
+        segmentOrder: 0,
+        confidence: null,
+        speakerId: null,
+        speakerIds: ["speaker_0", "speaker_1"],
+        speakerAttribution: "overlap",
+        speakerConfidence: 0.8,
+      }],
+    });
+    renderHistory();
+    fireEvent.click(screen.getByRole("button", { name: "Expand transcript for Meeting" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rename Speaker 2 in transcript" }));
+    expect((screen.getByRole("textbox", { name: "Speaker name" }) as HTMLInputElement).value).toBe("Speaker 2");
   });
 
   it("exposes distinct symbolic transcript actions and keeps deletion confirmation textual", () => {

@@ -10,6 +10,23 @@ interface HistoryScreenProps {
   onDeleteAll: () => Promise<void>;
 }
 
+type RenameEditorState =
+  | {
+      kind: "transcript";
+      transcriptId: string;
+      anchorKey: string;
+      value: string;
+      originalValue: string;
+    }
+  | {
+      kind: "speaker";
+      transcriptId: string;
+      speakerId: string;
+      anchorKey: string;
+      value: string;
+      originalValue: string;
+    };
+
 export function HistoryScreen({ transcripts, onTranscriptUpdated, onDelete, onDeleteAll }: HistoryScreenProps) {
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
@@ -23,6 +40,8 @@ export function HistoryScreen({ transcripts, onTranscriptUpdated, onDelete, onDe
   const [retryCounts, setRetryCounts] = useState<Record<string, number>>({});
   const [rediarizingId, setRediarizingId] = useState<string | null>(null);
   const [rediarizationJobId, setRediarizationJobId] = useState<string | null>(null);
+  const [renameEditor, setRenameEditor] = useState<RenameEditorState | null>(null);
+  const [isSavingRename, setIsSavingRename] = useState(false);
   const exportInFlight = useRef(false);
   const exportButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -105,26 +124,60 @@ export function HistoryScreen({ transcripts, onTranscriptUpdated, onDelete, onDe
     }
   }
 
-  async function handleRenameTitle(transcript: TranscriptSummary) {
-    const title = window.prompt("Transcript title", transcript.title);
-    if (title === null || title.trim() === transcript.title) return;
-    try {
-      const updated = await renameTranscript(transcript.id, title);
-      onTranscriptUpdated(updated);
-      setDetails((current) => current[transcript.id] ? { ...current, [transcript.id]: { ...current[transcript.id], ...updated } } : current);
-    } catch (error) {
-      setMessages({ [transcript.id]: error instanceof Error ? error.message : "Rename failed." });
-    }
+  function beginRenameTitle(transcript: TranscriptSummary) {
+    setRenameEditor({
+      kind: "transcript",
+      transcriptId: transcript.id,
+      anchorKey: `title:${transcript.id}`,
+      value: transcript.title,
+      originalValue: transcript.title,
+    });
   }
 
-  async function handleRenameSpeaker(transcriptId: string, speaker: TranscriptSpeaker) {
-    const displayName = window.prompt("Speaker name", speaker.displayName);
-    if (displayName === null || displayName.trim() === speaker.displayName) return;
+  function beginRenameSpeaker(
+    transcriptId: string,
+    speaker: TranscriptSpeaker,
+    anchorKey: string,
+  ) {
+    setRenameEditor({
+      kind: "speaker",
+      transcriptId,
+      speakerId: speaker.speakerId,
+      anchorKey,
+      value: speaker.displayName,
+      originalValue: speaker.displayName,
+    });
+  }
+
+  async function saveRename() {
+    if (!renameEditor || isSavingRename) return;
+    const value = renameEditor.value.trim();
+    if (!value) return;
+    if (value === renameEditor.originalValue) {
+      setRenameEditor(null);
+      return;
+    }
+    setIsSavingRename(true);
     try {
-      const detail = await renameTranscriptSpeaker(transcriptId, speaker.speakerId, displayName);
-      setDetails((current) => ({ ...current, [transcriptId]: detail }));
+      if (renameEditor.kind === "transcript") {
+        const updated = await renameTranscript(renameEditor.transcriptId, value);
+        onTranscriptUpdated(updated);
+        setDetails((current) => current[renameEditor.transcriptId] ? { ...current, [renameEditor.transcriptId]: { ...current[renameEditor.transcriptId], ...updated } } : current);
+        setMessages({ [renameEditor.transcriptId]: "Transcript renamed" });
+      } else {
+        const detail = await renameTranscriptSpeaker(
+          renameEditor.transcriptId,
+          renameEditor.speakerId,
+          value,
+        );
+        setDetails((current) => ({ ...current, [renameEditor.transcriptId]: detail }));
+        setMessages({ [renameEditor.transcriptId]: "Speaker renamed" });
+      }
+      setRenameEditor(null);
     } catch (error) {
-      setMessages({ [transcriptId]: error instanceof Error ? error.message : "Rename failed." });
+      setMessages({ [renameEditor.transcriptId]: error instanceof Error ? error.message : "Rename failed." });
+    } finally {
+      setIsSavingRename(false);
     }
   }
 
@@ -272,8 +325,21 @@ export function HistoryScreen({ transcripts, onTranscriptUpdated, onDelete, onDe
                         aria-controls={`history-transcript-${transcript.id}`}
                         onClick={() => void toggleExpanded(transcript.id)}
                       />
-                      <h2>{transcript.title}</h2>
-                      <IconButton icon="pencil" size="compact" label="Rename transcript" onClick={() => void handleRenameTitle(transcript)} />
+                      {renameEditor?.anchorKey === `title:${transcript.id}` ? (
+                        <InlineRenameEditor
+                          inputLabel="Transcript title"
+                          value={renameEditor.value}
+                          isSaving={isSavingRename}
+                          onChange={(value) => setRenameEditor((current) => current ? { ...current, value } : current)}
+                          onSave={() => void saveRename()}
+                          onCancel={() => setRenameEditor(null)}
+                        />
+                      ) : (
+                        <>
+                          <h2>{transcript.title}</h2>
+                          <IconButton icon="pencil" size="compact" label="Rename transcript" onClick={() => beginRenameTitle(transcript)} />
+                        </>
+                      )}
                     </div>
                     {!expanded ? <p className="muted clamped-text">{transcript.plainText}</p> : null}
                   </div>
@@ -292,21 +358,80 @@ export function HistoryScreen({ transcripts, onTranscriptUpdated, onDelete, onDe
                         {detail.diarizationModelId ? <p className="muted diarization-provenance">Speaker clustering: {detail.diarizationSpeakerCountHint === null ? `Automatic · threshold ${detail.diarizationClusteringThreshold?.toFixed(2) ?? "unknown"}` : `About ${detail.diarizationSpeakerCountHint} speakers · exact target`}</p> : null}
                         {detail.speakers.length > 0 ? (
                           <div className="speaker-roster">
-                            {detail.speakers.map((speaker) => (
-                              <button key={speaker.speakerId} className={`speaker-chip speaker-color-${speaker.speakerOrder % 6}`} aria-label={`Rename ${speaker.displayName}`} title={`Rename ${speaker.displayName}`} onClick={() => void handleRenameSpeaker(transcript.id, speaker)}>
-                                <span>{speaker.displayName}</span><AppIcon name="pencil" />
-                              </button>
-                            ))}
+                            {detail.speakers.map((speaker) => {
+                              const anchorKey = `roster:${transcript.id}:${speaker.speakerId}`;
+                              return renameEditor?.anchorKey === anchorKey ? (
+                                <InlineRenameEditor
+                                  key={speaker.speakerId}
+                                  inputLabel="Speaker name"
+                                  value={renameEditor.value}
+                                  isSaving={isSavingRename}
+                                  compact
+                                  onChange={(value) => setRenameEditor((current) => current ? { ...current, value } : current)}
+                                  onSave={() => void saveRename()}
+                                  onCancel={() => setRenameEditor(null)}
+                                />
+                              ) : (
+                                <button key={speaker.speakerId} className={`speaker-chip speaker-color-${speaker.speakerOrder % 6}`} aria-label={`Rename ${speaker.displayName}`} title={`Rename ${speaker.displayName}`} onClick={() => beginRenameSpeaker(transcript.id, speaker, anchorKey)}>
+                                  <span>{speaker.displayName}</span><AppIcon name="pencil" />
+                                </button>
+                              );
+                            })}
                           </div>
                         ) : null}
                         {detail.segments.length > 0 ? (
                           <div className="speaker-segment-list">
-                            {groupSegments(detail.segments).map((group, index) => (
-                              <div className="speaker-segment" key={`${group[0].id}:${index}`}>
-                                <span className={`speaker-label speaker-color-${speakerColor(group[0], detail.speakers)}`}>{segmentLabel(group[0], detail.speakers)}</span>
-                                <div><span className="speaker-time">{formatTime(group[0].startMs)}</span><p>{group.map((segment) => segment.text.trim()).join(" ")}</p></div>
-                              </div>
-                            ))}
+                            {groupSegments(detail.segments).map((group, index) => {
+                              const speaker = renameableSegmentSpeaker(group[0], detail.speakers);
+                              const candidateSpeakers = segmentCandidateSpeakers(group[0], detail.speakers);
+                              const anchorPrefix = `segment:${transcript.id}:${group[0].id}:${index}`;
+                              const isEditingThisSegment = renameEditor?.anchorKey.startsWith(`${anchorPrefix}:`) ?? false;
+                              return (
+                                <div className="speaker-segment" key={`${group[0].id}:${index}`}>
+                                  {renameEditor && isEditingThisSegment ? (
+                                    <InlineRenameEditor
+                                      inputLabel="Speaker name"
+                                      value={renameEditor.value}
+                                      isSaving={isSavingRename}
+                                      compact
+                                      onChange={(value) => setRenameEditor((current) => current ? { ...current, value } : current)}
+                                      onSave={() => void saveRename()}
+                                      onCancel={() => setRenameEditor(null)}
+                                    />
+                                  ) : speaker ? (
+                                    <button
+                                      type="button"
+                                      className={`speaker-label speaker-label-button speaker-color-${speakerColor(group[0], detail.speakers)}`}
+                                      aria-label={`Rename ${speaker.displayName} in transcript`}
+                                      title={`Rename ${speaker.displayName}`}
+                                      onClick={() => beginRenameSpeaker(transcript.id, speaker, `${anchorPrefix}:${speaker.speakerId}`)}
+                                    >
+                                      {segmentLabel(group[0], detail.speakers)}
+                                    </button>
+                                  ) : candidateSpeakers.length > 0 ? (
+                                    <span className={`speaker-label speaker-label-compound speaker-color-${speakerColor(group[0], detail.speakers)}`}>
+                                      {group[0].speakerAttribution === "uncertain" ? "Uncertain: " : ""}
+                                      {candidateSpeakers.map((candidate, candidateIndex) => (
+                                        <span key={candidate.speakerId}>
+                                          {candidateIndex > 0 ? (group[0].speakerAttribution === "overlap" ? " + " : " / ") : null}
+                                          <button
+                                            type="button"
+                                            className="speaker-name-inline"
+                                            aria-label={`Rename ${candidate.displayName} in transcript`}
+                                            onClick={() => beginRenameSpeaker(transcript.id, candidate, `${anchorPrefix}:${candidate.speakerId}`)}
+                                          >
+                                            {candidate.displayName}
+                                          </button>
+                                        </span>
+                                      ))}
+                                    </span>
+                                  ) : (
+                                    <span className={`speaker-label speaker-color-${speakerColor(group[0], detail.speakers)}`}>{segmentLabel(group[0], detail.speakers)}</span>
+                                  )}
+                                  <div><span className="speaker-time">{formatTime(group[0].startMs)}</span><p>{group.map((segment) => segment.text.trim()).join(" ")}</p></div>
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : <p className="muted">{detail.plainText}</p>}
                       </>
@@ -365,6 +490,66 @@ export function HistoryScreen({ transcripts, onTranscriptUpdated, onDelete, onDe
   );
 }
 
+function InlineRenameEditor({
+  inputLabel,
+  value,
+  isSaving,
+  compact = false,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  inputLabel: "Transcript title" | "Speaker name";
+  value: string;
+  isSaving: boolean;
+  compact?: boolean;
+  onChange: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const subject = inputLabel === "Transcript title" ? "transcript title" : "speaker name";
+  return (
+    <form
+      className={`inline-rename-editor${compact ? " is-compact" : ""}`}
+      aria-label={`Rename ${subject}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        onCancel();
+      }}
+    >
+      <input
+        aria-label={inputLabel}
+        value={value}
+        maxLength={inputLabel === "Transcript title" ? 200 : 80}
+        autoFocus
+        disabled={isSaving}
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <IconButton
+        icon="check"
+        label={`Save ${subject}`}
+        size="compact"
+        state={isSaving ? "busy" : "success"}
+        disabled={isSaving || value.trim().length === 0}
+        type="submit"
+      />
+      <IconButton
+        icon="xmark"
+        label={`Cancel renaming ${subject}`}
+        size="compact"
+        disabled={isSaving}
+        onClick={onCancel}
+      />
+    </form>
+  );
+}
+
 const EXPORT_OPTIONS: Array<{
   format: TranscriptExportFormat;
   label: string;
@@ -407,6 +592,31 @@ function segmentLabel(segment: TranscriptSegment, speakers: TranscriptSpeaker[])
   if (segment.speakerAttribution === "overlap") return (segment.speakerIds ?? []).map(name).join(" + ") || "Overlapping speakers";
   if (segment.speakerAttribution === "uncertain") return `Uncertain${segment.speakerIds?.length ? `: ${segment.speakerIds.map(name).join(" / ")}` : ""}`;
   return "Unknown speaker";
+}
+function renameableSegmentSpeaker(
+  segment: TranscriptSegment,
+  speakers: TranscriptSpeaker[],
+): TranscriptSpeaker | null {
+  if (
+    (segment.speakerAttribution !== "assigned" && segment.speakerAttribution !== "likely") ||
+    !segment.speakerId
+  ) {
+    return null;
+  }
+  return speakers.find((speaker) => speaker.speakerId === segment.speakerId) ?? null;
+}
+function segmentCandidateSpeakers(
+  segment: TranscriptSegment,
+  speakers: TranscriptSpeaker[],
+): TranscriptSpeaker[] {
+  if (segment.speakerAttribution !== "overlap" && segment.speakerAttribution !== "uncertain") {
+    return [];
+  }
+  const candidateIds = Array.from(new Set(segment.speakerIds ?? []));
+  return candidateIds.flatMap((speakerId) => {
+    const speaker = speakers.find((candidate) => candidate.speakerId === speakerId);
+    return speaker ? [speaker] : [];
+  });
 }
 function speakerColor(segment: TranscriptSegment, speakers: TranscriptSpeaker[]) { const id = segment.speakerId ?? segment.speakerIds?.[0]; return Math.max(0, speakers.find((speaker) => speaker.speakerId === id)?.speakerOrder ?? 0) % 6; }
 function formatTime(ms: number) { const seconds = Math.max(0, Math.floor(ms / 1000)); return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`; }

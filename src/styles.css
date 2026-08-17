@@ -832,6 +832,83 @@ select:focus-visible {
   margin: 2px 0 0;
 }
 
+.inline-rename-editor {
+  display: flex;
+  flex: 1 1 320px;
+  min-width: 220px;
+  max-width: 560px;
+  gap: 6px;
+  align-items: center;
+}
+
+.inline-rename-editor.is-compact {
+  flex: 0 1 310px;
+  min-width: 210px;
+}
+
+.inline-rename-editor input {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 9px;
+}
+
+.inline-rename-editor .icon-button {
+  width: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.speaker-label-button {
+  min-height: 0;
+  align-self: start;
+  justify-self: start;
+  border-width: 1px;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.speaker-label-button:hover,
+.speaker-label-button:focus-visible {
+  filter: saturate(1.12) brightness(0.98);
+  box-shadow: 0 0 0 3px rgba(36, 128, 214, 0.14);
+}
+
+.speaker-label-button:focus-visible {
+  outline: 2px solid rgba(36, 128, 214, 0.32);
+  outline-offset: 2px;
+}
+
+.speaker-label-compound {
+  align-self: start;
+  justify-self: start;
+  border: 1px solid currentColor;
+}
+
+.speaker-name-inline {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.speaker-name-inline:hover,
+.speaker-name-inline:focus-visible {
+  background: rgba(255, 255, 255, 0.52);
+  outline: 2px solid rgba(36, 128, 214, 0.28);
+  outline-offset: 1px;
+}
+
 @media (max-width: 1120px) {
   .sidebar {
     height: auto;
