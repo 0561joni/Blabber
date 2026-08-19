@@ -230,8 +230,6 @@ const mockVocabularyTerms: VocabularyTerm[] = [
     id: "builtin-linkedin",
     canonical: "LinkedIn",
     normalizedCanonical: "linkedin",
-    category: "brand",
-    languageHint: "en",
     matchMode: "exact_only",
     isBuiltin: true,
     createdAt: "2026-03-14T00:00:00Z",
@@ -1170,7 +1168,7 @@ function emitMockModelDownloadStatus(status: ModelDownloadStatus) {
 
 export async function listVocabularyTerms(): Promise<VocabularyTerm[]> {
   if (!isTauriRuntime()) {
-    return mockVocabularyTerms;
+    return [...mockVocabularyTerms];
   }
   return invoke<VocabularyTerm[]>("list_vocabulary_terms");
 }
@@ -1184,8 +1182,6 @@ export async function createVocabularyTerm(
       id: crypto.randomUUID(),
       canonical: input.canonical,
       normalizedCanonical: input.canonical.trim().toLowerCase(),
-      category: input.category?.trim() || "custom",
-      languageHint: input.languageHint?.trim() || null,
       matchMode: input.matchMode,
       isBuiltin: false,
       createdAt: now,
@@ -1218,8 +1214,6 @@ export async function updateVocabularyTerm(
       ...current,
       canonical: input.canonical,
       normalizedCanonical: input.canonical.trim().toLowerCase(),
-      category: input.category?.trim() || "custom",
-      languageHint: input.languageHint?.trim() || null,
       matchMode: input.matchMode,
       updatedAt: new Date().toISOString(),
       aliases: input.aliases

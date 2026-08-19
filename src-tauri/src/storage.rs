@@ -794,6 +794,20 @@ fn ensure_vocabulary_columns(connection: &Connection) -> Result<()> {
         )?;
     }
 
+    if columns.iter().any(|column| column == "category") {
+        connection.execute(
+            "ALTER TABLE custom_vocabulary_terms DROP COLUMN category",
+            [],
+        )?;
+    }
+
+    if columns.iter().any(|column| column == "language_hint") {
+        connection.execute(
+            "ALTER TABLE custom_vocabulary_terms DROP COLUMN language_hint",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -1485,6 +1499,86 @@ fn to_source_type(value: SourceType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn obsolete_vocabulary_columns_are_removed_without_losing_terms_or_aliases() {
+        let connection = Connection::open_in_memory().expect("in-memory database");
+        connection
+            .execute_batch(
+                "CREATE TABLE custom_vocabulary_terms (
+                    id TEXT PRIMARY KEY,
+                    canonical TEXT NOT NULL,
+                    normalized_canonical TEXT NOT NULL UNIQUE,
+                    category TEXT NOT NULL,
+                    language_hint TEXT NULL,
+                    match_mode TEXT NOT NULL DEFAULT 'exact_and_fuzzy',
+                    is_builtin INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE custom_vocabulary_aliases (
+                    id TEXT PRIMARY KEY,
+                    term_id TEXT NOT NULL,
+                    alias TEXT NOT NULL,
+                    normalized_alias TEXT NOT NULL UNIQUE,
+                    FOREIGN KEY (term_id) REFERENCES custom_vocabulary_terms(id) ON DELETE CASCADE
+                );
+                INSERT INTO custom_vocabulary_terms
+                    (id, canonical, normalized_canonical, category, language_hint, match_mode, is_builtin, created_at, updated_at)
+                VALUES
+                    ('legacy', 'CloudOpus', 'cloudopus', 'brand', 'en', 'exact_only', 0, 'created', 'updated');
+                INSERT INTO custom_vocabulary_aliases
+                    (id, term_id, alias, normalized_alias)
+                VALUES
+                    ('legacy-alias', 'legacy', 'cloud opus', 'cloud opus');",
+            )
+            .expect("legacy vocabulary schema");
+
+        ensure_vocabulary_columns(&connection).expect("vocabulary migration");
+
+        let mut statement = connection
+            .prepare("PRAGMA table_info(custom_vocabulary_terms)")
+            .expect("table info");
+        let columns = statement
+            .query_map([], |row| row.get::<_, String>("name"))
+            .expect("columns")
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .expect("column names");
+        assert!(!columns.iter().any(|column| column == "category"));
+        assert!(!columns.iter().any(|column| column == "language_hint"));
+
+        let term = connection
+            .query_row(
+                "SELECT canonical, match_mode, created_at, updated_at FROM custom_vocabulary_terms WHERE id = 'legacy'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .expect("migrated term");
+        assert_eq!(
+            term,
+            (
+                "CloudOpus".to_string(),
+                "exact_only".to_string(),
+                "created".to_string(),
+                "updated".to_string(),
+            )
+        );
+        let alias_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM custom_vocabulary_aliases WHERE term_id = 'legacy'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("preserved alias");
+        assert_eq!(alias_count, 1);
+    }
 
     #[test]
     fn quality_columns_are_added_to_existing_transcript_tables() {

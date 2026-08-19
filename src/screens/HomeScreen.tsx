@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { dictatePress, dictateRelease } from "../lib/api";
 import { formatDuration, formatShortcutForDisplay } from "../lib/formatting";
-import { IconButton } from "../components/IconButton";
+import { AppIcon, IconButton } from "../components/IconButton";
 import type {
   AppSettings,
   DictationReadiness,
@@ -70,47 +69,8 @@ export function HomeScreen({
   const isBusy = recordingStatus?.state === "processing" || isManualProcessing;
   const shouldDisableRecordButton = isBusy && !isManualProcessing;
   const canStop = isListening || isPaused;
-  const [isPttActive, setIsPttActive] = useState(false);
+  const canCancelRecording = canStop && !isBusy;
   const [speakerHintOpen, setSpeakerHintOpen] = useState(false);
-  const pttActiveRef = useRef(false);
-  pttActiveRef.current = isPttActive;
-  const dictationState = quickDictationStatus?.state ?? "idle";
-  const isShortcutDictating =
-    dictationState === "listening" || dictationState === "processing";
-  // Disable the PTT button when the global shortcut is mid-dictation, so the
-  // user can't accidentally cut someone off. While we're holding it ourselves,
-  // it stays enabled so we can release.
-  const pttDisabled =
-    (!isPttActive && isShortcutDictating) || isBusy || canStop;
-
-  const handlePttPress = useCallback(
-    async (event: React.PointerEvent<HTMLButtonElement>) => {
-      if (pttActiveRef.current || pttDisabled) return;
-      // Capture pointer so pointerup fires even if the cursor leaves the button.
-      try {
-        event.currentTarget.setPointerCapture(event.pointerId);
-      } catch {
-        // Some platforms (or pointer types) reject capture; ignore.
-      }
-      setIsPttActive(true);
-      try {
-        await dictatePress();
-      } catch {
-        setIsPttActive(false);
-      }
-    },
-    [pttDisabled],
-  );
-
-  const handlePttRelease = useCallback(async () => {
-    if (!pttActiveRef.current) return;
-    setIsPttActive(false);
-    try {
-      await dictateRelease();
-    } catch {
-      // Swallow; the controller will time out / reset on its own.
-    }
-  }, []);
   const shortcut = formatShortcutForDisplay(
     quickDictationStatus?.registeredShortcut ?? settings?.shortcut ?? "Not configured",
     platform,
@@ -347,55 +307,29 @@ export function HomeScreen({
                 </span>
               </button>
 
-              <IconButton
-                className="home-primary-icon-action"
-                icon={isPttActive ? "microphoneActive" : "microphone"}
-                label={
-                  isPttActive
-                    ? "Release to transcribe to clipboard"
-                    : "Hold to dictate to clipboard"
-                }
-                state={isPttActive ? "selected" : "default"}
-                disabled={pttDisabled}
-                aria-pressed={isPttActive}
-                onPointerDown={(event) => {
-                  void handlePttPress(event);
-                }}
-                onPointerUp={() => {
-                  void handlePttRelease();
-                }}
-                onPointerCancel={() => {
-                  void handlePttRelease();
-                }}
-                onPointerLeave={(event) => {
-                  // Only release on leave if the pointer was already captured
-                  // (i.e. user is dragging away while holding). Plain hover-out
-                  // when not pressed should not count.
-                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    void handlePttRelease();
-                  }
-                }}
-                onContextMenu={(event) => event.preventDefault()}
-              />
-
-              <IconButton
-                className="home-primary-icon-action"
-                icon="upload"
-                label="Upload audio files"
-                onClick={() => onPickFiles(speakerCountHint)}
-              />
               {settings?.fileDiarizationEnabled ? (
                 <div className="speaker-hint-anchor">
-                  <IconButton
-                    className="speaker-hint-button"
-                    icon={speakerCountHint === null ? "personAutomatic" : "personCount"}
-                    badge={speakerCountHint ?? undefined}
-                    label={speakerCountHint === null ? "Speaker hint: Automatic" : `Speaker hint: About ${speakerCountHint}`}
-                    state={speakerHintOpen ? "selected" : "default"}
+                  <button
+                    type="button"
+                    className={`speaker-hint-select${speakerHintOpen ? " is-open" : ""}`}
+                    aria-label={speakerCountHint === null ? "Speaker hint: Automatic" : `Speaker hint: About ${speakerCountHint}`}
                     aria-haspopup="dialog"
                     aria-expanded={speakerHintOpen}
                     onClick={() => setSpeakerHintOpen((open) => !open)}
-                  />
+                  >
+                    <span className="speaker-hint-select-icon">
+                      <AppIcon name={speakerCountHint === null ? "personAutomatic" : "personCount"} />
+                    </span>
+                    <span className="speaker-hint-select-copy">
+                      <span className="speaker-hint-select-label">Speakers</span>
+                      <span className="speaker-hint-select-value">
+                        {speakerCountHint === null ? "Automatic" : `About ${speakerCountHint}`}
+                      </span>
+                    </span>
+                    <svg className="speaker-hint-select-chevron" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="m4 6 4 4 4-4" />
+                    </svg>
+                  </button>
                   {speakerHintOpen ? (
                     <div className="speaker-hint-popover" role="dialog" aria-label="Speaker count hint">
                       <button type="button" className={speakerCountHint === null ? "is-selected" : ""} onClick={() => { onSpeakerCountHintChange(null); setSpeakerHintOpen(false); }}>Automatic</button>
@@ -418,21 +352,23 @@ export function HomeScreen({
               ) : null}
             </div>
 
-            <div className="transport-secondary-actions">
-              <IconButton
-                icon="xCircle"
-                label="Cancel recording"
-                tone="danger"
-                disabled={!canStop || isBusy}
-                onClick={onCancelRecording}
-              />
-            </div>
+            {canCancelRecording ? (
+              <div className="transport-secondary-actions">
+                <IconButton
+                  icon="xCircle"
+                  label="Cancel recording"
+                  tone="danger"
+                  onClick={onCancelRecording}
+                />
+              </div>
+            ) : null}
           </div>
 
-          <div
+          <button
+            type="button"
             className={`drop-pill ${isFileDragActive ? "drop-pill-expanded" : ""}`}
-            role="status"
-            aria-live="polite"
+            aria-label="Upload audio files"
+            onClick={() => onPickFiles(speakerCountHint)}
           >
             <div className="drop-pill-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
@@ -441,11 +377,11 @@ export function HomeScreen({
                 <path d="m8.5 12.5 3.5 3.5 3.5-3.5" />
               </svg>
             </div>
-            <span className="drop-pill-label">
+            <span className="drop-pill-label" aria-live="polite">
               {isFileDragActive ? "Drop to transcribe" : "Drop files here"}
             </span>
             <span className="drop-pill-hint">WAV, MP3, M4A, or OPUS</span>
-          </div>
+          </button>
 
           {showRecordingMeta ? (
             <dl className="meta-list capture-meta-list">

@@ -1,7 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useState, type ComponentProps } from "react";
-import type { AppSettings, FileQueueItem, TranscriptResult } from "../types/domain";
+import type {
+  AppSettings,
+  FileQueueItem,
+  RecordingStatusResponse,
+  TranscriptResult,
+} from "../types/domain";
 import { HomeScreen } from "./HomeScreen";
 
 const baseProps: ComponentProps<typeof HomeScreen> = {
@@ -115,6 +120,65 @@ function fileQueueItem(overrides: Partial<FileQueueItem>): FileQueueItem {
   };
 }
 
+function recordingStatus(
+  overrides: Partial<RecordingStatusResponse>,
+): RecordingStatusResponse {
+  return {
+    state: "idle",
+    currentSessionId: null,
+    activeInputDevice: null,
+    lastRecordingPath: null,
+    lastErrorMessage: null,
+    durationMs: null,
+    sampleRateHz: null,
+    channels: null,
+    ...overrides,
+  };
+}
+
+describe("HomeScreen manual recording controls", () => {
+  it("hides cancel when there is no active recording", () => {
+    render(<HomeScreen {...baseProps} />);
+
+    expect(screen.queryByRole("button", { name: "Cancel recording" })).toBeNull();
+  });
+
+  it("shows an enabled cancel action while recording", () => {
+    const onCancelRecording = vi.fn();
+    render(
+      <HomeScreen
+        {...baseProps}
+        recordingStatus={recordingStatus({
+          state: "listening",
+          currentSessionId: "recording-1",
+        })}
+        onCancelRecording={onCancelRecording}
+      />,
+    );
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel recording" });
+    expect((cancelButton as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(cancelButton);
+    expect(onCancelRecording).toHaveBeenCalledOnce();
+  });
+
+  it("keeps cancel available while a recording is paused", () => {
+    render(
+      <HomeScreen
+        {...baseProps}
+        recordingStatus={recordingStatus({
+          state: "paused",
+          currentSessionId: "recording-1",
+        })}
+      />,
+    );
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel recording" });
+    expect((cancelButton as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
 describe("HomeScreen Accessibility readiness action", () => {
   it("opens setup with a Grant access action before polling starts", () => {
     render(<HomeScreen {...baseProps} />);
@@ -139,22 +203,53 @@ describe("HomeScreen Accessibility readiness action", () => {
 });
 
 describe("HomeScreen file diarization status", () => {
-  it("uses named symbols for dictate, upload, and automatic speaker hint", () => {
+  it("uses the drop area as the upload action and omits redundant controls", () => {
     render(<HomeScreen {...baseProps} settings={diarizationSettings} />);
-    expect(screen.getByRole("button", { name: "Hold to dictate to clipboard" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Upload audio files" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Speaker hint: Automatic" })).toBeTruthy();
+
+    expect(screen.queryByRole("button", { name: "Hold to dictate to clipboard" })).toBeNull();
+    const uploadArea = screen.getByRole("button", { name: "Upload audio files" });
+    expect(uploadArea.textContent).toContain("Drop files here");
+    expect(document.querySelector(".home-primary-icon-action")).toBeNull();
+    const speakerHint = screen.getByRole("button", { name: "Speaker hint: Automatic" });
+    expect(speakerHint.classList.contains("speaker-hint-select")).toBe(true);
+    expect(speakerHint.textContent).toContain("Speakers");
+    expect(speakerHint.textContent).toContain("Automatic");
   });
 
-  it("captures a session-only speaker estimate when Upload is pressed", () => {
+  it("captures a session-only speaker estimate when the drop area is clicked", () => {
     const onPickFiles = vi.fn();
     render(<SpeakerHintHarness onPickFiles={onPickFiles} />);
     fireEvent.click(screen.getByRole("button", { name: "Speaker hint: Automatic" }));
     fireEvent.change(screen.getByLabelText("Approximate speaker count"), { target: { value: "7" } });
     fireEvent.click(screen.getByRole("button", { name: "Use estimate" }));
+    expect(screen.getByRole("button", { name: "Speaker hint: About 7" }).textContent).toContain("About 7");
     fireEvent.click(screen.getByRole("button", { name: "Upload audio files" }));
 
     expect(onPickFiles).toHaveBeenCalledWith(7);
+  });
+
+  it("keeps drag and drop active on the clickable upload area", () => {
+    const onDropFiles = vi.fn();
+    const onSetFileDragActive = vi.fn();
+    const file = new File(["audio"], "sample.wav", { type: "audio/wav" });
+
+    render(
+      <HomeScreen
+        {...baseProps}
+        onDropFiles={onDropFiles}
+        onSetFileDragActive={onSetFileDragActive}
+      />,
+    );
+
+    const uploadArea = screen.getByRole("button", { name: "Upload audio files" });
+    fireEvent.dragEnter(uploadArea, { dataTransfer: { files: [file] } });
+    expect(onSetFileDragActive).toHaveBeenCalledWith(true);
+
+    fireEvent.drop(uploadArea, { dataTransfer: { files: [file] } });
+    expect(onSetFileDragActive).toHaveBeenLastCalledWith(false);
+    expect(onDropFiles).toHaveBeenCalledOnce();
+    expect(onDropFiles.mock.calls[0][0][0]).toBe(file);
+    expect(onDropFiles.mock.calls[0][1]).toBeNull();
   });
 
   it("keeps diarization visibly active and indeterminate", () => {

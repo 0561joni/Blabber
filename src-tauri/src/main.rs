@@ -554,12 +554,8 @@ async fn preview_transcription(
             });
         };
 
-        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(
-            &app_state.db_path,
-            request.language_mode,
-            request.fixed_language.as_deref(),
-        )
-        .map_err(|error| error.to_string())?;
+        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&app_state.db_path)
+            .map_err(|error| error.to_string())?;
 
         let result = app_state.engine.transcribe_file(
             FileTranscriptionRequest {

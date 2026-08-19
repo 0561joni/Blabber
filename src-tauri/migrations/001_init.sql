@@ -110,8 +110,6 @@ CREATE TABLE IF NOT EXISTS custom_vocabulary_terms (
   id TEXT PRIMARY KEY,
   canonical TEXT NOT NULL,
   normalized_canonical TEXT NOT NULL UNIQUE,
-  category TEXT NOT NULL,
-  language_hint TEXT NULL,
   match_mode TEXT NOT NULL DEFAULT 'exact_and_fuzzy',
   is_builtin INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,

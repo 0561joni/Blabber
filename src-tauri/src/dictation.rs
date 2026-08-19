@@ -347,11 +347,7 @@ impl QuickDictationController {
 
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
         let resolved_model_name = resolve_model_name(self.engine.as_ref(), &settings)?;
-        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(
-            &self.db_path,
-            settings.language_mode,
-            settings.fixed_language.as_deref(),
-        )?;
+        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&self.db_path)?;
         if let Some(prompt) = &vocabulary_prompt {
             eprintln!(
                 "[dictation] dictionary prompt enabled: included={} truncated={}",

@@ -11,7 +11,6 @@ use uuid::Uuid;
 
 use crate::app_state::AppState;
 use crate::asr::{TranscriptResult, TranscriptSegment};
-use crate::settings::LanguageMode;
 
 const SINGLE_TOKEN_THRESHOLD: f64 = 0.965;
 const MULTI_TOKEN_THRESHOLD: f64 = 0.94;
@@ -50,8 +49,6 @@ pub struct VocabularyTerm {
     pub id: String,
     pub canonical: String,
     pub normalized_canonical: String,
-    pub category: String,
-    pub language_hint: Option<String>,
     pub match_mode: MatchMode,
     pub is_builtin: bool,
     pub created_at: String,
@@ -64,8 +61,6 @@ pub struct VocabularyTerm {
 pub struct CreateVocabularyTermInput {
     pub canonical: String,
     pub aliases: Vec<String>,
-    pub category: Option<String>,
-    pub language_hint: Option<String>,
     pub match_mode: MatchMode,
 }
 
@@ -74,16 +69,12 @@ pub struct CreateVocabularyTermInput {
 pub struct UpdateVocabularyTermInput {
     pub canonical: String,
     pub aliases: Vec<String>,
-    pub category: Option<String>,
-    pub language_hint: Option<String>,
     pub match_mode: MatchMode,
 }
 
 struct PreparedTermInput {
     canonical: String,
     normalized_canonical: String,
-    category: String,
-    language_hint: Option<String>,
     match_mode: MatchMode,
     aliases: Vec<(String, String)>,
 }
@@ -138,14 +129,12 @@ pub fn seed_builtin_terms(state: &AppState) -> Result<()> {
     let seeds = builtin_term_specs();
     for seed in seeds {
         connection.execute(
-            "INSERT OR IGNORE INTO custom_vocabulary_terms (id, canonical, normalized_canonical, category, language_hint, match_mode, is_builtin, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8)",
+            "INSERT OR IGNORE INTO custom_vocabulary_terms (id, canonical, normalized_canonical, match_mode, is_builtin, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
             params![
                 seed.id,
                 seed.canonical,
                 normalize_for_match(seed.canonical),
-                seed.category,
-                seed.language_hint,
                 to_match_mode(MatchMode::ExactOnly),
                 seed.created_at,
                 seed.created_at,
@@ -185,7 +174,7 @@ pub fn list_vocabulary_terms(state: &AppState) -> Result<Vec<VocabularyTerm>> {
 pub fn list_vocabulary_terms_from_db_path(db_path: &Path) -> Result<Vec<VocabularyTerm>> {
     let connection = open_connection_by_path(db_path)?;
     let mut statement = connection.prepare(
-        "SELECT id, canonical, normalized_canonical, category, language_hint, match_mode, is_builtin, created_at, updated_at
+        "SELECT id, canonical, normalized_canonical, match_mode, is_builtin, created_at, updated_at
          FROM custom_vocabulary_terms
          ORDER BY is_builtin DESC, canonical COLLATE NOCASE ASC",
     )?;
@@ -197,29 +186,16 @@ pub fn list_vocabulary_terms_from_db_path(db_path: &Path) -> Result<Vec<Vocabula
     Ok(terms)
 }
 
-pub fn build_asr_prompt_from_db_path(
-    db_path: &Path,
-    language_mode: LanguageMode,
-    fixed_language: Option<&str>,
-) -> Result<Option<VocabularyPrompt>> {
+pub fn build_asr_prompt_from_db_path(db_path: &Path) -> Result<Option<VocabularyPrompt>> {
     let terms = list_vocabulary_terms_from_db_path(db_path)?;
-    Ok(build_asr_prompt(&terms, language_mode, fixed_language))
+    Ok(build_asr_prompt(&terms))
 }
 
-fn build_asr_prompt(
-    terms: &[VocabularyTerm],
-    language_mode: LanguageMode,
-    fixed_language: Option<&str>,
-) -> Option<VocabularyPrompt> {
-    let fixed_language = fixed_language.map(|value| value.trim().to_ascii_lowercase());
+fn build_asr_prompt(terms: &[VocabularyTerm]) -> Option<VocabularyPrompt> {
     let mut ordered = terms.to_vec();
     ordered.sort_by(|left, right| {
-        prompt_rank(left, language_mode, fixed_language.as_deref())
-            .cmp(&prompt_rank(
-                right,
-                language_mode,
-                fixed_language.as_deref(),
-            ))
+        prompt_rank(left)
+            .cmp(&prompt_rank(right))
             .then_with(|| right.updated_at.cmp(&left.updated_at))
             .then_with(|| {
                 left.canonical
@@ -262,25 +238,11 @@ fn build_asr_prompt(
     })
 }
 
-fn prompt_rank(
-    term: &VocabularyTerm,
-    language_mode: LanguageMode,
-    fixed_language: Option<&str>,
-) -> u8 {
+fn prompt_rank(term: &VocabularyTerm) -> u8 {
     if term.is_builtin {
-        return 3;
-    }
-    if !matches!(language_mode, LanguageMode::Fixed) {
-        return 0;
-    }
-    match term
-        .language_hint
-        .as_deref()
-        .map(|value| value.to_ascii_lowercase())
-    {
-        Some(language) if Some(language.as_str()) == fixed_language => 0,
-        None => 1,
-        Some(_) => 2,
+        1
+    } else {
+        0
     }
 }
 
@@ -288,13 +250,7 @@ pub fn create_vocabulary_term(
     state: &AppState,
     input: CreateVocabularyTermInput,
 ) -> Result<VocabularyTerm> {
-    let prepared = prepare_term_input(
-        input.canonical,
-        input.aliases,
-        input.category,
-        input.language_hint,
-        input.match_mode,
-    )?;
+    let prepared = prepare_term_input(input.canonical, input.aliases, input.match_mode)?;
     let connection = open_connection(state)?;
     ensure_no_conflicts(&connection, &prepared, None)?;
 
@@ -302,14 +258,12 @@ pub fn create_vocabulary_term(
     let created_at = Utc::now().to_rfc3339();
     let transaction = connection.unchecked_transaction()?;
     transaction.execute(
-        "INSERT INTO custom_vocabulary_terms (id, canonical, normalized_canonical, category, language_hint, match_mode, is_builtin, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)",
+        "INSERT INTO custom_vocabulary_terms (id, canonical, normalized_canonical, match_mode, is_builtin, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
         params![
             &term_id,
             &prepared.canonical,
             &prepared.normalized_canonical,
-            &prepared.category,
-            &prepared.language_hint,
             to_match_mode(prepared.match_mode),
             &created_at,
             &created_at,
@@ -339,13 +293,7 @@ pub fn update_vocabulary_term(
     term_id: &str,
     input: UpdateVocabularyTermInput,
 ) -> Result<VocabularyTerm> {
-    let prepared = prepare_term_input(
-        input.canonical,
-        input.aliases,
-        input.category,
-        input.language_hint,
-        input.match_mode,
-    )?;
+    let prepared = prepare_term_input(input.canonical, input.aliases, input.match_mode)?;
     let connection = open_connection(state)?;
     let existing = get_vocabulary_term_by_id(&connection, term_id)?
         .ok_or_else(|| anyhow!("VOCABULARY_NOT_FOUND: term {term_id} does not exist"))?;
@@ -355,13 +303,11 @@ pub fn update_vocabulary_term(
     let transaction = connection.unchecked_transaction()?;
     transaction.execute(
         "UPDATE custom_vocabulary_terms
-         SET canonical = ?1, normalized_canonical = ?2, category = ?3, language_hint = ?4, match_mode = ?5, updated_at = ?6
-         WHERE id = ?7",
+         SET canonical = ?1, normalized_canonical = ?2, match_mode = ?3, updated_at = ?4
+         WHERE id = ?5",
         params![
             &prepared.canonical,
             &prepared.normalized_canonical,
-            &prepared.category,
-            &prepared.language_hint,
             to_match_mode(prepared.match_mode),
             &updated_at,
             term_id,
@@ -564,8 +510,6 @@ fn capitalize_sentences(input: &str) -> String {
 fn prepare_term_input(
     canonical: String,
     aliases: Vec<String>,
-    category: Option<String>,
-    language_hint: Option<String>,
     match_mode: MatchMode,
 ) -> Result<PreparedTermInput> {
     let canonical = canonical.trim().to_string();
@@ -580,14 +524,6 @@ fn prepare_term_input(
             "VOCABULARY_INVALID: canonical term must contain letters or numbers"
         ));
     }
-
-    let category = category
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "custom".to_string());
-    let language_hint = language_hint
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
 
     let mut seen = HashSet::new();
     let mut prepared_aliases = Vec::new();
@@ -608,8 +544,6 @@ fn prepare_term_input(
     Ok(PreparedTermInput {
         canonical,
         normalized_canonical,
-        category,
-        language_hint,
         match_mode,
         aliases: prepared_aliases,
     })
@@ -1023,7 +957,7 @@ fn get_vocabulary_term_by_id(
 ) -> Result<Option<VocabularyTerm>> {
     let term = connection
         .query_row(
-            "SELECT id, canonical, normalized_canonical, category, language_hint, match_mode, is_builtin, created_at, updated_at
+            "SELECT id, canonical, normalized_canonical, match_mode, is_builtin, created_at, updated_at
              FROM custom_vocabulary_terms
              WHERE id = ?1",
             [term_id],
@@ -1044,8 +978,6 @@ fn map_vocabulary_term_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Vocabula
         id: row.get("id")?,
         canonical: row.get("canonical")?,
         normalized_canonical: row.get("normalized_canonical")?,
-        category: row.get("category")?,
-        language_hint: row.get("language_hint")?,
         match_mode: parse_match_mode(row.get("match_mode")?)?,
         is_builtin: row.get("is_builtin")?,
         created_at: row.get("created_at")?,
@@ -1094,8 +1026,6 @@ fn format_timestamp(total_ms: i64) -> String {
 struct BuiltinSeedSpec<'a> {
     id: &'a str,
     canonical: &'a str,
-    category: &'a str,
-    language_hint: Option<&'a str>,
     aliases: &'a [&'a str],
     created_at: &'a str,
 }
@@ -1105,48 +1035,36 @@ fn builtin_term_specs() -> &'static [BuiltinSeedSpec<'static>] {
         BuiltinSeedSpec {
             id: "builtin-linkedin",
             canonical: "LinkedIn",
-            category: "brand",
-            language_hint: Some("en"),
             aliases: &["linked in", "linken"],
             created_at: "2026-03-14T00:00:00Z",
         },
         BuiltinSeedSpec {
             id: "builtin-github",
             canonical: "GitHub",
-            category: "brand",
-            language_hint: Some("en"),
             aliases: &["git hub"],
             created_at: "2026-03-14T00:00:00Z",
         },
         BuiltinSeedSpec {
             id: "builtin-openai",
             canonical: "OpenAI",
-            category: "brand",
-            language_hint: Some("en"),
             aliases: &["open ai"],
             created_at: "2026-03-14T00:00:00Z",
         },
         BuiltinSeedSpec {
             id: "builtin-chatgpt",
             canonical: "ChatGPT",
-            category: "brand",
-            language_hint: Some("en"),
             aliases: &["chat gpt"],
             created_at: "2026-03-14T00:00:00Z",
         },
         BuiltinSeedSpec {
             id: "builtin-whatsapp",
             canonical: "WhatsApp",
-            category: "brand",
-            language_hint: Some("en"),
             aliases: &[],
             created_at: "2026-03-14T00:00:00Z",
         },
         BuiltinSeedSpec {
             id: "builtin-youtube",
             canonical: "YouTube",
-            category: "brand",
-            language_hint: Some("en"),
             aliases: &["you tube"],
             created_at: "2026-03-14T00:00:00Z",
         },
@@ -1167,8 +1085,6 @@ mod tests {
             id: canonical.to_string(),
             canonical: canonical.to_string(),
             normalized_canonical: normalize_for_match(canonical),
-            category: "brand".to_string(),
-            language_hint: Some("en".to_string()),
             match_mode,
             is_builtin,
             created_at: "2026-03-30T00:00:00Z".to_string(),
@@ -1262,26 +1178,20 @@ mod tests {
             MatchMode::ExactAndFuzzy,
             false,
         );
-        let prompt = build_asr_prompt(&[term], LanguageMode::Auto, None).expect("prompt");
+        let prompt = build_asr_prompt(&[term]).expect("prompt");
         assert!(prompt.text.contains("\"CloudOpus\""));
         assert!(!prompt.text.contains("cloud oppus"));
         assert_eq!(prompt.terms, vec!["CloudOpus"]);
     }
 
     #[test]
-    fn fixed_language_terms_are_prioritized_and_builtins_are_last() {
-        let mut french = make_term("Élodie", &[], MatchMode::ExactOnly, false);
-        french.language_hint = Some("fr".to_string());
-        let mut unhinted = make_term("Blabber", &[], MatchMode::ExactOnly, false);
-        unhinted.language_hint = None;
-        let mut english = make_term("OpenAI", &[], MatchMode::ExactOnly, true);
-        english.language_hint = Some("en".to_string());
-        let prompt = build_asr_prompt(
-            &[english, unhinted, french],
-            LanguageMode::Fixed,
-            Some("fr"),
-        )
-        .expect("prompt");
+    fn recent_custom_terms_are_prioritized_and_builtins_are_last() {
+        let mut recent = make_term("Élodie", &[], MatchMode::ExactOnly, false);
+        recent.updated_at = "2026-04-01T00:00:00Z".to_string();
+        let mut older = make_term("Blabber", &[], MatchMode::ExactOnly, false);
+        older.updated_at = "2026-03-01T00:00:00Z".to_string();
+        let builtin = make_term("OpenAI", &[], MatchMode::ExactOnly, true);
+        let prompt = build_asr_prompt(&[builtin, older, recent]).expect("prompt");
         assert_eq!(prompt.terms, vec!["Élodie", "Blabber", "OpenAI"]);
     }
 
@@ -1297,7 +1207,7 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-        let prompt = build_asr_prompt(&terms, LanguageMode::Auto, None).expect("prompt");
+        let prompt = build_asr_prompt(&terms).expect("prompt");
         assert!(prompt.text.chars().count() <= DICTIONARY_PROMPT_MAX_CHARS);
         assert!(prompt.truncated_count > 0);
         assert_eq!(prompt.included_count + prompt.truncated_count, 100);

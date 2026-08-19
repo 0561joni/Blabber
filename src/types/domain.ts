@@ -411,8 +411,6 @@ export interface VocabularyTerm {
   id: string;
   canonical: string;
   normalizedCanonical: string;
-  category: string;
-  languageHint: string | null;
   matchMode: VocabularyMatchMode;
   isBuiltin: boolean;
   createdAt: string;
@@ -423,15 +421,11 @@ export interface VocabularyTerm {
 export interface CreateVocabularyTermInput {
   canonical: string;
   aliases: string[];
-  category: string | null;
-  languageHint: string | null;
   matchMode: VocabularyMatchMode;
 }
 
 export interface UpdateVocabularyTermInput {
   canonical: string;
   aliases: string[];
-  category: string | null;
-  languageHint: string | null;
   matchMode: VocabularyMatchMode;
 }

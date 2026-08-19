@@ -357,11 +357,7 @@ impl FileTranscriptionController {
         );
 
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
-        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(
-            &self.db_path,
-            settings.language_mode,
-            settings.fixed_language.as_deref(),
-        )?;
+        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&self.db_path)?;
         if let Some(prompt) = &vocabulary_prompt {
             self.log_job(
                 &request.job_id,
