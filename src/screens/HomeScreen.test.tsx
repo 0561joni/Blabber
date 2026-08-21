@@ -177,6 +177,32 @@ describe("HomeScreen manual recording controls", () => {
     const cancelButton = screen.getByRole("button", { name: "Cancel recording" });
     expect((cancelButton as HTMLButtonElement).disabled).toBe(false);
   });
+
+  it("shows a friendly model name in the dictation preview", () => {
+    render(
+      <HomeScreen
+        {...baseProps}
+        preview={{
+          sourceKind: "quick_dictate",
+          resolvedModel: {
+            id: "whisper-medium",
+            engine: "whisper",
+            modelName: "ggml-medium.bin",
+            variant: "medium",
+            localPath: "/tmp/ggml-medium.bin",
+            sizeBytes: 1_533_000_000,
+            isDefault: false,
+            profile: "accurate",
+          },
+          result: { ...transcriptResult, modelName: "ggml-medium.bin" },
+          error: null,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Model: Whisper Precision")).toBeTruthy();
+    expect(screen.queryByText(/ggml-medium\.bin/)).toBeNull();
+  });
 });
 
 describe("HomeScreen Accessibility readiness action", () => {

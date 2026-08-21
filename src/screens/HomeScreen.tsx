@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatDuration, formatShortcutForDisplay } from "../lib/formatting";
+import { getFriendlyModelName } from "../lib/modelPresentation";
 import { AppIcon, IconButton } from "../components/IconButton";
 import type {
   AppSettings,
@@ -410,7 +411,7 @@ export function HomeScreen({
                 <>
                   {preview.result ? <InlineSpeakerTranscript result={preview.result} /> : null}
                   <p className="preview-model-footer muted">
-                    Model: {preview.resolvedModel?.modelName ?? preview.result?.modelName ?? "Missing model"}
+                    Model: {getFriendlyModelName(preview.resolvedModel ?? preview.result?.modelName)}
                   </p>
                 </>
               )}

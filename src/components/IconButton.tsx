@@ -22,6 +22,7 @@ export type AppIconName =
   | "plus"
   | "folder"
   | "download"
+  | "info"
   | "keyboardEdit"
   | "reset"
   | "microphone"
@@ -151,6 +152,8 @@ function iconPaths(name: AppIconName) {
       return <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5Z" />;
     case "download":
       return <><path d="M12 3v11M8 10l4 4 4-4" /><path d="M4 16v3h16v-3" /></>;
+    case "info":
+      return <><circle cx="12" cy="12" r="9" /><path d="M12 10.5V17" /><path d="M12 7h.01" /></>;
     case "keyboardEdit":
       return <><rect x="2.5" y="5" width="16" height="12" rx="2" /><path d="M5.5 9h1M9 9h1M12.5 9h1M5.5 12h1M9 12h1M6 15h6" /><path d="m14.5 18.8.7-2.7 4.9-4.9a1.3 1.3 0 0 1 1.8 1.8L17 17.9Z" /></>;
     case "reset":

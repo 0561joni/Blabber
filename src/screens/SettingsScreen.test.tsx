@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AppSettings,
   DownloadableModel,
+  InstalledModel,
   ModelDownloadStatus,
   SettingsPatch,
 } from "../types/domain";
@@ -81,16 +82,17 @@ const diarizationModel: DownloadableModel = {
   capability: "diarization",
 };
 
-function Harness({ onSave, onReload }: {
+function Harness({ onSave, onReload, installedModels = [] }: {
   onSave: (patch: SettingsPatch) => void;
   onReload: () => Promise<void>;
+  installedModels?: InstalledModel[];
 }) {
   const [settings, setSettings] = useState(initialSettings);
   return (
     <SettingsScreen
       settings={settings}
       platform="macos"
-      installedModels={[]}
+      installedModels={installedModels}
       onSave={async (patch) => {
         onSave(patch);
         setSettings((current) => ({ ...current, ...patch }));
@@ -188,6 +190,81 @@ describe("Settings speaker identification", () => {
     expect(screen.getByRole("button", { name: "Open in Finder" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Set custom shortcut" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reset shortcut to default" })).toBeTruthy();
+  });
+
+  it("uses friendly two-line pickers and saves all three model contexts", async () => {
+    const installed: InstalledModel[] = [
+      {
+        id: "ggml-large-v3-turbo-bin",
+        engine: "whisper.cpp",
+        modelName: "ggml-large-v3-turbo.bin",
+        variant: "accurate",
+        localPath: "/models/ggml-large-v3-turbo.bin",
+        sizeBytes: 1_624_555_275,
+        isDefault: true,
+        profile: "accurate",
+      },
+      {
+        id: "qwen3-asr-1.7b-bf16",
+        engine: "qwen3_asr_c",
+        modelName: "Qwen3-ASR-1.7B",
+        variant: "1.7B BF16",
+        localPath: "/models/qwen3-asr-1.7b-bf16",
+        sizeBytes: 4_703_041_355,
+        isDefault: false,
+        profile: "accurate",
+      },
+    ];
+    const onSave = vi.fn();
+    render(
+      <Harness
+        onSave={onSave}
+        onReload={vi.fn().mockResolvedValue(undefined)}
+        installedModels={installed}
+      />,
+    );
+    await screen.findByText("Speaker identification");
+
+    fireEvent.click(screen.getByRole("button", { name: "Shortcut Dictation model" }));
+    expect(within(screen.getByRole("listbox")).getByText("Recommended")).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("listbox")).getAllByRole("option")[0]);
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
+      shortcutDictationSelectedModelId: installed[0].id,
+      shortcutDictationModelProfile: "accurate",
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Quick Dictate model" }));
+    const quickListbox = screen.getByRole("listbox");
+    const qwenOption = within(quickListbox).getByRole("option", { name: /Qwen ASR.*Recommended/ });
+    fireEvent.click(qwenOption);
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
+      quickDictateSelectedModelId: installed[1].id,
+      quickDictateModelProfile: "accurate",
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "File Transcription model" }));
+    fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: /Qwen ASR.*Recommended/ }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({
+      fileTranscribeSelectedModelId: installed[1].id,
+      fileTranscribeModelProfile: "accurate",
+    }));
+  });
+
+  it("keeps download cards simple and exposes technical details through information", async () => {
+    apiMocks.listDownloadableModels.mockResolvedValue([{ ...asrModel, installed: false }]);
+    render(<Harness onSave={vi.fn()} onReload={vi.fn().mockResolvedValue(undefined)} />);
+    await screen.findByText("Speaker identification");
+    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+
+    expect(screen.getByText("Whisper Balanced")).toBeTruthy();
+    expect(screen.queryByText("ggml-small.bin")).toBeNull();
+    expect(screen.getByLabelText("Speed ●●●●○ Accuracy ●●●○○")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download Whisper Balanced" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "About Whisper Balanced" }));
+    const dialog = screen.getByRole("dialog", { name: "Whisper Balanced" });
+    expect(within(dialog).getByText("ggml-small.bin")).toBeTruthy();
+    expect(within(dialog).getByText("488 MB")).toBeTruthy();
   });
 
   it("offers a retry without turning off the desired setting", async () => {

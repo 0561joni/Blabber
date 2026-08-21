@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { copyTextToClipboard } from "../lib/api";
+import { getFriendlyModelName } from "../lib/modelPresentation";
 import { IconButton } from "./IconButton";
 import type {
   FileTranscriptionJobStage,
@@ -167,7 +168,7 @@ export function FileTranscribePanel({
                 <h2>{transcription.sourceFile.originalName}</h2>
               </div>
               <span className="language-chip">
-                {transcription.resolvedModel?.modelName ?? transcription.result.modelName}
+                {getFriendlyModelName(transcription.resolvedModel ?? transcription.result.modelName)}
               </span>
             </div>
             <div className="text-surface">

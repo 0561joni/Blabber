@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { formatShortcutForDisplay } from "../lib/formatting";
 import { IconButton } from "../components/IconButton";
+import { ModelInfoButton, ModelPicker, ModelSummary } from "../components/ModelPicker";
+import { formatModelSize, getModelPresentation } from "../lib/modelPresentation";
 import {
   cancelModelDownload,
   cancelRecordingSession,
@@ -478,43 +480,27 @@ export function SettingsScreen({
         <div className="settings-grid">
           <article className="glass-subtle settings-card">
             <div className="field-stack">
-              <span>Shortcut Dictation model</span>
-              <select
+              <ModelPicker
+                label="Shortcut Dictation model"
                 value={settings.shortcutDictationSelectedModelId ?? ""}
-                disabled={installedModels.length === 0}
-                onChange={(event) => void handleShortcutDictationModelChange(event.target.value)}
-              >
-                {installedModels.length === 0 ? (
-                  <option value="">No models installed</option>
-                ) : (
-                  installedModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.modelName}
-                    </option>
-                  ))
-                )}
-              </select>
+                models={installedModels}
+                context="shortcut_dictation"
+                disabled={isSaving}
+                onChange={handleShortcutDictationModelChange}
+              />
             </div>
           </article>
 
           <article className="glass-subtle settings-card">
             <div className="field-stack">
-              <span>Quick Dictate model</span>
-              <select
+              <ModelPicker
+                label="Quick Dictate model"
                 value={settings.quickDictateSelectedModelId ?? ""}
-                disabled={installedModels.length === 0}
-                onChange={(event) => void handleQuickDictateModelChange(event.target.value)}
-              >
-                {installedModels.length === 0 ? (
-                  <option value="">No models installed</option>
-                ) : (
-                  installedModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.modelName}
-                    </option>
-                  ))
-                )}
-              </select>
+                models={installedModels}
+                context="quick_dictate"
+                disabled={isSaving}
+                onChange={handleQuickDictateModelChange}
+              />
             </div>
           </article>
 
@@ -585,22 +571,14 @@ export function SettingsScreen({
 
           <article className="glass-subtle settings-card">
             <div className="field-stack">
-              <span>File Transcribe model</span>
-              <select
+              <ModelPicker
+                label="File Transcription model"
                 value={settings.fileTranscribeSelectedModelId ?? ""}
-                disabled={installedModels.length === 0}
-                onChange={(event) => void handleFileTranscribeModelChange(event.target.value)}
-              >
-                {installedModels.length === 0 ? (
-                  <option value="">No models installed</option>
-                ) : (
-                  installedModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.modelName}
-                    </option>
-                  ))
-                )}
-              </select>
+                models={installedModels}
+                context="file_transcription"
+                disabled={isSaving}
+                onChange={handleFileTranscribeModelChange}
+              />
             </div>
           </article>
 
@@ -650,6 +628,7 @@ export function SettingsScreen({
               {isDownloadsExpanded ? (
                 <div className="downloadable-models">
                   {speechModels.map((model) => {
+                    const presentation = getModelPresentation(model);
                     const isInstalled = model.installed || installedModels.some(
                       (installed) => installed.id === model.id,
                     );
@@ -670,15 +649,9 @@ export function SettingsScreen({
                       <article key={model.id} className="downloadable-model-card">
                         <div className="downloadable-model-copy">
                           <div className="downloadable-model-heading">
-                            <strong>{model.modelName}</strong>
-                            <span className="downloadable-model-meta">
-                              {formatModelProfile(model.profile)} · {model.sizeBytes > 0 ? formatModelSize(model.sizeBytes) : "Size pending"} · {model.engine === "qwen3_asr_c" ? "Qwen" : "Whisper"}
-                            </span>
+                            <ModelSummary presentation={presentation} />
+                            <ModelInfoButton model={model} />
                           </div>
-                          <p className="muted">{model.description}</p>
-                          {model.requirements ? (
-                            <p className="downloadable-model-meta">{model.requirements}</p>
-                          ) : null}
                           {model.availabilityReason ? <p className="downloadable-model-meta">{model.availabilityReason}</p> : null}
                           {isDownloading ? (
                             <div className="model-download-progress">
@@ -706,7 +679,7 @@ export function SettingsScreen({
                               </div>
                               {downloadStatus.currentArtifact ? (
                                 <span className="downloadable-model-meta">
-                                  File {downloadStatus.artifactIndex ?? 1} of {downloadStatus.artifactCount}: {downloadStatus.currentArtifact}
+                                  File {downloadStatus.artifactIndex ?? 1} of {downloadStatus.artifactCount}
                                 </span>
                               ) : null}
                             </div>
@@ -746,7 +719,7 @@ export function SettingsScreen({
                           {!isUnavailable && !isInstalled ? (
                             <IconButton
                               icon={isDownloading ? "xCircle" : downloadStatus?.state === "failed" ? "retry" : "download"}
-                              label={isDownloading ? `Cancel download of ${model.modelName}` : downloadStatus?.state === "failed" ? `Retry download of ${model.modelName}` : `Download ${model.modelName}`}
+                              label={isDownloading ? `Cancel download of ${presentation.friendlyName}` : downloadStatus?.state === "failed" ? `Retry download of ${presentation.friendlyName}` : `Download ${presentation.friendlyName}`}
                               tone={isDownloading ? "danger" : "default"}
                               disabled={!isDownloading && anotherDownloadActive}
                               onClick={() => {
@@ -1174,40 +1147,28 @@ export function SettingsScreen({
   );
 }
 
-function formatModelProfile(profile: InstalledModel["profile"]) {
-  switch (profile) {
-    case "fast":
-      return "Fast";
-    case "balanced":
-      return "Balanced";
-    case "accurate":
-      return "Accurate";
-    default:
-      return profile;
-  }
-}
-
-function formatModelSize(sizeBytes: number) {
-  if (sizeBytes >= 1_000_000_000) {
-    return `${(sizeBytes / 1_000_000_000).toFixed(2)} GB`;
-  }
-  return `${Math.round(sizeBytes / 1_000_000)} MB`;
-}
-
 function formatDownloadSummary(
   downloadableModels: DownloadableModel[],
   installedModels: InstalledModel[],
   statuses: Record<string, ModelDownloadStatus>,
 ) {
   const modelIds = new Set(downloadableModels.map((model) => model.id));
-  const installedCount = downloadableModels.filter((model) =>
-    installedModels.some((installed) => installed.modelName === model.modelName),
+  const installedCount = downloadableModels.filter(
+    (model) =>
+      model.installed ||
+      installedModels.some(
+        (installed) => installed.id === model.id || installed.modelName === model.modelName,
+      ),
   ).length;
   const activeStatus = Object.values(statuses).find(
     (status) => modelIds.has(status.modelId) && status.state === "downloading",
   );
   if (activeStatus) {
-    return `${installedCount} of ${downloadableModels.length} installed · Downloading ${activeStatus.modelName}`;
+    const activeModel = downloadableModels.find((model) => model.id === activeStatus.modelId);
+    const activeName = activeModel
+      ? getModelPresentation(activeModel).friendlyName
+      : activeStatus.modelName;
+    return `${installedCount} of ${downloadableModels.length} installed · Downloading ${activeName}`;
   }
   return `${installedCount} of ${downloadableModels.length} installed`;
 }
