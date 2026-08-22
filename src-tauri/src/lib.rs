@@ -14,6 +14,8 @@ pub mod insertion;
 #[cfg(target_os = "linux")]
 pub mod ipc;
 pub mod model_downloads;
+pub mod model_metadata;
+pub mod native_asr;
 pub mod platform;
 pub mod qwen_asr;
 pub mod settings;

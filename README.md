@@ -135,13 +135,14 @@ click the gear icon and choose "Ubuntu on Xorg" / "GNOME on Xorg" before logging
 | Launch at login | Yes | Yes | Yes (XDG autostart `.desktop`) |
 | GPU acceleration | Metal | CUDA | None (CPU only) |
 | Model downloads and file transcription | Yes | Yes | Yes |
+| MOSS Transcribe + Diarize 0.9B F16 | Yes | Yes | Yes |
+| VibeVoice-ASR 8-bit MLX | Apple Silicon, macOS 14+ | No | No |
 
 Windows packaged builds use the bundled `.ico` app icon. macOS packaged builds use the `.icns`
 icon.
 
-On Linux, fresh installs default to smaller Whisper models (`tiny` for shortcut dictation,
-`small` for file transcription) so CPU inference stays responsive. You can pick larger
-models in Settings if your CPU can handle them.
+On Linux, fresh installs prefer Whisper Small so CPU inference stays responsive. You can
+pick larger models in Settings if your CPU can handle them.
 
 ## Phase 4 model requirement
 
@@ -150,8 +151,14 @@ whisper.cpp `ggml-*.bin` model file into the app's models directory and restart 
 
 Examples:
 
-- `ggml-tiny.bin` -> `fast`
 - `ggml-small.bin` -> `balanced`
 - `ggml-medium.bin` or `ggml-large-v3.bin` -> `accurate`
+
+MOSS Transcribe + Diarize is a 1.83 GB CPU model available for shortcut dictation,
+Quick Dictate, and files up to 90 minutes. VibeVoice-ASR is a 9.52 GB file-only model
+for Apple Silicon on macOS 14 or newer; 32 GB unified memory is recommended. Both use
+their own timestamps, speakers, automatic language detection, and Blabber vocabulary
+context. Their native speaker labels are preserved even when standalone speaker
+post-processing is off.
 
 The active models directory is shown in the Home screen diagnostics once the Tauri app is running.

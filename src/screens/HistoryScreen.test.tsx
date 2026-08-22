@@ -47,6 +47,7 @@ const detail: TranscriptDetail = {
   timestampedText: transcript.plainText,
   transcriptionWarnings: [],
   diarizationModelId: "sherpa-diarization-pyannote3-eres2net-voxceleb-v2",
+  diarizationSource: "post_process",
   diarizationWarning: null,
   diarizationPolicyVersion: 2,
   diarizationClusteringThreshold: 1.1,
@@ -218,6 +219,21 @@ describe("HistoryScreen transcript export", () => {
 
     expect(await screen.findByText("Speaker 1?")).toBeTruthy();
     expect(screen.getByText("Speaker clustering: Automatic · threshold 1.10")).toBeTruthy();
+  });
+
+  it("shows native speaker provenance without clustering thresholds", async () => {
+    apiMocks.getTranscript.mockResolvedValue({
+      ...detail,
+      modelName: "MOSS Transcribe + Diarize 0.9B F16",
+      diarizationModelId: "moss-transcribe-diarize-0.9b-f16",
+      diarizationSource: "native_model",
+      diarizationClusteringThreshold: null,
+    });
+    renderHistory();
+    fireEvent.click(screen.getByRole("button", { name: "Expand transcript for Meeting" }));
+
+    expect(await screen.findByText("Built into MOSS Transcribe + Diarize")).toBeTruthy();
+    expect(screen.queryByText(/Speaker clustering/)).toBeNull();
   });
 
   it("opens an Apple-style export menu with every format", () => {

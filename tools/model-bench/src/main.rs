@@ -77,7 +77,10 @@ fn compare_command(raw_args: &[OsString]) -> Result<()> {
     let parsed = parse_common_args(raw_args, false, false)?;
     validate_input_count(&parsed.inputs)?;
 
-    let json_out = parsed.json_out.clone().unwrap_or_else(default_json_output_path);
+    let json_out = parsed
+        .json_out
+        .clone()
+        .unwrap_or_else(default_json_output_path);
     ensure_parent_directory(&json_out)?;
 
     let merged = run_compare_workflow(&parsed)?;
@@ -99,7 +102,10 @@ fn evaluate_command(raw_args: &[OsString]) -> Result<()> {
     let api_key = env::var("OPENAI_API_KEY")
         .context("evaluate requires OPENAI_API_KEY to be set in the environment")?;
 
-    let json_out = parsed.json_out.clone().unwrap_or_else(default_json_output_path);
+    let json_out = parsed
+        .json_out
+        .clone()
+        .unwrap_or_else(default_json_output_path);
     ensure_parent_directory(&json_out)?;
 
     let input_paths = canonicalize_inputs(&parsed.inputs)?;
@@ -607,8 +613,7 @@ fn decode_audio_file(path: &Path) -> Result<DecodedAudio> {
         }
 
         let duration = decoded.capacity() as u64;
-        let buffer = sample_buffer
-            .get_or_insert_with(|| SampleBuffer::<f32>::new(duration, spec));
+        let buffer = sample_buffer.get_or_insert_with(|| SampleBuffer::<f32>::new(duration, spec));
         buffer.copy_interleaved_ref(decoded);
         samples.extend_from_slice(buffer.samples());
     }
@@ -620,11 +625,7 @@ fn decode_audio_file(path: &Path) -> Result<DecodedAudio> {
     })
 }
 
-fn normalize_audio(
-    input: &[f32],
-    input_sample_rate_hz: u32,
-    input_channels: u16,
-) -> PreparedAudio {
+fn normalize_audio(input: &[f32], input_sample_rate_hz: u32, input_channels: u16) -> PreparedAudio {
     let mono_samples = mix_to_mono(input, input_channels);
     let samples = if input_sample_rate_hz == TARGET_SAMPLE_RATE_HZ {
         mono_samples
@@ -680,7 +681,7 @@ fn benchmark_model(
     let wall_time_ms = timer.elapsed().as_millis() as u64;
 
     match attempt {
-        Ok(transcript_text) => {
+        Ok(inference) => {
             let realtime_factor = wall_time_ms as f64 / input.audio_duration_ms as f64;
             let speed_multiplier = input.audio_duration_ms as f64 / wall_time_ms.max(1) as f64;
             BenchmarkRecord {
@@ -693,8 +694,13 @@ fn benchmark_model(
                 wall_time_ms: Some(wall_time_ms),
                 realtime_factor: Some(realtime_factor),
                 speed_multiplier: Some(speed_multiplier),
-                transcript_length: Some(transcript_text.chars().count()),
-                transcript_text: Some(transcript_text),
+                transcript_length: Some(inference.transcript_text.chars().count()),
+                transcript_text: Some(inference.transcript_text),
+                timestamps_monotonic: Some(inference.timestamps_monotonic),
+                speaker_sequence: inference.speaker_sequence,
+                peak_memory_bytes: peak_memory_bytes(),
+                cold_load_time_ms: Some(inference.cold_load_time_ms),
+                warm_load_time_ms: inference.warm_load_time_ms,
                 success: true,
                 error: None,
                 quality: None,
@@ -712,6 +718,11 @@ fn benchmark_model(
             speed_multiplier: None,
             transcript_length: None,
             transcript_text: None,
+            timestamps_monotonic: None,
+            speaker_sequence: Vec::new(),
+            peak_memory_bytes: peak_memory_bytes(),
+            cold_load_time_ms: None,
+            warm_load_time_ms: None,
             success: false,
             error: Some(format!("{error:#}")),
             quality: None,
@@ -719,24 +730,38 @@ fn benchmark_model(
     }
 }
 
-fn benchmark_model_inner(model: &ModelSpec, input: &PreparedInput, timestamps: bool) -> Result<String> {
+fn benchmark_model_inner(
+    model: &ModelSpec,
+    input: &PreparedInput,
+    timestamps: bool,
+) -> Result<InferenceMetrics> {
+    let cold_load_started = Instant::now();
     let context = WhisperContext::new_with_params(
         &model.model_path.display().to_string(),
         WhisperContextParameters::default(),
     )
     .with_context(|| format!("failed to load model {}", model.model_name))?;
+    let cold_load_time_ms = cold_load_started.elapsed().as_millis() as u64;
 
+    let warm_load_started = Instant::now();
     let mut state = context
         .create_state()
         .with_context(|| format!("failed to create state for {}", model.model_name))?;
+    let warm_load_time_ms = warm_load_started.elapsed().as_millis() as u64;
     let mut params = build_params(timestamps);
     configure_language_params(&mut params, None);
     state
         .full(params, &input.audio)
         .with_context(|| format!("transcription failed for {}", model.model_name))?;
 
-    if let Some(transcript) = collect_transcript_text(&state)? {
-        return Ok(transcript);
+    if let Some((transcript_text, timestamps_monotonic)) = collect_transcript_metrics(&state)? {
+        return Ok(InferenceMetrics {
+            transcript_text,
+            timestamps_monotonic,
+            speaker_sequence: Vec::new(),
+            cold_load_time_ms,
+            warm_load_time_ms: Some(warm_load_time_ms),
+        });
     }
 
     let detected_language = language_id_to_code(state.full_lang_id_from_state());
@@ -750,8 +775,16 @@ fn benchmark_model_inner(model: &ModelSpec, input: &PreparedInput, timestamps: b
             .full(retry_params, &input.audio)
             .with_context(|| format!("fallback transcription failed for {}", model.model_name))?;
 
-        if let Some(transcript) = collect_transcript_text(&retry_state)? {
-            return Ok(transcript);
+        if let Some((transcript_text, timestamps_monotonic)) =
+            collect_transcript_metrics(&retry_state)?
+        {
+            return Ok(InferenceMetrics {
+                transcript_text,
+                timestamps_monotonic,
+                speaker_sequence: Vec::new(),
+                cold_load_time_ms,
+                warm_load_time_ms: Some(warm_load_time_ms),
+            });
         }
     }
 
@@ -775,10 +808,7 @@ fn build_params(timestamps: bool) -> FullParams<'static, 'static> {
     params
 }
 
-fn configure_language_params<'a>(
-    params: &mut FullParams<'a, 'a>,
-    fixed_language: Option<&'a str>,
-) {
+fn configure_language_params<'a>(params: &mut FullParams<'a, 'a>, fixed_language: Option<&'a str>) {
     match fixed_language {
         Some(language) => {
             params.set_language(Some(language));
@@ -791,14 +821,20 @@ fn configure_language_params<'a>(
     }
 }
 
-fn collect_transcript_text(state: &whisper_rs::WhisperState) -> Result<Option<String>> {
+fn collect_transcript_metrics(state: &whisper_rs::WhisperState) -> Result<Option<(String, bool)>> {
     let segment_count = state.full_n_segments();
     let mut transcript_parts = Vec::new();
+    let mut timestamps_monotonic = true;
+    let mut previous_end = 0_i64;
     for index in 0..segment_count {
         let Some(segment) = state.get_segment(index) else {
             continue;
         };
         let text = segment.to_str_lossy()?.trim().to_string();
+        let start = segment.start_timestamp();
+        let end = segment.end_timestamp();
+        timestamps_monotonic &= start >= previous_end && end >= start;
+        previous_end = end.max(previous_end);
         if !text.is_empty() {
             transcript_parts.push(text);
         }
@@ -807,8 +843,28 @@ fn collect_transcript_text(state: &whisper_rs::WhisperState) -> Result<Option<St
     if transcript_parts.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(transcript_parts.join(" ")))
+        Ok(Some((transcript_parts.join(" "), timestamps_monotonic)))
     }
+}
+
+#[cfg(unix)]
+fn peak_memory_bytes() -> Option<u64> {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+    let status = unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) };
+    if status != 0 {
+        return None;
+    }
+    let rss = unsafe { usage.assume_init() }.ru_maxrss as u64;
+    Some(if cfg!(target_os = "macos") {
+        rss
+    } else {
+        rss * 1024
+    })
+}
+
+#[cfg(not(unix))]
+fn peak_memory_bytes() -> Option<u64> {
+    None
 }
 
 fn augment_report_with_evaluation(
@@ -824,7 +880,8 @@ fn augment_report_with_evaluation(
 
     for input in prepared_inputs {
         input_lookup.insert(input.path.display().to_string(), input.clone());
-        match get_or_create_reference_transcript(input, client, config, &mut cache_stats.reference) {
+        match get_or_create_reference_transcript(input, client, config, &mut cache_stats.reference)
+        {
             Ok(reference) => {
                 reference_transcripts.insert(input.path.display().to_string(), reference);
             }
@@ -917,7 +974,9 @@ fn score_benchmark_result(
             candidate_token_count: 0,
             normalization_version: NORMALIZATION_VERSION.to_string(),
             judge_model: Some(config.judge_model.clone()),
-            judge_rationale: Some(format!("Semantic judge skipped because the local run failed: {reason}")),
+            judge_rationale: Some(format!(
+                "Semantic judge skipped because the local run failed: {reason}"
+            )),
             critical_mismatches: vec!["Candidate transcript unavailable.".to_string()],
         };
     }
@@ -972,10 +1031,8 @@ fn score_benchmark_result(
         }
     };
 
-    let overall_accuracy_pct = weighted_overall_accuracy(
-        lexical_accuracy_pct,
-        Some(semantic.semantic_accuracy_pct),
-    );
+    let overall_accuracy_pct =
+        weighted_overall_accuracy(lexical_accuracy_pct, Some(semantic.semantic_accuracy_pct));
 
     QualityReport {
         lexical_accuracy_pct,
@@ -1028,12 +1085,19 @@ fn get_or_create_reference_transcript(
         let response = client.transcribe_audio(
             &config.reference_model,
             &chunk.wav_bytes,
-            &format!("{}-chunk-{:02}.wav", sanitize_file_stem(&input.file_name), chunk.index + 1),
+            &format!(
+                "{}-chunk-{:02}.wav",
+                sanitize_file_stem(&input.file_name),
+                chunk.index + 1
+            ),
             prompt.as_deref(),
         )?;
         let transcript_text = response.text.trim().to_string();
         if transcript_text.is_empty() {
-            bail!("reference model returned an empty transcript for {}", input.file_name);
+            bail!(
+                "reference model returned an empty transcript for {}",
+                input.file_name
+            );
         }
         previous_prompt = trailing_prompt(&transcript_text);
         transcript_parts.push(transcript_text.clone());
@@ -1114,7 +1178,11 @@ fn get_or_create_semantic_judgment(
     }
 
     cache_stats.misses += 1;
-    let mut record = client.judge_semantic(&config.judge_model, reference_normalized, candidate_normalized)?;
+    let mut record = client.judge_semantic(
+        &config.judge_model,
+        reference_normalized,
+        candidate_normalized,
+    )?;
     record.cache_key = cache_key;
     record.cache_path = cache_path.display().to_string();
     record.cache_hit = false;
@@ -1142,7 +1210,9 @@ fn split_audio_for_reference(input: &PreparedInput) -> Result<Vec<AudioChunk>> {
         let preferred_end = (start + max_samples_per_chunk).min(input.audio.len());
         let mut end = preferred_end;
         if preferred_end < input.audio.len() {
-            if let Some(split_index) = find_preferred_split_index(&input.audio, start, preferred_end) {
+            if let Some(split_index) =
+                find_preferred_split_index(&input.audio, start, preferred_end)
+            {
                 end = split_index;
             }
         }
@@ -1167,7 +1237,11 @@ fn split_audio_for_reference(input: &PreparedInput) -> Result<Vec<AudioChunk>> {
     Ok(chunks)
 }
 
-fn find_preferred_split_index(samples: &[f32], start: usize, preferred_end: usize) -> Option<usize> {
+fn find_preferred_split_index(
+    samples: &[f32],
+    start: usize,
+    preferred_end: usize,
+) -> Option<usize> {
     let search_window = SILENCE_SEARCH_WINDOW_SECONDS * TARGET_SAMPLE_RATE_HZ as usize;
     let search_start = preferred_end.saturating_sub(search_window).max(start);
     let min_silence_samples = (SILENCE_MIN_MS * TARGET_SAMPLE_RATE_HZ as usize) / 1000;
@@ -1487,7 +1561,8 @@ fn collect_machine_metadata(models_dir: &Path) -> Result<RunMetadata> {
         hostname: read_command_output("hostname", &[]).unwrap_or_else(|| "unknown".to_string()),
         os_version: read_command_output("sw_vers", &["-productVersion"])
             .unwrap_or_else(|| env::consts::OS.to_string()),
-        arch: read_command_output("uname", &["-m"]).unwrap_or_else(|| env::consts::ARCH.to_string()),
+        arch: read_command_output("uname", &["-m"])
+            .unwrap_or_else(|| env::consts::ARCH.to_string()),
         cpu_brand: read_command_output("sysctl", &["-n", "machdep.cpu.brand_string"])
             .unwrap_or_else(|| "unknown".to_string()),
         logical_cores: std::thread::available_parallelism()
@@ -1529,7 +1604,10 @@ fn merge_reports(
             }
         }
         for model in report.models {
-            if !models.iter().any(|existing| existing.model_path == model.model_path) {
+            if !models
+                .iter()
+                .any(|existing| existing.model_path == model.model_path)
+            {
                 models.push(model);
             }
         }
@@ -1694,7 +1772,10 @@ fn truncate(value: &str, max: usize) -> String {
     if value.chars().count() <= max {
         return value.to_string();
     }
-    let mut truncated = value.chars().take(max.saturating_sub(1)).collect::<String>();
+    let mut truncated = value
+        .chars()
+        .take(max.saturating_sub(1))
+        .collect::<String>();
     truncated.push('…');
     truncated
 }
@@ -1753,7 +1834,8 @@ fn hash_string(value: &str) -> String {
 }
 
 fn sha256_file(path: &Path) -> Result<String> {
-    let mut file = File::open(path).with_context(|| format!("failed to hash {}", path.display()))?;
+    let mut file =
+        File::open(path).with_context(|| format!("failed to hash {}", path.display()))?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 16 * 1024];
     loop {
@@ -1820,6 +1902,15 @@ struct PreparedAudio {
     samples: Vec<f32>,
 }
 
+#[derive(Debug)]
+struct InferenceMetrics {
+    transcript_text: String,
+    timestamps_monotonic: bool,
+    speaker_sequence: Vec<String>,
+    cold_load_time_ms: u64,
+    warm_load_time_ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum Backend {
@@ -1882,6 +1973,11 @@ struct BenchmarkRecord {
     speed_multiplier: Option<f64>,
     transcript_length: Option<usize>,
     transcript_text: Option<String>,
+    timestamps_monotonic: Option<bool>,
+    speaker_sequence: Vec<String>,
+    peak_memory_bytes: Option<u64>,
+    cold_load_time_ms: Option<u64>,
+    warm_load_time_ms: Option<u64>,
     success: bool,
     error: Option<String>,
     quality: Option<QualityReport>,
@@ -2043,7 +2139,11 @@ impl NormalizedTranscript {
         let chars = text.chars().collect::<Vec<_>>();
         Self {
             text,
-            tokens: if token_count == tokens.len() { tokens } else { tokens },
+            tokens: if token_count == tokens.len() {
+                tokens
+            } else {
+                tokens
+            },
             chars,
         }
     }
@@ -2210,8 +2310,8 @@ Rubric:\n\
             .context("failed to parse OpenAI semantic judgment response")?;
         let parsed = extract_structured_json(&value)
             .context("OpenAI semantic judge response did not include structured JSON output")?;
-        let payload: SemanticJudgePayload = serde_json::from_value(parsed)
-            .context("failed to decode semantic judge payload")?;
+        let payload: SemanticJudgePayload =
+            serde_json::from_value(parsed).context("failed to decode semantic judge payload")?;
 
         Ok(SemanticJudgeRecord {
             judge_model: model.to_string(),

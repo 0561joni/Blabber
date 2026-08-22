@@ -28,6 +28,7 @@ interface HomeScreenProps {
   fileQueueItems: FileQueueItem[];
   isFileDragActive: boolean;
   speakerCountHint: number | null;
+  fileModelHasNativeDiarization?: boolean;
   onSpeakerCountHintChange: (speakerCountHint: number | null) => void;
   onStartRecording: () => void;
   onStopAndTranscribeRecording: () => void;
@@ -53,6 +54,7 @@ export function HomeScreen({
   fileQueueItems,
   isFileDragActive,
   speakerCountHint,
+  fileModelHasNativeDiarization = false,
   onSpeakerCountHintChange,
   onStartRecording,
   onStopAndTranscribeRecording,
@@ -308,7 +310,7 @@ export function HomeScreen({
                 </span>
               </button>
 
-              {settings?.fileDiarizationEnabled ? (
+              {settings?.fileDiarizationEnabled && !fileModelHasNativeDiarization ? (
                 <div className="speaker-hint-anchor">
                   <button
                     type="button"

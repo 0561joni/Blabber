@@ -106,6 +106,11 @@ impl AppState {
         };
 
         storage::initialize_database(&state)?;
+        if storage::retire_whisper_tiny(&state, &engine_models)? {
+            if let Ok(mut notices) = state.startup_notices.lock() {
+                notices.push("Whisper Tiny was retired; saved model choices were updated and managed Tiny files were removed.".to_string());
+            }
+        }
         if let Some(notice) = migrate_windows_qwen_selection(&state, &engine_models, &app_data_dir)?
         {
             if let Ok(mut notices) = state.startup_notices.lock() {

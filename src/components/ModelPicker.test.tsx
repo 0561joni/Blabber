@@ -26,6 +26,37 @@ const models: InstalledModel[] = [
   },
 ];
 
+const nativeModels: InstalledModel[] = [
+  {
+    ...models[0],
+    id: "moss-transcribe-diarize-0.9b-f16",
+    engine: "moss-transcribe-cpp",
+    modelName: "MOSS Transcribe + Diarize 0.9B F16",
+    capabilities: {
+      supportedContexts: ["shortcut_dictation", "quick_dictate", "file_transcription"],
+      nativeDiarization: true,
+      timestampedSegments: true,
+      contextSupport: true,
+      languageControl: "automatic_only",
+      maximumAudioDurationMs: 5_400_000,
+    },
+  },
+  {
+    ...models[0],
+    id: "vibevoice-asr-8bit-mlx",
+    engine: "vibevoice-mlx",
+    modelName: "VibeVoice-ASR 8-bit MLX",
+    capabilities: {
+      supportedContexts: ["file_transcription"],
+      nativeDiarization: true,
+      timestampedSegments: true,
+      contextSupport: true,
+      languageControl: "automatic_only",
+      maximumAudioDurationMs: 3_600_000,
+    },
+  },
+];
+
 describe("ModelPicker", () => {
   it("shows a two-line selected value and context-specific recommendation", () => {
     render(
@@ -112,6 +143,28 @@ describe("ModelPicker", () => {
     const trigger = screen.getByRole("button", { name: "Shortcut Dictation model" });
     expect((trigger as HTMLButtonElement).disabled).toBe(true);
     expect(within(trigger).getByText("No models installed")).toBeTruthy();
+  });
+
+  it("filters native models by supported use context", () => {
+    const { rerender } = render(
+      <ModelPicker label="Shortcut Dictation model" value={nativeModels[0].id} models={nativeModels} context="shortcut_dictation" onChange={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Shortcut Dictation model" }));
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.queryByText("VibeVoice ASR")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Shortcut Dictation model" }));
+
+    rerender(<ModelPicker label="File Transcription model" value={nativeModels[0].id} models={nativeModels} context="file_transcription" onChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "File Transcription model" }));
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+  });
+
+  it("explains built-in speakers and automatic language control", () => {
+    render(<ModelInfoButton model={nativeModels[0]} />);
+    fireEvent.click(screen.getByRole("button", { name: "About MOSS Transcribe + Diarize" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/Built-in speaker identification/)).toBeTruthy();
+    expect(within(dialog).getByText(/fixed-language choice is not applied/)).toBeTruthy();
   });
 });
 

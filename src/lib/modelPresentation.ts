@@ -1,4 +1,4 @@
-import type { ModelProfile } from "../types/domain";
+import type { ModelCapabilities, ModelProfile } from "../types/domain";
 
 export type ModelPickerContext =
   | "shortcut_dictation"
@@ -14,6 +14,7 @@ export interface PresentableModel {
   description?: string;
   requirements?: string | null;
   variant?: string;
+  capabilities?: ModelCapabilities;
 }
 
 export interface ModelPresentation {
@@ -49,6 +50,24 @@ const MODEL_CATALOG: Record<string, CatalogEntry> = {
     technicalDetails: "Qwen3-ASR 1.7B · BF16 · CPU inference",
     recommendedFor: ["quick_dictate", "file_transcription"],
     technicalNames: ["Qwen3-ASR-1.7B", "qwen3-asr-1.7b-bf16"],
+  },
+  "moss-transcribe-diarize-0.9b-f16": {
+    friendlyName: "MOSS Transcribe + Diarize",
+    speed: 3,
+    accuracy: 5,
+    description: "Long-form multilingual transcription with native speaker labels, timestamps, acoustic events, and vocabulary hotwords.",
+    technicalDetails: "MOSS Transcribe-Diarize 0.9B · F16 GGUF · isolated CPU worker",
+    recommendedFor: ["shortcut_dictation", "quick_dictate", "file_transcription"],
+    technicalNames: ["MOSS Transcribe + Diarize 0.9B F16"],
+  },
+  "vibevoice-asr-8bit-mlx": {
+    friendlyName: "VibeVoice ASR",
+    speed: 2,
+    accuracy: 5,
+    description: "Up to 60 minutes of multilingual and code-switched audio with native speakers, timestamps, and vocabulary context.",
+    technicalDetails: "VibeVoice-ASR · 8-bit MLX · Apple Silicon",
+    recommendedFor: ["file_transcription"],
+    technicalNames: ["VibeVoice-ASR 8-bit MLX"],
   },
   "ggml-large-v3-turbo-q5_0-bin": {
     friendlyName: "Whisper Turbo Compact",
@@ -86,15 +105,6 @@ const MODEL_CATALOG: Record<string, CatalogEntry> = {
     technicalDetails: "Whisper small · F16 · whisper.cpp",
     recommendedFor: [],
     technicalNames: ["ggml-small.bin"],
-  },
-  "ggml-tiny-bin": {
-    friendlyName: "Whisper Fast",
-    speed: 5,
-    accuracy: 2,
-    description: "The lightest model for quickest responses, with lower accuracy on difficult audio.",
-    technicalDetails: "Whisper tiny · F16 · whisper.cpp",
-    recommendedFor: [],
-    technicalNames: ["ggml-tiny.bin"],
   },
 };
 

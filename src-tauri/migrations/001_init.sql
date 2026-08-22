@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS transcripts (
   transcription_warnings TEXT NOT NULL DEFAULT '[]'
   ,diarization_status TEXT NOT NULL DEFAULT 'not_requested'
   ,diarization_model_id TEXT NULL
+  ,diarization_source TEXT NOT NULL DEFAULT 'none'
   ,diarization_warning TEXT NULL
   ,diarization_policy_version INTEGER NULL
   ,diarization_clustering_threshold REAL NULL

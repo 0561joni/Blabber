@@ -130,6 +130,7 @@ pub fn discover_model(models_dir: &Path) -> Result<Option<InstalledModel>> {
         size_bytes: QWEN_TOTAL_SIZE,
         is_default: false,
         profile: ModelProfile::Accurate,
+        capabilities: crate::model_metadata::ModelCapabilities::standard_asr(),
     }))
 }
 

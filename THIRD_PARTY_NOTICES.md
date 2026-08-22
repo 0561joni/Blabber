@@ -50,3 +50,29 @@ The reviewed artifact manifest is
 `src-tauri/model-manifests/sherpa-diarization-pyannote3-eres2net-voxceleb-v2.json`.
 The provenance decision must be reviewed again before distributing Blabber to
 other users.
+
+## MOSS Transcribe-Diarize and moss-transcribe.cpp
+
+MOSS Transcribe-Diarize 0.9B F16 weights are downloaded separately from the
+pinned `mudler/moss-transcribe.cpp-gguf` revision
+`54e4bbd17da3f84adf1c1bcf7791b9b9266f741e`. The weights retain the upstream
+Apache-2.0 license.
+
+Blabber builds the native `moss-transcribe.cpp` runtime as an isolated worker at
+commit `190a569c13b4b247450f2fb3b2a431244e84833e`. The port is MIT-licensed. Blabber's
+local patch exposes the existing model prompt so vocabulary can be appended as
+hotwords without linking the worker's ggml symbols into the app.
+
+Upstream: https://github.com/localai-org/moss-transcribe.cpp
+
+## VibeVoice-ASR, MLX, and mlx-audio
+
+VibeVoice-ASR 8-bit MLX weights are downloaded separately from the pinned
+`mlx-community/VibeVoice-ASR-8bit` revision
+`725c72e54d6ef875472c27fbc50fab470a960940`. The model card declares the model
+MIT-licensed.
+
+The Apple Silicon worker uses `mlx-audio` 0.4.8 and its MLX runtime in a signed,
+one-folder bundle. MLX and mlx-audio are MIT-licensed.
+
+Upstreams: https://github.com/ml-explore/mlx and https://github.com/Blaizzy/mlx-audio

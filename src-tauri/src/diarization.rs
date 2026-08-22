@@ -4,6 +4,20 @@ pub const DIARIZATION_MODEL_ID: &str = "sherpa-diarization-pyannote3-eres2net-vo
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum DiarizationSource {
+    None,
+    NativeModel,
+    PostProcess,
+}
+
+impl Default for DiarizationSource {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DiarizationStatus {
     NotRequested,
     Pending,
@@ -192,6 +206,7 @@ pub fn apply_turns_to_transcript(
 ) {
     let turns = normalize_turns(raw_turns);
     if turns.is_empty() {
+        result.diarization_source = DiarizationSource::PostProcess;
         result.diarization_status = DiarizationStatus::NotEnoughSpeech;
         result.diarization_model_id = Some(DIARIZATION_MODEL_ID.to_string());
         result.diarization_warning =
@@ -229,6 +244,7 @@ pub fn apply_turns_to_transcript(
     } else {
         DiarizationStatus::Completed
     };
+    result.diarization_source = DiarizationSource::PostProcess;
     result.diarization_model_id = Some(DIARIZATION_MODEL_ID.to_string());
     result.diarization_warning = uncertain.then(|| {
         "Some transcript segments contain likely, overlapping, or uncertain speaker attribution."
@@ -245,6 +261,7 @@ pub fn apply_turns_to_transcript(
 }
 
 pub fn mark_failure(result: &mut crate::asr::TranscriptResult, warning: impl Into<String>) {
+    result.diarization_source = DiarizationSource::PostProcess;
     result.diarization_status = DiarizationStatus::Failed;
     result.diarization_model_id = Some(DIARIZATION_MODEL_ID.to_string());
     result.diarization_warning = Some(warning.into());

@@ -12,7 +12,9 @@ use crate::asr::{
     InstalledModel, TranscriptQualityStatus, TranscriptResult, TranscriptSegment, TranscriptWarning,
 };
 use crate::audio_files::SelectedSourceFile;
-use crate::diarization::{DiarizationStatus, DiarizationTurn, TranscriptSpeaker};
+use crate::diarization::{
+    DiarizationSource, DiarizationStatus, DiarizationTurn, TranscriptSpeaker,
+};
 use crate::settings::{
     AppSettings, DefaultMode, InsertBehavior, LanguageMode, ModelProfile, SettingsPatch,
     ShortcutMode,
@@ -66,6 +68,7 @@ pub struct TranscriptDetail {
     pub timestamped_text: String,
     pub transcription_warnings: Vec<TranscriptWarning>,
     pub diarization_model_id: Option<String>,
+    pub diarization_source: DiarizationSource,
     pub diarization_warning: Option<String>,
     pub diarization_policy_version: Option<u32>,
     pub diarization_clustering_threshold: Option<f32>,
@@ -94,7 +97,102 @@ pub fn initialize_database(state: &AppState) -> Result<()> {
     ensure_diarization_schema(&connection)?;
     ensure_vocabulary_columns(&connection)?;
     ensure_file_transcription_performance_table(&connection)?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS app_migrations (
+            migration_key TEXT PRIMARY KEY,
+            completed_at TEXT NOT NULL
+        );",
+    )?;
     seed_default_settings(&connection)?;
+    Ok(())
+}
+
+const RETIRE_WHISPER_TINY_MIGRATION: &str = "retire_whisper_tiny_v1";
+
+pub fn retire_whisper_tiny(state: &AppState, installed_models: &[InstalledModel]) -> Result<bool> {
+    let connection = open_connection(state)?;
+    let completed = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM app_migrations WHERE migration_key=?1)",
+        [RETIRE_WHISPER_TINY_MIGRATION],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if completed {
+        return Ok(false);
+    }
+
+    let current = get_settings(state)?;
+    let fallback_for = |preferences: &[&str], profile: ModelProfile| {
+        find_model_by_name(installed_models, preferences)
+            .or_else(|| resolve_profile_model(installed_models, profile))
+    };
+    let mut patch = SettingsPatch::default();
+    if is_tiny_selection(current.shortcut_dictation_selected_model_id.as_deref()) {
+        let fallback = fallback_for(shortcut_model_preferences(), fallback_shortcut_profile());
+        patch.shortcut_dictation_model_profile = Some(
+            fallback
+                .as_ref()
+                .map(|model| model.profile)
+                .unwrap_or(ModelProfile::Balanced),
+        );
+        patch.shortcut_dictation_selected_model_id =
+            Some(fallback.as_ref().map(|model| model.id.clone()));
+    }
+    if is_tiny_selection(current.quick_dictate_selected_model_id.as_deref()) {
+        let fallback = fallback_for(
+            quick_dictate_model_preferences(),
+            fallback_quick_dictate_profile(),
+        );
+        patch.quick_dictate_model_profile = Some(
+            fallback
+                .as_ref()
+                .map(|model| model.profile)
+                .unwrap_or(ModelProfile::Balanced),
+        );
+        patch.quick_dictate_selected_model_id =
+            Some(fallback.as_ref().map(|model| model.id.clone()));
+    }
+    if is_tiny_selection(current.file_transcribe_selected_model_id.as_deref()) {
+        let fallback = fallback_for(
+            file_transcribe_model_preferences(),
+            fallback_file_transcribe_profile(),
+        );
+        patch.file_transcribe_model_profile = Some(
+            fallback
+                .as_ref()
+                .map(|model| model.profile)
+                .unwrap_or(ModelProfile::Balanced),
+        );
+        patch.file_transcribe_selected_model_id =
+            Some(fallback.as_ref().map(|model| model.id.clone()));
+    }
+    let _ = update_settings(state, patch)?;
+
+    retire_whisper_tiny_files(&state.models_dir)?;
+    connection.execute(
+        "INSERT INTO app_migrations (migration_key, completed_at) VALUES (?1, ?2)",
+        params![RETIRE_WHISPER_TINY_MIGRATION, Utc::now().to_rfc3339()],
+    )?;
+    Ok(true)
+}
+
+fn is_tiny_selection(selection: Option<&str>) -> bool {
+    selection.is_some_and(|id| id.to_ascii_lowercase().starts_with("ggml-tiny"))
+}
+
+fn retire_whisper_tiny_files(models_dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(models_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.parent() != Some(models_dir) || !entry.file_type()?.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        let tiny_weight = name.starts_with("ggml-tiny") && name.ends_with(".bin");
+        let tiny_partial = name.starts_with("ggml-tiny") && name.ends_with(".bin.part");
+        if tiny_weight || tiny_partial {
+            fs::remove_file(path)?;
+        }
+    }
     Ok(())
 }
 
@@ -511,11 +609,12 @@ pub fn replace_transcript_diarization(
     let mut connection = open_connection(state)?;
     let transaction = connection.transaction()?;
     transaction.execute(
-        "UPDATE transcripts SET diarization_status=?2, diarization_model_id=?3, diarization_warning=?4, diarization_policy_version=?5, speaker_count=?6, diarization_clustering_threshold=?7, diarization_speaker_count_hint=?8 WHERE id=?1",
+        "UPDATE transcripts SET diarization_status=?2, diarization_model_id=?3, diarization_warning=?4, diarization_policy_version=?5, speaker_count=?6, diarization_clustering_threshold=?7, diarization_speaker_count_hint=?8, diarization_source=?9 WHERE id=?1",
         params![transcript_id, to_diarization_status(result.diarization_status), &result.diarization_model_id,
             &result.diarization_warning, result.diarization_policy_version,
             if result.speakers.is_empty() { None } else { Some(result.speakers.len() as i32) },
-            result.diarization_clustering_threshold, result.diarization_speaker_count_hint],
+            result.diarization_clustering_threshold, result.diarization_speaker_count_hint,
+            to_diarization_source(result.diarization_source)],
     )?;
     for segment in &result.segments {
         transaction.execute(
@@ -853,6 +952,7 @@ fn ensure_diarization_schema(connection: &Connection) -> Result<()> {
             "TEXT NOT NULL DEFAULT 'not_requested'",
         ),
         ("diarization_model_id", "TEXT NULL"),
+        ("diarization_source", "TEXT NOT NULL DEFAULT 'none'"),
         ("diarization_warning", "TEXT NULL"),
         ("diarization_policy_version", "INTEGER NULL"),
         ("diarization_clustering_threshold", "REAL NULL"),
@@ -866,6 +966,10 @@ fn ensure_diarization_schema(connection: &Connection) -> Result<()> {
             )?;
         }
     }
+    connection.execute(
+        "UPDATE transcripts SET diarization_source='post_process' WHERE diarization_source='none' AND diarization_model_id=?1",
+        [crate::diarization::DIARIZATION_MODEL_ID],
+    )?;
     let segment_columns = table_columns(connection, "transcript_segments")?;
     for (name, declaration) in [
         ("speaker_id", "TEXT NULL"),
@@ -991,19 +1095,20 @@ fn fetch_transcript_detail(
     transcript_id: &str,
 ) -> Result<TranscriptDetail> {
     let summary = fetch_transcript_summary(connection, transcript_id)?;
-    let (full_text, timestamped_text, warnings_raw, diarization_model_id, diarization_warning, policy, clustering_threshold, speaker_count_hint): (
+    let (full_text, timestamped_text, warnings_raw, diarization_model_id, diarization_source, diarization_warning, policy, clustering_threshold, speaker_count_hint): (
         String,
         String,
         String,
         Option<String>,
+        String,
         Option<String>,
         Option<u32>,
         Option<f32>,
         Option<i32>,
     ) = connection.query_row(
-        "SELECT full_text, timestamped_text, transcription_warnings, diarization_model_id, diarization_warning, diarization_policy_version, diarization_clustering_threshold, diarization_speaker_count_hint FROM transcripts WHERE id = ?1",
+        "SELECT full_text, timestamped_text, transcription_warnings, diarization_model_id, diarization_source, diarization_warning, diarization_policy_version, diarization_clustering_threshold, diarization_speaker_count_hint FROM transcripts WHERE id = ?1",
         [transcript_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?)),
     )?;
 
     let mut segment_statement = connection.prepare(
@@ -1068,6 +1173,7 @@ fn fetch_transcript_detail(
         timestamped_text,
         transcription_warnings: serde_json::from_str(&warnings_raw).unwrap_or_default(),
         diarization_model_id,
+        diarization_source: parse_diarization_source(diarization_source)?,
         diarization_warning,
         diarization_policy_version: policy,
         diarization_clustering_threshold: clustering_threshold,
@@ -1090,8 +1196,8 @@ fn insert_transcript(
     let languages = serde_json::to_string(&result.detected_languages)?;
     let warnings = serde_json::to_string(&result.warnings)?;
     transaction.execute(
-        "INSERT INTO transcripts (id, created_at, source_type, title, full_text, plain_text, timestamped_text, detected_languages, duration_ms, status, model_name, quality_status, recovered_region_count, transcription_warnings, diarization_status, diarization_model_id, diarization_warning, diarization_policy_version, speaker_count, diarization_clustering_threshold, diarization_speaker_count_hint)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+        "INSERT INTO transcripts (id, created_at, source_type, title, full_text, plain_text, timestamped_text, detected_languages, duration_ms, status, model_name, quality_status, recovered_region_count, transcription_warnings, diarization_status, diarization_model_id, diarization_source, diarization_warning, diarization_policy_version, speaker_count, diarization_clustering_threshold, diarization_speaker_count_hint)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
         params![
             transcript_id,
             &created_at,
@@ -1109,6 +1215,7 @@ fn insert_transcript(
             warnings,
             to_diarization_status(result.diarization_status),
             &result.diarization_model_id,
+            to_diarization_source(result.diarization_source),
             &result.diarization_warning,
             result.diarization_policy_version,
             if result.speakers.is_empty() { None } else { Some(result.speakers.len() as i32) },
@@ -1184,6 +1291,10 @@ fn map_installed_model_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Installe
         size_bytes: row.get("size_bytes")?,
         is_default: row.get("is_default")?,
         profile,
+        capabilities: crate::model_metadata::capabilities_for_model(
+            &row.get::<_, String>("id")?,
+            &row.get::<_, String>("engine")?,
+        ),
     })
 }
 
@@ -1217,7 +1328,7 @@ fn map_settings_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AppSettings> {
 
 #[cfg(target_os = "linux")]
 fn shortcut_model_preferences() -> &'static [&'static str] {
-    &["ggml-tiny.bin", "ggml-tiny.en.bin", "ggml-base.bin"]
+    &["ggml-small.bin", "ggml-small.en.bin", "ggml-base.bin"]
 }
 #[cfg(not(target_os = "linux"))]
 fn shortcut_model_preferences() -> &'static [&'static str] {
@@ -1244,7 +1355,7 @@ fn file_transcribe_model_preferences() -> &'static [&'static str] {
 
 #[cfg(target_os = "linux")]
 fn fallback_shortcut_profile() -> ModelProfile {
-    ModelProfile::Fast
+    ModelProfile::Balanced
 }
 #[cfg(not(target_os = "linux"))]
 fn fallback_shortcut_profile() -> ModelProfile {
@@ -1340,6 +1451,23 @@ fn to_diarization_status(value: DiarizationStatus) -> &'static str {
         DiarizationStatus::Failed => "failed",
         DiarizationStatus::Canceled => "canceled",
         DiarizationStatus::NotEnoughSpeech => "not_enough_speech",
+    }
+}
+
+fn parse_diarization_source(value: String) -> rusqlite::Result<DiarizationSource> {
+    match value.as_str() {
+        "none" => Ok(DiarizationSource::None),
+        "native_model" => Ok(DiarizationSource::NativeModel),
+        "post_process" => Ok(DiarizationSource::PostProcess),
+        _ => Err(rusqlite::Error::InvalidQuery),
+    }
+}
+
+fn to_diarization_source(value: DiarizationSource) -> &'static str {
+    match value {
+        DiarizationSource::None => "none",
+        DiarizationSource::NativeModel => "native_model",
+        DiarizationSource::PostProcess => "post_process",
     }
 }
 
@@ -1638,6 +1766,7 @@ mod tests {
             warnings: vec![],
             diarization_status: DiarizationStatus::Completed,
             diarization_model_id: Some(crate::diarization::DIARIZATION_MODEL_ID.into()),
+            diarization_source: DiarizationSource::PostProcess,
             diarization_warning: None,
             diarization_policy_version: Some(1),
             diarization_clustering_threshold: Some(1.1),
@@ -1674,5 +1803,26 @@ mod tests {
         assert_eq!(detail.segments[0].speaker_id.as_deref(), Some("speaker_0"));
         assert_eq!(detail.speakers[0].display_name, "Speaker 1");
         assert_eq!(detail.diarization_turns.len(), 1);
+        assert_eq!(detail.diarization_source, DiarizationSource::PostProcess);
+    }
+
+    #[test]
+    fn tiny_retirement_deletes_only_direct_managed_weights_and_partials() {
+        let root = std::env::temp_dir().join(format!("blabber-tiny-retirement-{}", Uuid::new_v4()));
+        fs::create_dir_all(root.join("nested")).expect("directories");
+        fs::write(root.join("ggml-tiny.bin"), b"weight").expect("weight");
+        fs::write(root.join("ggml-tiny.en.bin.part"), b"partial").expect("partial");
+        fs::write(root.join("ggml-small.bin"), b"keep").expect("small");
+        fs::write(root.join("nested/ggml-tiny.bin"), b"keep nested").expect("nested");
+
+        retire_whisper_tiny_files(&root).expect("retirement");
+        assert!(!root.join("ggml-tiny.bin").exists());
+        assert!(!root.join("ggml-tiny.en.bin.part").exists());
+        assert!(root.join("ggml-small.bin").exists());
+        assert!(root.join("nested/ggml-tiny.bin").exists());
+        assert!(is_tiny_selection(Some("ggml-tiny-bin")));
+        assert!(!is_tiny_selection(Some("ggml-small-bin")));
+
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }

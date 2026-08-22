@@ -822,6 +822,7 @@ export function App() {
                 fileQueueItems={fileQueueItems}
                 isFileDragActive={isFileDragActive}
                 speakerCountHint={speakerCountHint}
+                fileModelHasNativeDiarization={installedModels.find((model) => model.id === settings?.fileTranscribeSelectedModelId)?.capabilities?.nativeDiarization ?? false}
                 onSpeakerCountHintChange={setSpeakerCountHint}
                 onStartRecording={beginManualRecording}
                 onStopAndTranscribeRecording={stopAndPreviewManualRecording}

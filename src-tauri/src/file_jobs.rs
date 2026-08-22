@@ -373,6 +373,30 @@ impl FileTranscriptionController {
             &settings,
             PreviewSourceKind::FileUpload,
         )?;
+        if let Some(model) = resolved_model.as_ref() {
+            if !model
+                .capabilities
+                .supported_contexts
+                .contains(&crate::model_metadata::ModelUseContext::FileTranscription)
+            {
+                return Err(anyhow!(
+                    "MODEL_CONTEXT_UNSUPPORTED: {} cannot be used for file transcription",
+                    model.model_name
+                ));
+            }
+            if let (Some(duration), Some(limit)) = (
+                request.source_file.duration_ms,
+                model.capabilities.maximum_audio_duration_ms,
+            ) {
+                if duration > limit {
+                    return Err(anyhow!(
+                        "MODEL_AUDIO_TOO_LONG: {} supports audio up to {} minutes",
+                        model.model_name,
+                        limit / 60_000
+                    ));
+                }
+            }
+        }
 
         self.update_status(
             &request.job_id,
@@ -398,6 +422,7 @@ impl FileTranscriptionController {
         let transcript = self.run_transcription_worker(
             request,
             EngineFileTranscriptionRequest {
+                use_context: Some(crate::model_metadata::ModelUseContext::FileTranscription),
                 profile: settings.file_transcribe_model_profile,
                 selected_model_id: settings.file_transcribe_selected_model_id.clone(),
                 language_mode: settings.language_mode,
@@ -434,7 +459,10 @@ impl FileTranscriptionController {
                 ),
             );
         }
-        if settings.file_diarization_enabled {
+        if should_run_post_process_diarization(
+            settings.file_diarization_enabled,
+            resolved_model.as_ref(),
+        ) {
             self.update_status(
                 &request.job_id,
                 FileTranscriptionJobStage::Diarizing,
@@ -1017,6 +1045,10 @@ fn resolve_model_for_settings(
     })
 }
 
+fn should_run_post_process_diarization(enabled: bool, model: Option<&InstalledModel>) -> bool {
+    enabled && !model.is_some_and(|model| model.capabilities.native_diarization)
+}
+
 fn resolve_model_id_for_job(
     db_path: &Path,
     source_kind: PreviewSourceKind,
@@ -1116,6 +1148,25 @@ mod tests {
             refreshed.stage,
             FileTranscriptionJobStage::Diarizing
         ));
+    }
+
+    #[test]
+    fn native_diarization_bypasses_standalone_post_process() {
+        let mut model = InstalledModel {
+            id: crate::model_metadata::MOSS_MODEL_ID.into(),
+            engine: "moss-transcribe-cpp".into(),
+            model_name: crate::model_metadata::MOSS_MODEL_NAME.into(),
+            variant: "0.9B F16".into(),
+            local_path: "/models/moss".into(),
+            size_bytes: crate::model_metadata::MOSS_MODEL_SIZE,
+            is_default: false,
+            profile: crate::settings::ModelProfile::Accurate,
+            capabilities: crate::model_metadata::ModelCapabilities::moss(),
+        };
+        assert!(!should_run_post_process_diarization(true, Some(&model)));
+        model.capabilities = crate::model_metadata::ModelCapabilities::standard_asr();
+        assert!(should_run_post_process_diarization(true, Some(&model)));
+        assert!(!should_run_post_process_diarization(false, Some(&model)));
     }
 
     #[test]

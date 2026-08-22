@@ -9,12 +9,13 @@ import {
 } from "./modelPresentation";
 
 const MODEL_CASES = [
+  ["moss-transcribe-diarize-0.9b-f16", "MOSS Transcribe + Diarize 0.9B F16", "MOSS Transcribe + Diarize", 3, 5],
+  ["vibevoice-asr-8bit-mlx", "VibeVoice-ASR 8-bit MLX", "VibeVoice ASR", 2, 5],
   ["qwen3-asr-1.7b-bf16", "Qwen3-ASR-1.7B", "Qwen ASR", 2, 5],
   ["ggml-large-v3-turbo-q5_0-bin", "ggml-large-v3-turbo-q5_0.bin", "Whisper Turbo Compact", 5, 4],
   ["ggml-large-v3-turbo-bin", "ggml-large-v3-turbo.bin", "Whisper Turbo", 5, 5],
   ["ggml-medium-bin", "ggml-medium.bin", "Whisper Precision", 3, 4],
   ["ggml-small-bin", "ggml-small.bin", "Whisper Balanced", 4, 3],
-  ["ggml-tiny-bin", "ggml-tiny.bin", "Whisper Fast", 5, 2],
 ] as const;
 
 function installedModel(id: string, modelName: string): InstalledModel {

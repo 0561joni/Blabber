@@ -14,8 +14,15 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 
-use crate::asr::{discover_installed_models, LocalTranscriptionEngine, TranscriptionEngine};
+use crate::asr::{
+    discover_installed_models, InstalledModel, LocalTranscriptionEngine, TranscriptionEngine,
+};
 use crate::diarization::DIARIZATION_MODEL_ID;
+use crate::model_metadata::{
+    capabilities_for_model, vibevoice_platform_supported, MOSS_MODEL_DIR, MOSS_MODEL_ID,
+    MOSS_MODEL_NAME, MOSS_MODEL_REVISION, MOSS_MODEL_SIZE, VIBEVOICE_MODEL_DIR, VIBEVOICE_MODEL_ID,
+    VIBEVOICE_MODEL_NAME, VIBEVOICE_MODEL_REVISION, VIBEVOICE_MODEL_SIZE,
+};
 #[cfg(test)]
 use crate::qwen_asr::QWEN_REQUIRED_ARTIFACTS;
 use crate::qwen_asr::{
@@ -64,6 +71,7 @@ pub struct DownloadableModel {
     pub installed: bool,
     pub artifact_count: u32,
     pub capability: ModelCapability,
+    pub capabilities: crate::model_metadata::ModelCapabilities,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -617,12 +625,18 @@ struct DownloadableModelSpec {
     revision: Option<&'static str>,
     artifacts: &'static [ModelArtifactSpec],
     qwen_platform_limited: bool,
+    vibevoice_platform_limited: bool,
     capability: ModelCapability,
 }
 
 impl DownloadableModelSpec {
     fn availability(&self) -> ModelAvailability {
         if self.qwen_platform_limited && !qwen_asr::platform_supported() {
+            ModelAvailability::UnsupportedPlatform
+        } else if self.vibevoice_platform_limited
+            && (!vibevoice_platform_supported()
+                || !crate::native_asr::worker_available(VIBEVOICE_MODEL_ID))
+        {
             ModelAvailability::UnsupportedPlatform
         } else {
             ModelAvailability::Available
@@ -666,10 +680,23 @@ const DIARIZATION_ARTIFACTS: &[ModelArtifactSpec] = &[
     },
 ];
 
+const MOSS_ARTIFACTS: &[ModelArtifactSpec] = &[ModelArtifactSpec {
+    path: "moss-transcribe-f16.gguf",
+    size_bytes: MOSS_MODEL_SIZE,
+    url: "https://huggingface.co/mudler/moss-transcribe.cpp-gguf/resolve/54e4bbd17da3f84adf1c1bcf7791b9b9266f741e/moss-transcribe-f16.gguf?download=true",
+    sha256: "88a9518ccd9c7d04a3ebc2c49174f47cebe528096f949760942bc31f7ebe8046",
+}];
+
+const VIBEVOICE_ARTIFACTS: &[ModelArtifactSpec] = &[
+    ModelArtifactSpec { path: "config.json", size_bytes: 4_372, url: "https://huggingface.co/mlx-community/VibeVoice-ASR-8bit/resolve/725c72e54d6ef875472c27fbc50fab470a960940/config.json?download=true", sha256: "f4418d57174253f52174c74d6dc3b53ae452d8234b2e007231bea53f2437f16a" },
+    ModelArtifactSpec { path: "model.safetensors.index.json", size_bytes: 130_385, url: "https://huggingface.co/mlx-community/VibeVoice-ASR-8bit/resolve/725c72e54d6ef875472c27fbc50fab470a960940/model.safetensors.index.json?download=true", sha256: "8f282316181bcbd6bb4d7d57ce3e3c5601de35d9003b6bfe1da3a0a22a814a55" },
+    ModelArtifactSpec { path: "model-00001-of-00002.safetensors", size_bytes: 5_331_193_271, url: "https://huggingface.co/mlx-community/VibeVoice-ASR-8bit/resolve/725c72e54d6ef875472c27fbc50fab470a960940/model-00001-of-00002.safetensors?download=true", sha256: "ce6e064d50295cb0100f33af8c69c9d2a3d647a8d375f764851e940180308650" },
+    ModelArtifactSpec { path: "model-00002-of-00002.safetensors", size_bytes: 4_190_296_379, url: "https://huggingface.co/mlx-community/VibeVoice-ASR-8bit/resolve/725c72e54d6ef875472c27fbc50fab470a960940/model-00002-of-00002.safetensors?download=true", sha256: "53750f68f0fca138e70d8ed5eb38c29a02e3b44c3e530142a7b0cb3453bf455a" },
+];
+
 fn downloadable_specs() -> Vec<DownloadableModelSpec> {
     vec![
-        whisper_spec("ggml-tiny-bin", "ggml-tiny.bin", "Smallest local model for quick tests and lightweight dictation.", 77_691_713, ModelProfile::Fast, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin?download=true", "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21"),
-        whisper_spec("ggml-small-bin", "ggml-small.bin", "Good balance when you want lower memory use with better quality than tiny.", 487_601_967, ModelProfile::Balanced, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin?download=true", "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"),
+        whisper_spec("ggml-small-bin", "ggml-small.bin", "Good balance when you want lower memory use and reliable everyday quality.", 487_601_967, ModelProfile::Balanced, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin?download=true", "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"),
         whisper_spec("ggml-medium-bin", "ggml-medium.bin", "Strong default for shortcut dictation when you want better accuracy.", 1_533_763_059, ModelProfile::Balanced, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin?download=true", "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208"),
         whisper_spec("ggml-large-v3-turbo-bin", "ggml-large-v3-turbo.bin", "Best full-size turbo model when you want top quality and speed.", 1_624_555_275, ModelProfile::Accurate, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin?download=true", "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"),
         whisper_spec("ggml-large-v3-turbo-q5_0-bin", "ggml-large-v3-turbo-q5_0.bin", "Quantized turbo model with lower memory use and a strong quality-speed tradeoff.", 574_041_195, ModelProfile::Accurate, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin?download=true", "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2"),
@@ -685,6 +712,37 @@ fn downloadable_specs() -> Vec<DownloadableModelSpec> {
             revision: Some(QWEN_MODEL_REVISION),
             artifacts: QWEN_ARTIFACTS,
             qwen_platform_limited: true,
+            vibevoice_platform_limited: false,
+            capability: ModelCapability::Asr,
+        },
+        DownloadableModelSpec {
+            id: MOSS_MODEL_ID,
+            engine: "moss-transcribe-cpp",
+            model_name: MOSS_MODEL_NAME,
+            description: "Long-form multilingual transcription with built-in speaker identification, timestamps, and vocabulary hotwords.",
+            requirements: Some("CPU-only · up to 90 minutes · speaker identification built in"),
+            size_bytes: MOSS_MODEL_SIZE,
+            profile: ModelProfile::Accurate,
+            layout: InstallLayout::Directory { directory_name: MOSS_MODEL_DIR },
+            revision: Some(MOSS_MODEL_REVISION),
+            artifacts: MOSS_ARTIFACTS,
+            qwen_platform_limited: false,
+            vibevoice_platform_limited: false,
+            capability: ModelCapability::Asr,
+        },
+        DownloadableModelSpec {
+            id: VIBEVOICE_MODEL_ID,
+            engine: "vibevoice-mlx",
+            model_name: VIBEVOICE_MODEL_NAME,
+            description: "Apple Silicon long-form transcription with built-in speakers, timestamps, multilingual audio, and vocabulary context.",
+            requirements: Some("Apple Silicon · macOS 14+ · 32 GB unified memory recommended · file transcription only"),
+            size_bytes: VIBEVOICE_MODEL_SIZE,
+            profile: ModelProfile::Accurate,
+            layout: InstallLayout::Directory { directory_name: VIBEVOICE_MODEL_DIR },
+            revision: Some(VIBEVOICE_MODEL_REVISION),
+            artifacts: VIBEVOICE_ARTIFACTS,
+            qwen_platform_limited: false,
+            vibevoice_platform_limited: true,
             capability: ModelCapability::Asr,
         },
         DownloadableModelSpec {
@@ -699,6 +757,7 @@ fn downloadable_specs() -> Vec<DownloadableModelSpec> {
             revision: Some(DIARIZATION_REVISION),
             artifacts: DIARIZATION_ARTIFACTS,
             qwen_platform_limited: false,
+            vibevoice_platform_limited: false,
             capability: ModelCapability::Diarization,
         },
     ]
@@ -714,7 +773,6 @@ fn whisper_spec(
     sha256: &'static str,
 ) -> DownloadableModelSpec {
     let artifacts: &'static [ModelArtifactSpec] = match id {
-        "ggml-tiny-bin" => single_file_artifact!("ggml-tiny.bin", 77_691_713, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin?download=true", "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21"),
         "ggml-small-bin" => single_file_artifact!("ggml-small.bin", 487_601_967, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin?download=true", "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"),
         "ggml-medium-bin" => single_file_artifact!("ggml-medium.bin", 1_533_763_059, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin?download=true", "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208"),
         "ggml-large-v3-turbo-bin" => single_file_artifact!("ggml-large-v3-turbo.bin", 1_624_555_275, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin?download=true", "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"),
@@ -735,6 +793,7 @@ fn whisper_spec(
         revision: None,
         artifacts,
         qwen_platform_limited: false,
+        vibevoice_platform_limited: false,
         capability: ModelCapability::Asr,
     }
 }
@@ -759,6 +818,7 @@ fn vad_model_spec() -> DownloadableModelSpec {
             "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987"
         ),
         qwen_platform_limited: false,
+        vibevoice_platform_limited: false,
         capability: ModelCapability::Vad,
     }
 }
@@ -776,14 +836,20 @@ pub fn list_downloadable_models(models_dir: Option<&Path>) -> Vec<DownloadableMo
             availability: spec.availability(),
             requirements: spec.requirements.map(ToString::to_string),
             availability_reason: match spec.availability() {
-                ModelAvailability::UnsupportedPlatform => {
-                    Some("This runtime is not supported on the current platform.".to_string())
-                }
+                ModelAvailability::UnsupportedPlatform => Some(
+                    if spec.id == VIBEVOICE_MODEL_ID {
+                        "Requires Apple Silicon and macOS 14 or newer with the bundled MLX worker."
+                    } else {
+                        "This runtime is not supported on the current platform."
+                    }
+                    .to_string(),
+                ),
                 ModelAvailability::Available => None,
             },
             installed: models_dir.is_some_and(|dir| model_is_installed(&spec, dir)),
             artifact_count: spec.artifacts.len() as u32,
             capability: spec.capability,
+            capabilities: capabilities_for_model(spec.id, spec.engine),
         })
         .collect()
 }
@@ -829,6 +895,36 @@ pub fn installed_diarization_package_path(models_dir: &Path) -> Option<PathBuf> 
     model_is_installed(&spec, models_dir).then(|| models_dir.join(DIARIZATION_MODEL_DIR))
 }
 
+pub fn discover_native_asr_models(models_dir: &Path) -> Vec<InstalledModel> {
+    downloadable_specs()
+        .into_iter()
+        .filter(|spec| matches!(spec.id, MOSS_MODEL_ID | VIBEVOICE_MODEL_ID))
+        .filter(|spec| spec.availability() == ModelAvailability::Available)
+        .filter(|spec| model_is_installed(spec, models_dir))
+        .filter_map(|spec| {
+            let InstallLayout::Directory { directory_name } = spec.layout else {
+                return None;
+            };
+            Some(InstalledModel {
+                id: spec.id.to_string(),
+                engine: spec.engine.to_string(),
+                model_name: spec.model_name.to_string(),
+                variant: if spec.id == MOSS_MODEL_ID {
+                    "0.9B F16"
+                } else {
+                    "8-bit MLX"
+                }
+                .to_string(),
+                local_path: models_dir.join(directory_name).display().to_string(),
+                size_bytes: spec.size_bytes,
+                is_default: false,
+                profile: spec.profile,
+                capabilities: capabilities_for_model(spec.id, spec.engine),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -861,6 +957,7 @@ mod tests {
             revision: Some("test-revision"),
             artifacts,
             qwen_platform_limited: false,
+            vibevoice_platform_limited: false,
             capability: ModelCapability::Diarization,
         }
     }
@@ -893,6 +990,41 @@ mod tests {
             assert_eq!(artifact.size_bytes, *size);
             assert_eq!(artifact.sha256, *sha256);
         }
+    }
+
+    #[test]
+    fn native_asr_manifests_are_immutable_and_complete() {
+        let specs = downloadable_specs();
+        let moss = specs
+            .iter()
+            .find(|spec| spec.id == MOSS_MODEL_ID)
+            .expect("MOSS");
+        assert_eq!(moss.revision, Some(MOSS_MODEL_REVISION));
+        assert_eq!(moss.artifacts.len(), 1);
+        assert_eq!(moss.artifacts[0].size_bytes, MOSS_MODEL_SIZE);
+        assert_eq!(
+            moss.artifacts[0].sha256,
+            "88a9518ccd9c7d04a3ebc2c49174f47cebe528096f949760942bc31f7ebe8046"
+        );
+
+        let vibe = specs
+            .iter()
+            .find(|spec| spec.id == VIBEVOICE_MODEL_ID)
+            .expect("VibeVoice");
+        assert_eq!(vibe.revision, Some(VIBEVOICE_MODEL_REVISION));
+        assert_eq!(vibe.artifacts.len(), 4);
+        assert_eq!(
+            vibe.artifacts
+                .iter()
+                .map(|artifact| artifact.size_bytes)
+                .sum::<i64>(),
+            VIBEVOICE_MODEL_SIZE
+        );
+        assert!(vibe
+            .artifacts
+            .iter()
+            .all(|artifact| artifact.sha256.len() == 64));
+        assert!(specs.iter().all(|spec| !spec.id.starts_with("ggml-tiny")));
     }
 
     #[test]

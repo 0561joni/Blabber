@@ -16,6 +16,8 @@ mod insertion;
 #[cfg(target_os = "linux")]
 mod ipc;
 mod model_downloads;
+mod model_metadata;
+mod native_asr;
 mod platform;
 mod qwen_asr;
 mod settings;
@@ -335,6 +337,7 @@ async fn rediarize_transcript(
             warnings: detail.transcription_warnings.clone(),
             diarization_status: diarization::DiarizationStatus::Pending,
             diarization_model_id: None,
+            diarization_source: diarization::DiarizationSource::None,
             diarization_warning: None,
             diarization_policy_version: None,
             diarization_clustering_threshold: None,
@@ -559,6 +562,14 @@ async fn preview_transcription(
 
         let result = app_state.engine.transcribe_file(
             FileTranscriptionRequest {
+                use_context: Some(match request.source_kind {
+                    asr::PreviewSourceKind::QuickDictate => {
+                        model_metadata::ModelUseContext::QuickDictate
+                    }
+                    asr::PreviewSourceKind::FileUpload => {
+                        model_metadata::ModelUseContext::FileTranscription
+                    }
+                }),
                 profile: request.profile,
                 selected_model_id: request.selected_model_id.clone(),
                 language_mode: request.language_mode,

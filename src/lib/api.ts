@@ -56,16 +56,6 @@ const mockSettings: AppSettings = {
 const mockTranscripts: TranscriptSummary[] = [];
 const mockModels: InstalledModel[] = [
   {
-    id: "ggml-tiny-bin",
-    engine: "whisper.cpp",
-    modelName: "ggml-tiny.bin",
-    variant: "fast",
-    localPath: "mock://models/ggml-tiny.bin",
-    sizeBytes: 77_691_713,
-    isDefault: true,
-    profile: "fast",
-  },
-  {
     id: "ggml-small-bin",
     engine: "whisper.cpp",
     modelName: "ggml-small.bin",
@@ -108,24 +98,10 @@ const mockModels: InstalledModel[] = [
 ];
 const mockDownloadableModels: DownloadableModel[] = [
   {
-    id: "ggml-tiny-bin",
-    engine: "whisper.cpp",
-    modelName: "ggml-tiny.bin",
-    description: "Smallest local model for quick tests and lightweight dictation.",
-    sizeBytes: 77_691_713,
-    profile: "fast",
-    availability: "available",
-    availabilityReason: null,
-    installed: true,
-    requirements: null,
-    artifactCount: 1,
-    capability: "asr",
-  },
-  {
     id: "ggml-small-bin",
     engine: "whisper.cpp",
     modelName: "ggml-small.bin",
-    description: "Good balance when you want lower memory use with better quality than tiny.",
+    description: "Good balance when you want lower memory use and reliable everyday quality.",
     sizeBytes: 487_601_967,
     profile: "balanced",
     availability: "available",
@@ -191,6 +167,50 @@ const mockDownloadableModels: DownloadableModel[] = [
     requirements: "macOS or Linux · 16 GB RAM recommended · CPU-only",
     artifactCount: 7,
     capability: "asr",
+  },
+  {
+    id: "moss-transcribe-diarize-0.9b-f16",
+    engine: "moss-transcribe-cpp",
+    modelName: "MOSS Transcribe + Diarize 0.9B F16",
+    description: "Long-form multilingual transcription with built-in speakers, timestamps, and vocabulary hotwords.",
+    sizeBytes: 1_833_647_104,
+    profile: "accurate",
+    availability: "available",
+    availabilityReason: null,
+    installed: false,
+    requirements: "CPU-only · up to 90 minutes · speaker identification built in",
+    artifactCount: 1,
+    capability: "asr",
+    capabilities: {
+      supportedContexts: ["shortcut_dictation", "quick_dictate", "file_transcription"],
+      nativeDiarization: true,
+      timestampedSegments: true,
+      contextSupport: true,
+      languageControl: "automatic_only",
+      maximumAudioDurationMs: 5_400_000,
+    },
+  },
+  {
+    id: "vibevoice-asr-8bit-mlx",
+    engine: "vibevoice-mlx",
+    modelName: "VibeVoice-ASR 8-bit MLX",
+    description: "Apple Silicon long-form transcription with built-in speakers, timestamps, and vocabulary context.",
+    sizeBytes: 9_521_624_407,
+    profile: "accurate",
+    availability: "available",
+    availabilityReason: null,
+    installed: false,
+    requirements: "Apple Silicon · macOS 14+ · 32 GB unified memory recommended · file transcription only",
+    artifactCount: 4,
+    capability: "asr",
+    capabilities: {
+      supportedContexts: ["file_transcription"],
+      nativeDiarization: true,
+      timestampedSegments: true,
+      contextSupport: true,
+      languageControl: "automatic_only",
+      maximumAudioDurationMs: 3_600_000,
+    },
   },
   {
     id: "sherpa-diarization-pyannote3-eres2net-voxceleb-v2",
@@ -466,6 +486,7 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
             sizeBytes: model.sizeBytes,
             isDefault: false,
             profile: model.profile,
+            capabilities: model.capabilities,
           });
         }
         mockModelDownloadStatuses.set(model.id, nextStatus);

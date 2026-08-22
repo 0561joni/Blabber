@@ -16,6 +16,7 @@ use crate::audio_chunks::{
 };
 use crate::audio_preprocess;
 use crate::diarization::{DiarizationStatus, DiarizationTurn, TranscriptSpeaker};
+use crate::model_metadata::ModelCapabilities;
 use crate::qwen_asr::QwenAsrEngine;
 use crate::settings::{LanguageMode, ModelProfile};
 use crate::transcript_stitching::stitch_segments;
@@ -36,6 +37,8 @@ pub struct InstalledModel {
     pub size_bytes: i64,
     pub is_default: bool,
     pub profile: ModelProfile,
+    #[serde(default)]
+    pub capabilities: ModelCapabilities,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +78,8 @@ pub struct TranscriptResult {
     pub diarization_status: DiarizationStatus,
     #[serde(default)]
     pub diarization_model_id: Option<String>,
+    #[serde(default)]
+    pub diarization_source: crate::diarization::DiarizationSource,
     #[serde(default)]
     pub diarization_warning: Option<String>,
     #[serde(default)]
@@ -162,6 +167,8 @@ pub struct TranscriptionPreviewResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileTranscriptionRequest {
+    #[serde(default)]
+    pub use_context: Option<crate::model_metadata::ModelUseContext>,
     pub profile: ModelProfile,
     pub selected_model_id: Option<String>,
     pub language_mode: LanguageMode,
@@ -269,6 +276,15 @@ impl TranscriptionEngine for LocalTranscriptionEngine {
         progress: Option<Arc<AtomicI32>>,
     ) -> Result<TranscriptResult> {
         let model = self.resolve_model(request.selected_model_id.as_deref(), request.profile)?;
+        if let Some(use_context) = request.use_context {
+            if !model.capabilities.supported_contexts.contains(&use_context) {
+                return Err(anyhow!(
+                    "MODEL_CONTEXT_UNSUPPORTED: {} is not available for {:?}",
+                    model.model_name,
+                    use_context
+                ));
+            }
+        }
         request.selected_model_id = Some(model.id.clone());
         match model.engine.as_str() {
             "whisper.cpp" => {
@@ -289,6 +305,11 @@ impl TranscriptionEngine for LocalTranscriptionEngine {
                     progress,
                     vad_model_path.as_deref(),
                 )
+            }
+            "moss-transcribe-cpp" | "vibevoice-mlx" => {
+                self.whisper.invalidate_context_cache();
+                self.qwen.invalidate_context_cache();
+                crate::native_asr::transcribe_with_native_worker(&model, &request, progress)
             }
             engine => Err(anyhow!(
                 "MODEL_ENGINE_UNSUPPORTED: unsupported engine '{engine}'"
@@ -478,6 +499,10 @@ pub fn discover_whisper_models(models_dir: &Path) -> Result<Vec<InstalledModel>>
         }
 
         let model_name = entry.file_name().to_string_lossy().to_string();
+        if model_name.to_ascii_lowercase().starts_with("ggml-tiny") {
+            // Tiny was retired. Files added manually after the one-time cleanup stay ignored.
+            continue;
+        }
         if model_name.to_ascii_lowercase().contains("silero")
             || model_name.to_ascii_lowercase().contains("vad")
         {
@@ -493,6 +518,7 @@ pub fn discover_whisper_models(models_dir: &Path) -> Result<Vec<InstalledModel>>
             size_bytes: metadata.len() as i64,
             is_default: is_default_model(&path),
             profile,
+            capabilities: ModelCapabilities::standard_asr(),
         });
     }
 
@@ -505,6 +531,9 @@ pub fn discover_installed_models(models_dir: &Path) -> Result<Vec<InstalledModel
     if let Some(qwen) = crate::qwen_asr::discover_model(models_dir)? {
         models.push(qwen);
     }
+    models.extend(crate::model_downloads::discover_native_asr_models(
+        models_dir,
+    ));
     models.sort_by(|left, right| left.model_name.cmp(&right.model_name));
     Ok(models)
 }
@@ -1020,6 +1049,7 @@ pub(crate) fn build_transcript_result(
         warnings,
         diarization_status: DiarizationStatus::NotRequested,
         diarization_model_id: None,
+        diarization_source: crate::diarization::DiarizationSource::None,
         diarization_warning: None,
         diarization_policy_version: None,
         diarization_clustering_threshold: None,
@@ -1315,6 +1345,7 @@ fn run_whisper_with_state(
         warnings: Vec::new(),
         diarization_status: DiarizationStatus::NotRequested,
         diarization_model_id: None,
+        diarization_source: crate::diarization::DiarizationSource::None,
         diarization_warning: None,
         diarization_policy_version: None,
         diarization_clustering_threshold: None,
@@ -1395,6 +1426,7 @@ mod tests {
             size_bytes: 1,
             is_default: true,
             profile: ModelProfile::Accurate,
+            capabilities: ModelCapabilities::standard_asr(),
         }
     }
 
@@ -1461,6 +1493,7 @@ mod tests {
             size_bytes: crate::qwen_asr::QWEN_TOTAL_SIZE,
             is_default: false,
             profile: ModelProfile::Accurate,
+            capabilities: ModelCapabilities::standard_asr(),
         };
         let engine = LocalTranscriptionEngine::new(
             PathBuf::from("/tmp/models"),

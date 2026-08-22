@@ -9,6 +9,7 @@ metal = ["whisper-rs/metal"]
 
 [dependencies]
 anyhow = "1"
+libc = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cancelRediarization, copyTranscript, exportTranscript, getTranscript, listenRediarizationStatus, pickAudioFiles, rediarizeTranscript, renameTranscript, renameTranscriptSpeaker } from "../lib/api";
 import { AppIcon, IconButton } from "../components/IconButton";
+import { getFriendlyModelName } from "../lib/modelPresentation";
 import type { TranscriptDetail, TranscriptExportFormat, TranscriptSegment, TranscriptSpeaker, TranscriptSummary } from "../types/domain";
 
 interface HistoryScreenProps {
@@ -355,7 +356,13 @@ export function HistoryScreen({ transcripts, onTranscriptUpdated, onDelete, onDe
                     {busy[transcript.id] ? <p className="muted">Loading speaker transcript...</p> : detail ? (
                       <>
                         {detail.diarizationWarning ? <p className="warning-text">{detail.diarizationWarning}</p> : null}
-                        {detail.diarizationModelId ? <p className="muted diarization-provenance">Speaker clustering: {detail.diarizationSpeakerCountHint === null ? `Automatic · threshold ${detail.diarizationClusteringThreshold?.toFixed(2) ?? "unknown"}` : `About ${detail.diarizationSpeakerCountHint} speakers · exact target`}</p> : null}
+                        {detail.diarizationModelId ? (
+                          <p className="muted diarization-provenance">
+                            {detail.diarizationSource === "native_model"
+                              ? `Built into ${getFriendlyModelName(detail.modelName)}`
+                              : `Speaker clustering: ${detail.diarizationSpeakerCountHint === null ? `Automatic · threshold ${detail.diarizationClusteringThreshold?.toFixed(2) ?? "unknown"}` : `About ${detail.diarizationSpeakerCountHint} speakers · exact target`}`}
+                          </p>
+                        ) : null}
                         {detail.speakers.length > 0 ? (
                           <div className="speaker-roster">
                             {detail.speakers.map((speaker) => {

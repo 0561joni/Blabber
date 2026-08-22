@@ -46,9 +46,13 @@ export function ModelPicker({
   const choiceRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [infoModel, setInfoModel] = useState<InstalledModel | null>(null);
-  const presentations = useMemo(() => models.map(getModelPresentation), [models]);
-  const selectedIndex = Math.max(0, models.findIndex((model) => model.id === value));
-  const selectedModel = models.find((model) => model.id === value) ?? models[0] ?? null;
+  const eligibleModels = useMemo(
+    () => models.filter((model) => !model.capabilities || model.capabilities.supportedContexts.includes(context)),
+    [models, context],
+  );
+  const presentations = useMemo(() => eligibleModels.map(getModelPresentation), [eligibleModels]);
+  const selectedIndex = Math.max(0, eligibleModels.findIndex((model) => model.id === value));
+  const selectedModel = eligibleModels.find((model) => model.id === value) ?? eligibleModels[0] ?? null;
   const selectedPresentation = selectedModel ? getModelPresentation(selectedModel) : null;
 
   useEffect(() => {
@@ -71,7 +75,7 @@ export function ModelPicker({
     if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
       event.preventDefault();
       setIsOpen(true);
-      const nextIndex = event.key === "End" ? models.length - 1 : selectedIndex;
+      const nextIndex = event.key === "End" ? eligibleModels.length - 1 : selectedIndex;
       window.requestAnimationFrame(() => choiceRefs.current[nextIndex]?.focus());
     }
   }
@@ -109,7 +113,7 @@ export function ModelPicker({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls={isOpen ? panelId : undefined}
-        disabled={disabled || models.length === 0}
+        disabled={disabled || eligibleModels.length === 0}
         onClick={() => {
           setIsOpen((current) => !current);
           if (!isOpen) {
@@ -134,7 +138,7 @@ export function ModelPicker({
           aria-labelledby={labelId}
           onKeyDown={handlePanelKeyDown}
         >
-          {models.map((model, index) => {
+          {eligibleModels.map((model, index) => {
             const presentation = presentations[index];
             const isSelected = model.id === selectedModel?.id;
             return (
@@ -296,6 +300,9 @@ export function ModelInfoDialog({
           <strong>Technical details</strong>
           <p>{presentation.technicalDetails}</p>
           {presentation.requirements ? <p>{presentation.requirements}</p> : null}
+          {model.capabilities?.nativeDiarization ? <p>Built-in speaker identification and timestamps · standalone speaker processing is skipped</p> : null}
+          {model.capabilities?.contextSupport ? <p>Uses your Blabber vocabulary as model context or hotwords</p> : null}
+          {model.capabilities?.languageControl === "automatic_only" ? <p>Automatic language detection and code-switching · the global fixed-language choice is not applied</p> : null}
         </div>
         {presentation.recommendedFor.length > 0 ? (
           <p className="model-info-recommended">

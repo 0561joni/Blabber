@@ -356,6 +356,7 @@ impl QuickDictationController {
         }
         let transcript = match self.engine.transcribe_file(
             FileTranscriptionRequest {
+                use_context: Some(crate::model_metadata::ModelUseContext::ShortcutDictation),
                 profile: settings.shortcut_dictation_model_profile,
                 selected_model_id: settings.shortcut_dictation_selected_model_id.clone(),
                 language_mode: settings.language_mode,

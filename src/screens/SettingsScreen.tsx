@@ -742,9 +742,9 @@ export function SettingsScreen({
 
           <article className="glass-subtle settings-card settings-card-wide">
             <div className="field-stack">
-              <span>Identify speakers in file transcriptions</span>
+              <span>Identify speakers for models without built-in speakers</span>
               <p className="muted" style={{ margin: 0 }}>
-                Runs locally after imported audio or video files are transcribed. Speaker count is detected automatically.
+                Runs a local post-process after Whisper or Qwen. MOSS and VibeVoice preserve their built-in speaker labels automatically.
               </p>
               <div className="settings-option-list">
                 <div className="setting-row">

@@ -8,3 +8,6 @@ src-tauri/target
 src-tauri/bundle/windows-cuda-runtime
 src-tauri/gen
 *.log
+workers/**/__pycache__/
+workers/**/build/
+workers/**/dist/

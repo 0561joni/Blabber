@@ -14,6 +14,9 @@ export type LanguageMode = "auto" | "fixed";
 export type InsertBehavior = "paste" | "clipboard_only";
 export type ModelProfile = "fast" | "balanced" | "accurate";
 export type ModelCapability = "asr" | "vad" | "diarization";
+export type ModelUseContext = "shortcut_dictation" | "quick_dictate" | "file_transcription";
+export type ModelLanguageControl = "automatic_and_fixed" | "automatic_only";
+export type DiarizationSource = "none" | "native_model" | "post_process";
 export type DiarizationStatus = "not_requested" | "pending" | "running" | "completed" | "completed_with_uncertainty" | "failed" | "canceled" | "not_enough_speech";
 export type SpeakerAttribution = "none" | "assigned" | "likely" | "uncertain" | "overlap";
 export type ShortcutMode = "push_to_talk" | "toggle";
@@ -113,6 +116,16 @@ export interface InstalledModel {
   sizeBytes: number;
   isDefault: boolean;
   profile: ModelProfile;
+  capabilities?: ModelCapabilities;
+}
+
+export interface ModelCapabilities {
+  supportedContexts: ModelUseContext[];
+  nativeDiarization: boolean;
+  timestampedSegments: boolean;
+  contextSupport: boolean;
+  languageControl: ModelLanguageControl;
+  maximumAudioDurationMs: number | null;
 }
 
 export interface DownloadableModel {
@@ -128,6 +141,7 @@ export interface DownloadableModel {
   requirements: string | null;
   artifactCount: number;
   capability: ModelCapability;
+  capabilities?: ModelCapabilities;
 }
 
 export type ModelDownloadState =
@@ -182,6 +196,7 @@ export interface TranscriptResult {
   warnings: TranscriptWarning[];
   diarizationStatus: DiarizationStatus;
   diarizationModelId: string | null;
+  diarizationSource?: DiarizationSource;
   diarizationWarning: string | null;
   diarizationPolicyVersion: number | null;
   diarizationClusteringThreshold: number | null;
@@ -195,6 +210,7 @@ export interface TranscriptDetail extends TranscriptSummary {
   timestampedText: string;
   transcriptionWarnings: TranscriptWarning[];
   diarizationModelId: string | null;
+  diarizationSource?: DiarizationSource;
   diarizationWarning: string | null;
   diarizationPolicyVersion: number | null;
   diarizationClusteringThreshold: number | null;
