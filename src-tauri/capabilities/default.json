@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default desktop capability set",
-  "windows": ["main"],
+  "windows": ["main", "splashscreen", "dictation-overlay"],
   "permissions": [
     "core:default",
     "core:event:default",
@@ -10,4 +10,3 @@
     "global-shortcut:default"
   ]
 }
-

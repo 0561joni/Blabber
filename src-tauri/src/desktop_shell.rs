@@ -7,6 +7,8 @@ use tauri::menu::MenuBuilder;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window};
 
+use crate::startup::{StartupCoordinator, StartupPhase};
+
 const OVERLAY_LABEL: &str = "dictation-overlay";
 const OVERLAY_EVENT: &str = "quick-dictation-overlay";
 const OVERLAY_WIDTH: f64 = 220.0;
@@ -233,6 +235,16 @@ fn build_tray_icon(app: &AppHandle) -> Result<TrayIcon> {
 }
 
 fn show_main_window(app: &AppHandle) -> Result<()> {
+    if let Some(startup) = app.try_state::<StartupCoordinator>() {
+        if startup.status().phase != StartupPhase::Ready {
+            if let Some(splash) = app.get_webview_window("splashscreen") {
+                let _ = splash.show();
+                let _ = splash.unminimize();
+                let _ = splash.set_focus();
+            }
+            return Ok(());
+        }
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();

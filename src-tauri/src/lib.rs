@@ -21,6 +21,7 @@ pub mod qwen_asr;
 pub mod settings;
 pub mod sound;
 pub mod speaker_reconciliation;
+pub mod startup;
 pub mod storage;
 pub mod system_volume;
 pub mod transcript_commands;

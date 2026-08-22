@@ -17,7 +17,23 @@
         "title": "Blabber",
         "width": 1320,
         "height": 900,
-        "resizable": true
+        "resizable": true,
+        "visible": false
+      },
+      {
+        "label": "splashscreen",
+        "title": "Blabber is starting",
+        "url": "splashscreen.html",
+        "width": 480,
+        "height": 360,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "resizable": false,
+        "fullscreen": false,
+        "shadow": true,
+        "skipTaskbar": true,
+        "focus": true
       }
     ],
     "security": {

@@ -19,6 +19,7 @@ import type {
   SelectedSourceFile,
   SettingsPatch,
   StartFileTranscriptionResponse,
+  StartupStatus,
   TrayUnavailableClosePayload,
   TranscriptionPreviewRequest,
   TranscriptionPreviewResponse,
@@ -314,6 +315,12 @@ const mockFileTranscriptionListeners = new Set<
   (event: FileTranscriptionStatusEvent) => void
 >();
 const mockFileTranscriptionStatuses = new Map<string, FileTranscriptionStatusEvent>();
+let mockStartupStatus: StartupStatus = {
+  phase: "workspace",
+  step: 6,
+  totalSteps: 6,
+};
+const mockStartupListeners = new Set<(status: StartupStatus) => void>();
 
 function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -360,6 +367,63 @@ export async function quitApp(): Promise<void> {
     return;
   }
   return invoke<void>("quit_app");
+}
+
+export async function restartApp(): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invoke<void>("restart_app");
+}
+
+export async function getStartupStatus(): Promise<StartupStatus> {
+  if (!isTauriRuntime()) {
+    return mockStartupStatus;
+  }
+  return invoke<StartupStatus>("get_startup_status");
+}
+
+export async function listenStartupStatus(
+  handler: (status: StartupStatus) => void,
+): Promise<() => void> {
+  if (!isTauriRuntime()) {
+    mockStartupListeners.add(handler);
+    return () => mockStartupListeners.delete(handler);
+  }
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<StartupStatus>("app://startup-status", (event) => {
+    handler(event.payload);
+  });
+}
+
+export async function frontendStartupComplete(): Promise<void> {
+  if (!isTauriRuntime()) {
+    mockStartupStatus = { phase: "ready", step: 6, totalSteps: 6 };
+    mockStartupListeners.forEach((listener) => listener(mockStartupStatus));
+    return;
+  }
+  return invoke<void>("frontend_startup_complete");
+}
+
+export async function reportStartupFailure(message: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    mockStartupStatus = {
+      phase: "failed",
+      step: mockStartupStatus.step,
+      totalSteps: 6,
+      errorMessage: message,
+    };
+    mockStartupListeners.forEach((listener) => listener(mockStartupStatus));
+    return;
+  }
+  return invoke<void>("report_startup_failure", { message });
+}
+
+export async function completeStartupHandoff(): Promise<void> {
+  if (!isTauriRuntime()) {
+    return;
+  }
+  return invoke<void>("complete_startup_handoff");
 }
 
 export async function listenTrayUnavailableCloseRequested(

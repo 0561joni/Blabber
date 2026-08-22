@@ -16,6 +16,7 @@ use crate::file_jobs::FileTranscriptionController;
 use crate::model_downloads::ModelDownloadManager;
 use crate::settings::HealthCheckResponse;
 use crate::sound::SoundPlayer;
+use crate::startup::StartupPhase;
 use crate::storage;
 use crate::vocabulary;
 
@@ -37,7 +38,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn initialize(app: &AppHandle) -> Result<Self> {
+    pub fn initialize(app: &AppHandle, report_phase: impl Fn(StartupPhase)) -> Result<Self> {
         let app_name = app.package_info().name.clone();
         let app_version = app.package_info().version.to_string();
         let app_data_dir = app
@@ -53,12 +54,15 @@ impl AppState {
         fs::create_dir_all(&models_dir)?;
         crate::model_downloads::start_background_vad_download(models_dir.clone());
 
+        report_phase(StartupPhase::Models);
         let engine_models = asr::discover_installed_models(&models_dir)?;
         let engine = Arc::new(LocalTranscriptionEngine::new(
             models_dir.clone(),
             engine_models.clone(),
         ));
         let transcription_engine: Arc<dyn TranscriptionEngine> = engine.clone();
+
+        report_phase(StartupPhase::Audio);
         let recording_controller = RecordingController::new(temp_dir.clone());
         let desktop_shell = DesktopShellController::initialize(app)?;
         let sound_player = Arc::new(match SoundPlayer::new() {
@@ -105,6 +109,7 @@ impl AppState {
             rediarization_cancellations: Arc::new(Mutex::new(HashMap::new())),
         };
 
+        report_phase(StartupPhase::Library);
         storage::initialize_database(&state)?;
         if storage::retire_whisper_tiny(&state, &engine_models)? {
             if let Ok(mut notices) = state.startup_notices.lock() {
@@ -132,6 +137,8 @@ impl AppState {
                 eprintln!("[diarization-model] startup resume unavailable: {error:#}");
             }
         }
+
+        report_phase(StartupPhase::Shortcuts);
         state
             .recording_controller
             .set_preferred_input_device(settings.preferred_input_device.clone());

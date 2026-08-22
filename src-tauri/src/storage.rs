@@ -1556,7 +1556,7 @@ fn parse_model_profile(value: String) -> rusqlite::Result<ModelProfile> {
     match value.as_str() {
         "fast" => Ok(ModelProfile::Fast),
         "balanced" => Ok(ModelProfile::Balanced),
-        "accurate" | "1.7B BF16" => Ok(ModelProfile::Accurate),
+        "accurate" | "1.7B BF16" | "0.9B F16" | "8-bit MLX" => Ok(ModelProfile::Accurate),
         _ => Err(rusqlite::Error::InvalidQuery),
     }
 }
@@ -1627,6 +1627,16 @@ fn to_source_type(value: SourceType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_model_variants_map_to_accurate_profile() {
+        for variant in ["1.7B BF16", "0.9B F16", "8-bit MLX"] {
+            assert_eq!(
+                parse_model_profile(variant.to_string()).expect("known native model variant"),
+                ModelProfile::Accurate,
+            );
+        }
+    }
 
     #[test]
     fn obsolete_vocabulary_columns_are_removed_without_losing_terms_or_aliases() {

@@ -3,6 +3,7 @@ import {
   deleteAllTranscripts,
   deleteTranscript,
   getFileTranscriptionStatuses,
+  getStartupStatus,
   getHealthCheck,
   getDictationReadiness,
   getQuickDictateStatus,
@@ -15,6 +16,7 @@ import {
   listenFileTranscriptionStatus,
   listenQuickDictateStatus,
   listenTrayUnavailableCloseRequested,
+  listenStartupStatus,
   pickAudioFiles,
   prepareDroppedAudioFiles,
   previewTranscription,
@@ -29,6 +31,8 @@ import {
   updateVocabularyTerm,
   deleteVocabularyTerm,
   copyTextToClipboard,
+  frontendStartupComplete,
+  reportStartupFailure,
 } from "./lib/api";
 import { HomeScreen } from "./screens/HomeScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
@@ -182,7 +186,52 @@ export function App() {
   } = useAccessibilityReadinessPolling(refreshReadiness);
 
   useEffect(() => {
-    void loadAppState();
+    let disposed = false;
+    let startupStarted = false;
+    let unlisten: (() => void) | null = null;
+
+    const handleStartupStatus = async (status: Awaited<ReturnType<typeof getStartupStatus>>) => {
+      if (
+        disposed ||
+        startupStarted ||
+        (status.phase !== "workspace" && status.phase !== "ready")
+      ) {
+        return;
+      }
+      startupStarted = true;
+      try {
+        await loadAppState();
+        if (!disposed) {
+          await frontendStartupComplete();
+        }
+      } catch (error) {
+        const message = errorMessage(error, "Failed to load the Blabber workspace.");
+        console.error(message);
+        await reportStartupFailure(message).catch(() => undefined);
+      }
+    };
+
+    void listenStartupStatus((status) => {
+      void handleStartupStatus(status);
+    }).then((cleanup) => {
+      if (disposed) {
+        cleanup();
+      } else {
+        unlisten = cleanup;
+      }
+    });
+    void getStartupStatus()
+      .then(handleStartupStatus)
+      .catch(async (error) => {
+        const message = errorMessage(error, "Could not read startup status.");
+        console.error(message);
+        await reportStartupFailure(message).catch(() => undefined);
+      });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -422,8 +471,7 @@ export function App() {
   }, [fileQueueItems]);
 
   async function loadAppState() {
-    try {
-      const [
+    const [
         nextHealth,
         nextSettings,
         nextInstalledModels,
@@ -432,7 +480,7 @@ export function App() {
         nextRecordingStatus,
         nextQuickDictateStatus,
         nextFileStatuses,
-      ] = await Promise.all([
+    ] = await Promise.all([
         getHealthCheck(),
         getSettings(),
         listInstalledModels(),
@@ -443,27 +491,24 @@ export function App() {
         getFileTranscriptionStatuses(),
       ]);
 
-      setHealth(nextHealth);
-      setSettings(nextSettings);
-      setInstalledModels(nextInstalledModels);
-      setScreen("home");
-      setTranscripts(nextTranscripts);
-      setVocabularyTerms(nextVocabularyTerms);
-      setRecordingStatus(nextRecordingStatus);
-      setQuickDictationStatus(nextQuickDictateStatus);
-      setFileQueueItems(mergeFileStatusesIntoQueue([], nextFileStatuses));
-      for (const notice of nextHealth.startupNotices) {
-        pushToast({
-          kind: "info",
-          message: "Model selection updated",
-          hint: notice,
-          durationMs: 8000,
-        });
-      }
-      void refreshReadiness();
-    } catch (error) {
-      console.error(errorMessage(error, "Failed to load app state."));
+    setHealth(nextHealth);
+    setSettings(nextSettings);
+    setInstalledModels(nextInstalledModels);
+    setScreen("home");
+    setTranscripts(nextTranscripts);
+    setVocabularyTerms(nextVocabularyTerms);
+    setRecordingStatus(nextRecordingStatus);
+    setQuickDictationStatus(nextQuickDictateStatus);
+    setFileQueueItems(mergeFileStatusesIntoQueue([], nextFileStatuses));
+    for (const notice of nextHealth.startupNotices) {
+      pushToast({
+        kind: "info",
+        message: "Model selection updated",
+        hint: notice,
+        durationMs: 8000,
+      });
     }
+    void refreshReadiness();
   }
 
   async function refreshShortcutOutputs() {

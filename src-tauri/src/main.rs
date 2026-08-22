@@ -23,6 +23,7 @@ mod qwen_asr;
 mod settings;
 mod sound;
 mod speaker_reconciliation;
+mod startup;
 mod storage;
 mod system_volume;
 mod transcript_commands;
@@ -46,6 +47,7 @@ use file_jobs::{FileTranscriptionStatusEvent, StartFileTranscriptionResponse};
 use model_downloads::{DownloadableModel, ModelDownloadStatus};
 use serde::{Deserialize, Serialize};
 use settings::{AppSettings, HealthCheckResponse, InsertBehavior, SettingsPatch};
+use startup::{StartupCoordinator, StartupPhase, StartupStatus};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -118,6 +120,68 @@ fn get_platform_info() -> PlatformInfo {
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
+#[tauri::command]
+fn get_startup_status(startup: tauri::State<'_, StartupCoordinator>) -> StartupStatus {
+    startup.status()
+}
+
+#[tauri::command]
+fn frontend_startup_complete(app: tauri::AppHandle, startup: tauri::State<'_, StartupCoordinator>) {
+    if !startup.mark_frontend_ready(&app) {
+        return;
+    }
+
+    let app_handle = app.clone();
+    let startup = startup.inner().clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(2));
+        let _ = finish_startup_handoff(&app_handle, &startup);
+    });
+}
+
+#[tauri::command]
+fn report_startup_failure(
+    app: tauri::AppHandle,
+    startup: tauri::State<'_, StartupCoordinator>,
+    message: String,
+) {
+    startup.fail(&app, message);
+}
+
+#[tauri::command]
+fn complete_startup_handoff(
+    app: tauri::AppHandle,
+    startup: tauri::State<'_, StartupCoordinator>,
+) -> Result<(), String> {
+    finish_startup_handoff(&app, startup.inner())
+}
+
+fn finish_startup_handoff(
+    app: &tauri::AppHandle,
+    startup: &StartupCoordinator,
+) -> Result<(), String> {
+    if !startup.claim_handoff() {
+        return Ok(());
+    }
+
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_string())?;
+    main.show().map_err(|error| error.to_string())?;
+    let _ = main.unminimize();
+    let _ = main.set_focus();
+    if let Some(splash) = app.get_webview_window("splashscreen") {
+        splash.close().map_err(|error| error.to_string())?;
+    }
+    eprintln!("[startup] splash handoff completed");
+    Ok(())
 }
 
 #[tauri::command]
@@ -863,18 +927,34 @@ fn main() {
     }
 
     tauri::Builder::default()
+        .manage(StartupCoordinator::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
-            let app_state = AppState::initialize(app.handle())?;
+            let app_handle = app.handle().clone();
+            let startup = app.state::<StartupCoordinator>().inner().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let progress_app = app_handle.clone();
+                let progress_startup = startup.clone();
+                match AppState::initialize(&app_handle, move |phase| {
+                    progress_startup.advance(&progress_app, phase);
+                }) {
+                    Ok(app_state) => {
+                        // Start the single-instance IPC listener on Linux so that
+                        // subsequent `blabber --dictate-toggle` invocations can reach us.
+                        #[cfg(target_os = "linux")]
+                        ipc::start_ipc_listener(app_state.dictation_controller.clone());
 
-            // Start the single-instance IPC listener on Linux so that
-            // subsequent `blabber --dictate-toggle` invocations can reach us.
-            #[cfg(target_os = "linux")]
-            ipc::start_ipc_listener(app_state.dictation_controller.clone());
-
-            app.manage(app_state);
+                        if app_handle.manage(app_state) {
+                            startup.advance(&app_handle, StartupPhase::Workspace);
+                        } else {
+                            startup.fail(&app_handle, "Application state was already initialized.");
+                        }
+                    }
+                    Err(error) => startup.fail(&app_handle, format!("{error:#}")),
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -930,6 +1010,11 @@ fn main() {
             health_check,
             get_platform_info,
             quit_app,
+            restart_app,
+            get_startup_status,
+            frontend_startup_complete,
+            report_startup_failure,
+            complete_startup_handoff,
             dictate_press,
             dictate_release,
             dictate_toggle,

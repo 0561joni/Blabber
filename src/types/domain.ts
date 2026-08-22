@@ -21,6 +21,23 @@ export type DiarizationStatus = "not_requested" | "pending" | "running" | "compl
 export type SpeakerAttribution = "none" | "assigned" | "likely" | "uncertain" | "overlap";
 export type ShortcutMode = "push_to_talk" | "toggle";
 
+export type StartupPhase =
+  | "files"
+  | "models"
+  | "audio"
+  | "library"
+  | "shortcuts"
+  | "workspace"
+  | "ready"
+  | "failed";
+
+export interface StartupStatus {
+  phase: StartupPhase;
+  step: number;
+  totalSteps: 6;
+  errorMessage?: string;
+}
+
 export interface HealthCheckResponse {
   appName: string;
   appVersion: string;
