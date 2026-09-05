@@ -1198,6 +1198,24 @@ fn run_whisper_once(
     )
 }
 
+// whisper-rs 0.16.0's set_abort_callback_safe stores a Box<dyn FnMut() -> bool>
+// but casts that allocation back to F in its trampoline. For F = fn() -> bool,
+// it reads the trait object's heap data pointer as a code pointer and crashes
+// on the first encoder callback. Use the C ABI directly, without user data.
+extern "C" fn whisper_shutdown_abort(_user_data: *mut std::ffi::c_void) -> bool {
+    crate::shutdown::is_shutting_down()
+}
+
+fn install_shutdown_abort_callback(params: &mut FullParams<'_, '_>) {
+    // SAFETY: this is a process-lifetime C function with the exact ggml abort
+    // signature. It reads only the thread-safe shutdown flag, never dereferences
+    // user data or touches Whisper state, and has no captured allocation to free.
+    unsafe {
+        params.set_abort_callback(Some(whisper_shutdown_abort));
+        params.set_abort_callback_user_data(std::ptr::null_mut());
+    }
+}
+
 fn run_whisper_with_state(
     state: &mut WhisperState,
     model: &InstalledModel,
@@ -1215,9 +1233,7 @@ fn run_whisper_with_state(
     let threads = std::thread::available_parallelism()
         .map(|value| value.get().min(8) as i32)
         .unwrap_or(4);
-    params.set_abort_callback_safe::<_, fn() -> bool>(Some(
-        crate::shutdown::is_shutting_down as fn() -> bool,
-    ));
+    install_shutdown_abort_callback(&mut params);
     params.set_n_threads(threads);
     params.set_translate(false);
     params.set_no_context(true);
@@ -1455,6 +1471,79 @@ mod tests {
         assert!(engine.whisper.context_cache.lock().unwrap().is_none());
         // Tauri keeps managed state alive until process termination. Mimic
         // that lifetime; the cache must already be empty before libc exit.
+        std::mem::forget(engine);
+    }
+
+    /// Exercise actual decoder callbacks, not just loading/freeing Metal models.
+    /// Run this ignored test alone: its final step permanently begins shutdown.
+    #[test]
+    #[ignore = "requires BLABBER_WHISPER_SMOKE_MODEL, BLABBER_WHISPER_SMOKE_AUDIO and macOS Metal"]
+    #[cfg(target_os = "macos")]
+    fn native_abort_callback_decodes_and_cancels_cleanly() {
+        let model_path = std::env::var("BLABBER_WHISPER_SMOKE_MODEL").expect("model path");
+        let audio_path = std::env::var("BLABBER_WHISPER_SMOKE_AUDIO").expect("audio path");
+        let prepared = audio_preprocess::decode_audio_file(Path::new(&audio_path)).unwrap();
+        assert!(
+            prepared.samples.len() > 16_000,
+            "provide at least one second of nonempty test speech"
+        );
+        let dir = Path::new(&model_path).parent().unwrap();
+        let models = discover_whisper_models(dir).unwrap();
+        let model = models
+            .iter()
+            .find(|m| m.local_path == model_path)
+            .unwrap()
+            .clone();
+        let engine = LocalTranscriptionEngine::new(dir.into(), models);
+        // Cold GPU context, reused GPU context, and CPU path all use the same
+        // production registration code as the first shortcut transcription.
+        for prefer_gpu in [true, true, false] {
+            let result = engine
+                .transcribe_file(
+                    FileTranscriptionRequest {
+                        use_context: Some(
+                            crate::model_metadata::ModelUseContext::ShortcutDictation,
+                        ),
+                        profile: model.profile,
+                        selected_model_id: Some(model.id.clone()),
+                        language_mode: LanguageMode::Fixed,
+                        fixed_language: Some("en".into()),
+                        timestamps: false,
+                        prefer_gpu,
+                        file_path: audio_path.clone(),
+                        context_prompt: None,
+                        context_terms: Vec::new(),
+                    },
+                    None,
+                )
+                .expect("native speech decoding must complete without a bad callback jump");
+            assert!(
+                !result.plain_text.trim().is_empty(),
+                "speech must produce a transcript"
+            );
+            eprintln!("[callback-smoke] decoded speech successfully (prefer_gpu={prefer_gpu})");
+        }
+
+        let context = engine.whisper.obtain_context(&model, true).unwrap();
+        let mut state = context.create_state().unwrap();
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        params.set_n_threads(4);
+        params.set_language(Some("en"));
+        params.set_print_progress(false);
+        params.set_print_realtime(false);
+        install_shutdown_abort_callback(&mut params);
+        crate::shutdown::begin_shutdown_for_decoder_test();
+        // Model a quit accepted just after the application's pre-decode check.
+        // Call the backend so the C callback itself must observe cancellation.
+        assert!(
+            state.full(params, &prepared.samples).is_err(),
+            "native decoding must abort during shutdown"
+        );
+        eprintln!("[callback-smoke] native cancellation returned an error without crashing");
+        drop(state);
+        drop(context);
+        engine.release_resources();
+        assert!(engine.whisper.context_cache.lock().unwrap().is_none());
         std::mem::forget(engine);
     }
 

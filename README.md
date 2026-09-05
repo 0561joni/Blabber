@@ -50,6 +50,17 @@ cargo run --manifest-path src-tauri/Cargo.toml --example macos_quit_smoke -- --t
 
 The ignored `asr::tests::metal_cache_release_exits_cleanly` test can additionally be run in a dedicated test process with `BLABBER_WHISPER_SMOKE_MODEL` set to an installed Whisper `.bin` file. It verifies that a cached Metal model is released before process exit, reproducing the managed-state lifetime involved in the former quit crash.
 
+The decoder regression test also exercises first and repeated GPU transcription, CPU transcription, and native shutdown cancellation. Supply an installed Whisper model and a speech recording with at least one second of audio:
+
+```bash
+BLABBER_WHISPER_SMOKE_MODEL=/path/to/ggml-small.bin \
+BLABBER_WHISPER_SMOKE_AUDIO=/path/to/speech.wav \
+cargo test --manifest-path src-tauri/Cargo.toml --lib \
+  asr::tests::native_abort_callback_decodes_and_cancels_cleanly -- --ignored --exact --nocapture
+```
+
+Run it alone because it sets the process-wide shutdown flag. This covers the encoder callback that model-loading tests cannot reach: Blabber registers a static C callback directly to avoid the incorrect closure pointer cast in `whisper-rs 0.16.0`'s safe abort wrapper.
+
 Platform prerequisites:
 
 - macOS: working Rust toolchain, accepted Xcode license, `macOS 11.0+`

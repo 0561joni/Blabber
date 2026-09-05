@@ -325,6 +325,18 @@ mod macos {
     }
 }
 
+// Only for the isolated ignored decoder smoke test; never part of the app API.
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) fn begin_shutdown_for_decoder_test() {
+    match lifecycle().request(false) {
+        Decision::Stop => (),
+        Decision::Confirm => {
+            assert!(lifecycle().confirm(true));
+        }
+        Decision::Ignore => panic!("decoder smoke test must run in a fresh process"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
