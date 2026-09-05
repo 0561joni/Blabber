@@ -225,11 +225,7 @@ fn start_shutdown(app: AppHandle, action: ExitAction) {
                 }
                 state.file_transcription_controller.cancel_for_shutdown();
                 state.model_download_manager.cancel_for_shutdown();
-                if let Ok(jobs) = state.rediarization_cancellations.lock() {
-                    for cancelled in jobs.values() {
-                        cancelled.store(true, Ordering::SeqCst);
-                    }
-                }
+                state.review_jobs.cancel_all();
             }
             if lifecycle().wait_for_work() {
                 break;
@@ -242,6 +238,7 @@ fn start_shutdown(app: AppHandle, action: ExitAction) {
             if !initialized {
                 state.dictation_controller.prepare_shutdown();
             }
+            state.review_media.clear();
             state.engine.release_resources();
             if let Some(player) = state.sound_player.as_ref().as_ref() {
                 player.shutdown();

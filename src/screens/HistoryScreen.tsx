@@ -24,6 +24,7 @@ import type {
 
 interface HistoryScreenProps {
   transcripts: TranscriptSummary[];
+  onReview?: (id: string) => void;
   onTranscriptUpdated: (transcript: TranscriptSummary) => void;
   onDelete: (transcriptId: string) => Promise<void>;
   onDeleteAll: () => Promise<void>;
@@ -48,6 +49,7 @@ type RenameEditorState =
 
 export function HistoryScreen({
   transcripts,
+  onReview,
   onTranscriptUpdated,
   onDelete,
   onDeleteAll,
@@ -562,7 +564,9 @@ export function HistoryScreen({
                 }}
                 aria-current={selectedId === item.id ? "true" : undefined}
                 aria-label={"Open transcript " + item.title}
-                onClick={() => void toggleExpanded(item.id)}
+                onClick={() =>
+                  onReview ? onReview(item.id) : void toggleExpanded(item.id)
+                }
               >
                 <span className="library-row-meta">
                   <AppIcon
@@ -721,7 +725,7 @@ export function HistoryScreen({
                               <p className="muted diarization-provenance">
                                 {detail.diarizationSource === "native_model"
                                   ? `Built into ${getFriendlyModelName(detail.modelName)}`
-                                  : `Speaker clustering: ${detail.diarizationSpeakerCountHint === null ? `Automatic · threshold ${detail.diarizationClusteringThreshold?.toFixed(2) ?? "unknown"}` : `About ${detail.diarizationSpeakerCountHint} speakers · exact target`}`}
+                                  : `Speaker clustering: ${detail.diarizationSpeakerCountHint === null ? `Automatic · threshold ${detail.diarizationClusteringThreshold?.toFixed(2) ?? "unknown"}` : `Known speaker count: ${detail.diarizationSpeakerCountHint}`}`}
                               </p>
                             ) : null}
                             {detail.speakers.length > 0 ? (

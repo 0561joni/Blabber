@@ -69,7 +69,7 @@ pub const DIARIZATION_MODEL_SPEC_V2: DiarizationModelSpec = DiarizationModelSpec
 
 pub fn validate_speaker_count_hint(value: Option<i32>) -> Result<(), &'static str> {
     if value.is_some_and(|count| !(1..=20).contains(&count)) {
-        Err("Speaker estimate must be between 1 and 20.")
+        Err("Known speaker count must be between 1 and 20.")
     } else {
         Ok(())
     }
@@ -122,7 +122,7 @@ pub fn overclustering_warning(
     let short = diagnostics.short_cluster_count;
     if count > 20 || (count >= 12 && short * 2 > count) {
         Some(format!(
-            "Speaker identification found {count} possible voices ({short} very brief). The transcript was saved without speaker labels; retry with an approximate speaker count."
+            "Speaker identification found {count} possible voices ({short} very brief). The transcript was saved without speaker labels; retry with a known speaker count."
         ))
     } else {
         None
@@ -206,6 +206,14 @@ pub fn apply_turns_to_transcript(
 ) {
     let turns = normalize_turns(raw_turns);
     if turns.is_empty() {
+        result.speakers.clear();
+        result.diarization_turns.clear();
+        for segment in &mut result.segments {
+            segment.speaker_id = None;
+            segment.speaker_ids = None;
+            segment.speaker_attribution = crate::speaker_reconciliation::SpeakerAttribution::None;
+            segment.speaker_confidence = None;
+        }
         result.diarization_source = DiarizationSource::PostProcess;
         result.diarization_status = DiarizationStatus::NotEnoughSpeech;
         result.diarization_model_id = Some(DIARIZATION_MODEL_ID.to_string());
@@ -220,12 +228,24 @@ pub fn apply_turns_to_transcript(
         return;
     }
     let speakers = speakers_from_turns(&turns);
+    let mut maximum_end = i64::MIN;
+    let prefix_end: Vec<_> = turns
+        .iter()
+        .map(|turn| {
+            maximum_end = maximum_end.max(turn.end_ms);
+            maximum_end
+        })
+        .collect();
     let mut uncertain = false;
     for segment in &mut result.segments {
+        let begin = prefix_end.partition_point(|end| *end <= segment.start_ms);
+        let end = turns
+            .partition_point(|turn| turn.start_ms < segment.end_ms)
+            .max(begin);
         let attribution = crate::speaker_reconciliation::reconcile_segment(
             segment.start_ms,
             segment.end_ms,
-            &turns,
+            &turns[begin..end],
         );
         segment.speaker_id = attribution.speaker_id;
         segment.speaker_ids =
@@ -356,5 +376,69 @@ mod tests {
         assert!(validate_speaker_count_hint(Some(20)).is_ok());
         assert!(validate_speaker_count_hint(Some(0)).is_err());
         assert!(validate_speaker_count_hint(Some(21)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod reconciliation_regressions {
+    use super::*;
+    #[test]
+    fn no_speech_clears_all_prior_references() {
+        let mut result = crate::review::fixture_result();
+        apply_turns_to_transcript(&mut result, vec![], None);
+        assert!(result.speakers.is_empty());
+        assert!(result.diarization_turns.is_empty());
+        assert!(matches!(
+            result.diarization_status,
+            DiarizationStatus::NotEnoughSpeech
+        ));
+        for s in result.segments {
+            assert!(s.speaker_id.is_none());
+            assert!(s.speaker_ids.is_none());
+            assert_eq!(
+                s.speaker_attribution,
+                crate::speaker_reconciliation::SpeakerAttribution::None
+            );
+        }
+    }
+    #[test]
+    fn indexed_reconciliation_matches_full_scan_including_empty_and_inverted_segments() {
+        let mut raw: Vec<_> = (0..200)
+            .map(|i| RawDiarizationTurn {
+                start_ms: i * 1000,
+                end_ms: i * 1000 + 800,
+                cluster_ids: vec![(i % 4) as i32],
+                confidence: None,
+            })
+            .collect();
+        raw.push(RawDiarizationTurn {
+            start_ms: 0,
+            end_ms: 10000,
+            cluster_ids: vec![0],
+            confidence: None,
+        });
+        let turns = normalize_turns(raw.clone());
+        let mut result = crate::review::fixture_result();
+        for (start, end) in [
+            (0, 0),
+            (5000, 3000),
+            (150, 3400),
+            (200000, 202000),
+            (950, 1050),
+            (-1000, 2300),
+        ] {
+            result.segments[0].start_ms = start;
+            result.segments[0].end_ms = end;
+            let expected = crate::speaker_reconciliation::reconcile_segment(start, end, &turns);
+            apply_turns_to_transcript(&mut result, raw.clone(), None);
+            let actual = &result.segments[0];
+            assert_eq!(actual.speaker_attribution, expected.attribution);
+            assert_eq!(actual.speaker_id, expected.speaker_id);
+            assert_eq!(
+                actual.speaker_ids.clone().unwrap_or_default(),
+                expected.speaker_ids
+            );
+            assert_eq!(actual.speaker_confidence, expected.confidence);
+        }
     }
 }

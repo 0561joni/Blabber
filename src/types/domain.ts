@@ -1,7 +1,12 @@
 export type SourceType = "quick_dictate" | "file_upload";
 
 export type TranscriptStatus =
-  "queued" | "recording" | "processing" | "completed" | "failed" | "canceled";
+  | "queued"
+  | "recording"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "canceled";
 
 export type TranscriptQualityStatus = "clean" | "recovered" | "partial";
 
@@ -10,7 +15,9 @@ export type InsertBehavior = "paste" | "clipboard_only";
 export type ModelProfile = "fast" | "balanced" | "accurate";
 export type ModelCapability = "asr" | "vad" | "diarization";
 export type ModelUseContext =
-  "shortcut_dictation" | "quick_dictate" | "file_transcription";
+  | "shortcut_dictation"
+  | "quick_dictate"
+  | "file_transcription";
 export type ModelLanguageControl = "automatic_and_fixed" | "automatic_only";
 export type DiarizationSource = "none" | "native_model" | "post_process";
 export type DiarizationStatus =
@@ -23,7 +30,11 @@ export type DiarizationStatus =
   | "canceled"
   | "not_enough_speech";
 export type SpeakerAttribution =
-  "none" | "assigned" | "likely" | "uncertain" | "overlap";
+  | "none"
+  | "assigned"
+  | "likely"
+  | "uncertain"
+  | "overlap";
 export type ShortcutMode = "push_to_talk" | "toggle";
 
 export type StartupPhase =
@@ -171,7 +182,11 @@ export interface DownloadableModel {
 }
 
 export type ModelDownloadState =
-  "idle" | "downloading" | "completed" | "canceled" | "failed";
+  | "idle"
+  | "downloading"
+  | "completed"
+  | "canceled"
+  | "failed";
 
 export interface ModelDownloadStatus {
   modelId: string;
@@ -241,6 +256,7 @@ export interface TranscriptResult {
 }
 
 export interface TranscriptDetail extends TranscriptSummary {
+  manualSegmentIds?: string[];
   fullText: string;
   timestampedText: string;
   transcriptionWarnings: TranscriptWarning[];
@@ -358,6 +374,8 @@ export interface FileTranscriptionResponse {
 }
 
 export interface FileTranscriptionStatusEvent {
+  reviewRef?: ReviewRef | null;
+  resultRevision?: number;
   jobId: string;
   sourceFile: SelectedSourceFile;
   stage: FileTranscriptionJobStage;
@@ -375,6 +393,8 @@ export interface FileTranscriptionStatusEvent {
 export type FileQueueCopyState = "idle" | "copied" | "error";
 
 export interface FileQueueItem {
+  reviewRef?: ReviewRef | null;
+  resultRevision?: number;
   updatedAt?: number;
   id: string;
   sourceFile: SelectedSourceFile;
@@ -392,7 +412,12 @@ export interface FileQueueItem {
 }
 
 export type RecordingOverlayState =
-  "idle" | "listening" | "paused" | "processing" | "success" | "error";
+  | "idle"
+  | "listening"
+  | "paused"
+  | "processing"
+  | "success"
+  | "error";
 
 export interface RecordingStatusResponse {
   state: RecordingOverlayState;
@@ -424,7 +449,12 @@ export interface ManualTranscriptionUiState {
 }
 
 export type QuickDictationState =
-  "idle" | "listening" | "processing" | "inserted" | "clipboard_only" | "error";
+  | "idle"
+  | "listening"
+  | "processing"
+  | "inserted"
+  | "clipboard_only"
+  | "error";
 
 export type InsertionOutcome = "pasted" | "clipboard_only";
 
@@ -479,4 +509,49 @@ export interface UpdateVocabularyTermInput {
   canonical: string;
   aliases: string[];
   matchMode: VocabularyMatchMode;
+}
+
+export type ReviewRef = { kind: "saved" | "session"; id: string };
+export interface ReviewDocument {
+  reference: ReviewRef;
+  detail: TranscriptDetail;
+  revision: number;
+  manualSegmentIds: string[];
+  unmatchedSpeakerIds: string[];
+  canUndo: boolean;
+}
+export type ReviewEdit =
+  | { type: "rename"; speakerId: string; name: string }
+  | { type: "add_speaker"; name: string }
+  | {
+      type: "assign";
+      segmentIds: string[];
+      speakerIds: string[];
+      newSpeakerName?: string | null;
+    }
+  | { type: "merge"; speakerIds: string[]; targetId: string }
+  | { type: "undo" };
+export interface ReviewJobStatus {
+  speakerCount?: number | null;
+  jobId: string;
+  reference: ReviewRef;
+  stage:
+    | "queued"
+    | "validating"
+    | "diarizing"
+    | "saving"
+    | "canceling"
+    | "completed"
+    | "failed"
+    | "canceled";
+  statusText: string;
+  error: { code: string; message: string } | null;
+  resultRevision: number | null;
+  startedAtMs: number;
+  updatedAtMs: number;
+}
+export interface ReviewAudio {
+  url: string;
+  token: string;
+  durationMs: number | null;
 }

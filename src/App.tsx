@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   reportManualFeedback,
+  dismissFileTranscription,
+  invalidateFileReview,
   cancelFileTranscription,
   deleteAllTranscripts,
   deleteTranscript,
@@ -15,6 +17,7 @@ import {
   getSettings,
   openAccessibilitySettings,
   listInstalledModels,
+  listDownloadableModels,
   listTranscripts,
   listVocabularyTerms,
   listenFileTranscriptionStatus,
@@ -37,6 +40,10 @@ import {
   frontendStartupComplete,
   reportStartupFailure,
 } from "./lib/api";
+import { ReviewWorkspace } from "./screens/ReviewWorkspace";
+import { useReviewJobs } from "./hooks/useReviewJobs";
+import { reviewKey, isReviewJobActive } from "./lib/reviewApi";
+import type { ReviewRef } from "./types/domain";
 import { DictateScreen } from "./screens/DictateScreen";
 import { FilesScreen, isFileWorking } from "./screens/FilesScreen";
 import { applyAppearance } from "./lib/appearance";
@@ -90,6 +97,12 @@ const NAV_ITEMS: Array<{ id: ScreenId; label: string; icon: AppIconName }> = [
 ];
 
 export function App() {
+  const [reviewTarget, setReviewTarget] = useState<{
+    reference: ReviewRef;
+    originLabel: string;
+    scroll: number;
+    anchor: HTMLElement | null;
+  } | null>(null);
   const [screen, setScreen] = useState<ScreenId>("dictate");
   const [settingsSection, setSettingsSection] = useState("general");
   const [downloadCount, setDownloadCount] = useState(0);
@@ -100,6 +113,12 @@ export function App() {
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [health, setHealth] = useState<HealthCheckResponse | null>(null);
+  const { jobs: reviewJobs, accept: acceptReviewJob } = useReviewJobs(
+    Boolean(health),
+  );
+  const [speakerModelReady, setSpeakerModelReady] = useState<boolean | null>(
+    null,
+  );
   const [installedModels, setInstalledModels] = useState<InstalledModel[]>([]);
   const [transcripts, setTranscripts] = useState<TranscriptSummary[]>([]);
   const [vocabularyTerms, setVocabularyTerms] = useState<VocabularyTerm[]>([]);
@@ -138,6 +157,22 @@ export function App() {
       !model.capabilities ||
       model.capabilities.supportedContexts.includes("file_transcription"),
   );
+  const statusRefreshBusy = useRef(false);
+  useEffect(() => {
+    let disposed = false;
+    void listDownloadableModels()
+      .then((models) => {
+        if (!disposed)
+          setSpeakerModelReady(
+            models.find((m) => m.capability === "diarization")?.installed ??
+              false,
+          );
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, [installedModels, settings?.fileDiarizationEnabled]);
   const fileHints = useRef(new Map<string, number | null>());
   const lastDictationStateRef = useRef<string | null>(null);
 
@@ -435,7 +470,7 @@ export function App() {
         });
       }
       setFileQueueItems((current) => mergeFileStatusIntoQueue(current, event));
-      if (event.stage === "completed" && event.result?.savedTranscript) {
+      if (event.result?.savedTranscript) {
         setTranscripts((current) =>
           prependTranscriptUnique(current, event.result!.savedTranscript!),
         );
@@ -503,28 +538,16 @@ export function App() {
     };
   }, [showDroppedAudioError]);
 
+  const hasActiveFiles = fileQueueItems.some((item) =>
+    isFileWorking(item.stage),
+  );
   useEffect(() => {
-    if (
-      !fileQueueItems.some(
-        (item) =>
-          item.stage === "queued" ||
-          item.stage === "preparing" ||
-          item.stage === "transcribing" ||
-          item.stage === "diarizing" ||
-          item.stage === "saving",
-      )
-    ) {
-      return;
-    }
-
+    if (!hasActiveFiles) return;
     const interval = window.setInterval(() => {
       void refreshFileStatuses();
-    }, 1500);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [fileQueueItems]);
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, [hasActiveFiles]);
 
   useEffect(() => {
     let disposed = false;
@@ -643,13 +666,15 @@ export function App() {
   }
 
   async function refreshFileStatuses() {
+    if (statusRefreshBusy.current) return;
+    statusRefreshBusy.current = true;
     try {
       const statuses = await getFileTranscriptionStatuses();
       setFileQueueItems((current) =>
         mergeFileStatusesIntoQueue(current, statuses),
       );
       for (const status of statuses) {
-        if (status.stage === "completed" && status.result?.savedTranscript) {
+        if (status.result?.savedTranscript) {
           setTranscripts((current) =>
             prependTranscriptUnique(current, status.result!.savedTranscript!),
           );
@@ -659,6 +684,8 @@ export function App() {
       console.error(
         errorMessage(error, "Failed to refresh file transcription statuses."),
       );
+    } finally {
+      statusRefreshBusy.current = false;
     }
   }
 
@@ -992,6 +1019,57 @@ export function App() {
     );
   }
 
+  const openReview = (reference: ReviewRef, originLabel: string) => {
+    setReviewTarget({
+      reference,
+      originLabel,
+      scroll: mainRef.current?.scrollTop ?? 0,
+      anchor: document.activeElement as HTMLElement,
+    });
+    requestAnimationFrame(() => {
+      if (mainRef.current) mainRef.current.scrollTop = 0;
+    });
+  };
+  const closeReview = () => {
+    const previous = reviewTarget;
+    setReviewTarget(null);
+    requestAnimationFrame(() => {
+      if (mainRef.current) mainRef.current.scrollTop = previous?.scroll ?? 0;
+      previous?.anchor?.focus({ preventScroll: true });
+    });
+  };
+  const reviewUpdated = useCallback((summary: TranscriptSummary) => {
+    setTranscripts((current) => {
+      const previous = current.find((s) => s.id === summary.id);
+      if (previous && JSON.stringify(previous) === JSON.stringify(summary))
+        return current;
+      return prependTranscriptUnique(current, summary);
+    });
+    invalidateFileReview({ kind: "saved", id: summary.id });
+  }, []);
+  const resolvedFileModel =
+    installedModels.find(
+      (model) => model.id === settings?.fileTranscribeSelectedModelId,
+    ) ??
+    installedModels.find(
+      (model) =>
+        model.profile === settings?.fileTranscribeModelProfile &&
+        model.isDefault,
+    ) ??
+    installedModels.find(
+      (model) => model.profile === settings?.fileTranscribeModelProfile,
+    );
+  const activeReviewFile = reviewTarget
+    ? fileQueueItems.find((item) => {
+        const reference =
+          item.reviewRef ??
+          (item.result?.savedTranscript
+            ? { kind: "saved" as const, id: item.result.savedTranscript.id }
+            : { kind: "session" as const, id: item.id });
+        return reviewKey(reference) === reviewKey(reviewTarget.reference);
+      })
+    : undefined;
+
   return (
     <div className="app-scene">
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
@@ -1038,6 +1116,7 @@ export function App() {
                 aria-current={screen === item.id ? "page" : undefined}
                 onClick={() => {
                   if (item.id === "settings") setSettingsSection("general");
+                  setReviewTarget(null);
                   setScreen(item.id);
                 }}
                 aria-label={item.label}
@@ -1086,88 +1165,178 @@ export function App() {
 
         <main className="main-content" ref={mainRef}>
           <div className="content-frame">
-            {screen === "dictate" ? (
-              <DictateScreen
-                settings={settings}
-                platform={health?.platform ?? null}
-                preview={preview}
-                recordingStatus={recordingStatus}
-                manualTranscriptionState={manualTranscriptionState}
-                quickDictationStatus={quickDictationStatus}
-                dictationError={dictationError}
-                readiness={readiness}
-                isPollingAccessibility={isPollingAccessibility}
-                onResolveReadiness={handleResolveReadiness}
-                onStartRecording={beginManualRecording}
-                onStopAndTranscribeRecording={stopAndPreviewManualRecording}
-                onCancelRecording={cancelManualRecording}
-                onResetDictation={resetDictation}
-              />
-            ) : null}
-            {screen === "files" ? (
-              <FilesScreen
-                modelReady={fileModelReady.current}
+            {!reviewTarget
+              ? reviewJobs.filter(isReviewJobActive).map((job) => (
+                  <div
+                    className="review-job surface"
+                    key={job.jobId}
+                    role="status"
+                  >
+                    <div>
+                      <strong>
+                        Identifying speakers ·{" "}
+                        {transcripts.find((t) => t.id === job.reference.id)
+                          ?.title ?? "Session transcript"}
+                      </strong>
+                      <p className="muted">{job.statusText}</p>
+                    </div>
+                    <button
+                      className="secondary-inline-button"
+                      onClick={() =>
+                        openReview(
+                          job.reference,
+                          {
+                            dictate: "Dictate",
+                            files: "Files",
+                            history: "Library",
+                            vocabulary: "Vocabulary",
+                            settings: "Settings",
+                          }[screen],
+                        )
+                      }
+                    >
+                      Review and manage
+                    </button>
+                  </div>
+                ))
+              : null}
+            {reviewTarget ? (
+              <ReviewWorkspace
+                key={reviewKey(reviewTarget.reference)}
+                reference={reviewTarget.reference}
+                originLabel={reviewTarget.originLabel}
+                onBack={closeReview}
+                onUpdated={reviewUpdated}
+                onDelete={removeTranscript}
+                jobs={reviewJobs}
+                onJobStarted={acceptReviewJob}
+                initialJob={activeReviewFile}
+                onStopInitial={
+                  activeReviewFile
+                    ? () => cancelFile(activeReviewFile.id)
+                    : undefined
+                }
                 onResolveModel={() => {
+                  setReviewTarget(null);
                   setSettingsSection("models");
                   setScreen("settings");
                 }}
-                items={fileQueueItems}
-                dragging={isFileDragActive}
-                speakerCountHint={speakerCountHint}
-                showSpeakerOptions={Boolean(
-                  settings?.fileDiarizationEnabled &&
-                  !installedModels.find(
-                    (model) =>
-                      model.id === settings.fileTranscribeSelectedModelId,
-                  )?.capabilities?.nativeDiarization,
-                )}
-                onSpeakerCountHintChange={setSpeakerCountHint}
-                onDragChange={setIsFileDragActive}
-                onPick={() => enqueueFiles(speakerCountHint)}
-                onDrop={(files) => handleDroppedFiles(files, speakerCountHint)}
-                onToggle={toggleQueuedFile}
-                onCancel={cancelFile}
-                onRetry={retryFile}
               />
             ) : null}
-
-            {screen === "settings" ? (
-              <SettingsScreen
-                initialSection={settingsSection}
-                onSectionChange={setSettingsSection}
-                settings={settings}
-                platform={health?.platform ?? null}
-                installedModels={installedModels}
-                onSave={saveSettings}
-                onReloadModelState={reloadModelState}
-              />
-            ) : null}
-
-            {screen === "vocabulary" ? (
-              <VocabularyScreen
-                vocabularyTerms={vocabularyTerms}
-                onCreateVocabularyTerm={createVocabulary}
-                onUpdateVocabularyTerm={updateVocabulary}
-                onDeleteVocabularyTerm={removeVocabulary}
-              />
-            ) : null}
-
-            {libraryVisited || screen === "history" ? (
-              <div hidden={screen !== "history"}>
-                <HistoryScreen
-                  transcripts={transcripts}
-                  onTranscriptUpdated={(updated) =>
-                    setTranscripts((current) =>
-                      current.map((item) =>
-                        item.id === updated.id ? updated : item,
-                      ),
+            <div hidden={Boolean(reviewTarget)}>
+              {screen === "dictate" ? (
+                <DictateScreen
+                  settings={settings}
+                  platform={health?.platform ?? null}
+                  preview={preview}
+                  recordingStatus={recordingStatus}
+                  manualTranscriptionState={manualTranscriptionState}
+                  quickDictationStatus={quickDictationStatus}
+                  dictationError={dictationError}
+                  readiness={readiness}
+                  isPollingAccessibility={isPollingAccessibility}
+                  onResolveReadiness={handleResolveReadiness}
+                  onStartRecording={beginManualRecording}
+                  onStopAndTranscribeRecording={stopAndPreviewManualRecording}
+                  onCancelRecording={cancelManualRecording}
+                  onResetDictation={resetDictation}
+                />
+              ) : null}
+              {screen === "files" ? (
+                <FilesScreen
+                  modelReady={fileModelReady.current}
+                  onResolveModel={() => {
+                    setSettingsSection("models");
+                    setScreen("settings");
+                  }}
+                  items={fileQueueItems}
+                  dragging={isFileDragActive}
+                  speakerCountHint={speakerCountHint}
+                  showSpeakerOptions={Boolean(
+                    settings?.fileDiarizationEnabled &&
+                      !resolvedFileModel?.capabilities?.nativeDiarization,
+                  )}
+                  onSpeakerCountHintChange={setSpeakerCountHint}
+                  onDragChange={setIsFileDragActive}
+                  onPick={() => enqueueFiles(speakerCountHint)}
+                  onDrop={(files) =>
+                    handleDroppedFiles(files, speakerCountHint)
+                  }
+                  onToggle={toggleQueuedFile}
+                  speakerMode={
+                    resolvedFileModel?.capabilities?.nativeDiarization
+                      ? "Built into the selected speech model"
+                      : settings?.fileDiarizationEnabled
+                        ? speakerModelReady === false
+                          ? "Speaker identification enabled · model installing or unavailable"
+                          : "Speaker identification enabled"
+                        : "Speaker identification off"
+                  }
+                  onReview={(item) =>
+                    openReview(
+                      item.reviewRef ??
+                        (item.result?.savedTranscript
+                          ? {
+                              kind: "saved",
+                              id: item.result.savedTranscript.id,
+                            }
+                          : { kind: "session", id: item.id }),
+                      "Files",
                     )
                   }
-                  onDelete={removeTranscript}
-                  onDeleteAll={removeAllTranscripts}
+                  onDismiss={async (id) => {
+                    await dismissFileTranscription(id);
+                    setFileQueueItems((current) =>
+                      current.filter((item) => item.id !== id),
+                    );
+                    fileHints.current.delete(id);
+                  }}
+                  onCancel={cancelFile}
+                  onRetry={retryFile}
                 />
-              </div>
-            ) : null}
+              ) : null}
+
+              {screen === "settings" ? (
+                <SettingsScreen
+                  initialSection={settingsSection}
+                  onSectionChange={setSettingsSection}
+                  settings={settings}
+                  platform={health?.platform ?? null}
+                  installedModels={installedModels}
+                  onSave={saveSettings}
+                  onReloadModelState={reloadModelState}
+                />
+              ) : null}
+
+              {screen === "vocabulary" ? (
+                <VocabularyScreen
+                  vocabularyTerms={vocabularyTerms}
+                  onCreateVocabularyTerm={createVocabulary}
+                  onUpdateVocabularyTerm={updateVocabulary}
+                  onDeleteVocabularyTerm={removeVocabulary}
+                />
+              ) : null}
+
+              {libraryVisited || screen === "history" ? (
+                <div hidden={screen !== "history"}>
+                  <HistoryScreen
+                    transcripts={transcripts}
+                    onReview={(id) =>
+                      openReview({ kind: "saved", id }, "Library")
+                    }
+                    onTranscriptUpdated={(updated) =>
+                      setTranscripts((current) =>
+                        current.map((item) =>
+                          item.id === updated.id ? updated : item,
+                        ),
+                      )
+                    }
+                    onDelete={removeTranscript}
+                    onDeleteAll={removeAllTranscripts}
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
         </main>
       </div>
@@ -1354,11 +1523,15 @@ function mergeFileStatusesIntoQueue(
     }
   }
 
-  return Array.from(merged.values()).sort((left, right) => {
+  const next = Array.from(merged.values()).sort((left, right) => {
     const rightStarted = right.startedAt ?? 0;
     const leftStarted = left.startedAt ?? 0;
     return rightStarted - leftStarted;
   });
+  return next.length === current.length &&
+    next.every((item, index) => item === current[index])
+    ? current
+    : next;
 }
 
 function mergeFileStatusIntoQueue(
@@ -1372,9 +1545,16 @@ function mergeStatusWithQueueItem(
   existing: FileQueueItem | undefined,
   status: FileTranscriptionStatusEvent,
 ): FileQueueItem {
-  if (existing?.updatedAt && status.updatedAtMs < existing.updatedAt)
+  if (
+    existing?.updatedAt &&
+    (status.updatedAtMs < existing.updatedAt ||
+      (status.updatedAtMs === existing.updatedAt &&
+        existing.result === status.result))
+  )
     return existing;
   return {
+    reviewRef: status.reviewRef,
+    resultRevision: status.resultRevision,
     updatedAt: status.updatedAtMs,
     id: status.jobId,
     sourceFile: status.result?.sourceFile ?? status.sourceFile,

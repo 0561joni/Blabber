@@ -2112,3 +2112,327 @@ html.overlay-window body {
   display: grid;
   gap: 16px;
 }
+
+/* Shared transcript review: the recording and corrections share one surface. */
+.review-screen {
+  max-width: 1240px;
+  margin-inline: auto;
+}
+.review-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 20px 0;
+}
+.review-heading h1 {
+  margin: 6px 0 10px;
+  font-size: clamp(22px, 2.5vw, 32px);
+  overflow-wrap: anywhere;
+}
+.review-heading h1:focus {
+  outline: none;
+}
+.review-output-actions,
+.review-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.review-output-actions {
+  max-width: 480px;
+  justify-content: flex-end;
+}
+.review-export-label select,
+.review-speed select {
+  width: auto;
+  padding: 8px;
+}
+.review-player {
+  padding: 18px 22px 12px;
+  margin: 16px 0;
+}
+.review-player-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.review-playback-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  margin-inline: 10px;
+}
+.review-speed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 13px;
+}
+.review-seek {
+  width: 100%;
+  margin: 18px 0 4px;
+  accent-color: var(--accent);
+}
+.review-audio-note,
+.review-audio-error p {
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+.review-speakers {
+  padding: 22px;
+}
+.review-speakers .section-header {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.review-speaker-roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.review-speaker-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 140px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.review-speaker-card > div {
+  display: flex;
+  gap: 16px;
+}
+.review-speaker-card button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.review-speaker-card button:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.review-details {
+  font-size: 12px;
+  margin-top: 16px;
+  color: var(--text-muted);
+}
+.review-details summary {
+  cursor: pointer;
+}
+.review-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 8px;
+}
+.review-tools > label,
+.review-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.review-tools > span:last-child {
+  margin-left: auto;
+  font-size: 12px;
+}
+.review-legend {
+  font-size: 12px;
+  margin: 0 0 14px;
+  line-height: 1.6;
+}
+.review-passages {
+  height: clamp(350px, 62vh, 800px);
+  overflow: auto;
+  overflow-anchor: none;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  position: relative;
+  contain: layout;
+}
+.review-passages-canvas {
+  position: relative;
+  width: 100%;
+}
+.review-passage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 18px 22px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.review-passage > input {
+  margin: 5px 0 0;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+.review-passage-content {
+  min-width: 0;
+  flex: 1;
+}
+.review-passage p {
+  margin: 8px 0 0;
+  line-height: 1.75;
+  font-size: 15px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.review-passage.is-playing {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 3px 0 var(--accent);
+}
+.review-passage.is-selected {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.review-passage-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.review-passage-meta button {
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.review-timestamp {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.review-timestamp:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.review-manual,
+.review-uncertain {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.review-uncertain {
+  color: var(--accent-warn);
+}
+.review-selection,
+.review-job {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 18px;
+  margin: 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.review-selection {
+  justify-content: flex-start;
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+.review-job p {
+  margin: 6px 0;
+}
+.review-job span {
+  font-size: 12px;
+}
+.review-notice {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.review-empty {
+  padding: 30px;
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+.review-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgb(0 0 0 / 48%);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.review-dialog {
+  width: min(100%, 480px);
+  padding: 28px;
+  max-height: 85vh;
+  overflow: auto;
+  background: var(--surface);
+  box-shadow: 0 20px 80px #0006;
+}
+.review-dialog h2 {
+  margin: 0 0 20px;
+}
+.review-dialog p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.review-dialog .field-stack {
+  margin: 16px 0;
+}
+.review-dialog .review-checkbox {
+  margin: 16px 0;
+}
+.review-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+.review-dialog fieldset {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.review-dialog legend {
+  font-size: 13px;
+}
+@media (max-width: 850px) {
+  .review-heading {
+    flex-direction: column;
+  }
+  .review-output-actions {
+    justify-content: flex-start;
+    max-width: none;
+  }
+  .review-speakers {
+    padding: 16px;
+  }
+  .review-passage {
+    padding: 16px 12px;
+  }
+  .review-inline-actions {
+    gap: 6px;
+  }
+  .review-player {
+    padding: 16px;
+  }
+  .review-playback-time {
+    margin: 0;
+  }
+  .review-speed {
+    margin-left: 0;
+  }
+}
+
+.review-speakers .section-header {
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}

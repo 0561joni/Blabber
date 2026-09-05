@@ -16,6 +16,23 @@ const props = () => ({
   onRetry: vi.fn().mockResolvedValue(undefined),
 });
 describe("File workspace", () => {
+  it("opens published text by reference even before content hydration finishes", () => {
+    const onReview = vi.fn();
+    const item = {
+      ...fileFixture,
+      stage: "diarizing" as const,
+      result: null,
+      reviewRef: { kind: "saved" as const, id: "published" },
+      resultRevision: 1,
+    };
+    render(<FilesScreen {...props()} items={[item]} onReview={onReview} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review transcript" }));
+    expect(onReview).toHaveBeenCalledWith(item);
+    expect(
+      screen.getByRole("button", { name: "Stop identifying speakers" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Saved to Library")).toBeTruthy();
+  });
   it("keeps unknown progress indeterminate and supports cancellation", async () => {
     const current = props();
     render(<FilesScreen {...current} />);

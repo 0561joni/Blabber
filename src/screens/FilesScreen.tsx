@@ -8,6 +8,7 @@ import {
 import { AppIcon } from "../components/IconButton";
 import { TranscriptReader } from "../components/TranscriptReader";
 import { copyTextToClipboard } from "../lib/api";
+import { copyReview } from "../lib/reviewApi";
 import { formatDuration } from "../lib/formatting";
 import type { FileQueueItem } from "../types/domain";
 
@@ -28,6 +29,9 @@ const labels: Record<FileQueueItem["stage"], string> = {
 
 interface Props {
   modelReady?: boolean;
+  speakerMode?: string;
+  onReview?: (item: FileQueueItem) => void;
+  onDismiss?: (id: string) => Promise<void>;
   onResolveModel?: () => void;
   items: FileQueueItem[];
   dragging: boolean;
@@ -111,6 +115,11 @@ export function FilesScreen(props: Props) {
         </ActionButton>
         <span className="file-types">WAV · MP3 · M4A · OPUS</span>
       </div>
+      {props.speakerMode ? (
+        <p className="muted" role="status">
+          {props.speakerMode}
+        </p>
+      ) : null}
       {props.showSpeakerOptions ? (
         <details className="surface file-options">
           <summary>
@@ -118,13 +127,13 @@ export function FilesScreen(props: Props) {
             <span className="muted">
               {props.speakerCountHint === null
                 ? "Automatic"
-                : "About " + props.speakerCountHint + " speakers"}
+                : props.speakerCountHint + " speakers (exact)"}
             </span>
           </summary>
           <label className="field-stack">
-            <span>Expected speakers</span>
+            <span>Known speaker count</span>
             <select
-              aria-label="Expected speakers"
+              aria-label="Known speaker count"
               value={props.speakerCountHint === null ? "auto" : "estimate"}
               onChange={(event) =>
                 props.onSpeakerCountHintChange(
@@ -133,12 +142,12 @@ export function FilesScreen(props: Props) {
               }
             >
               <option value="auto">Detect automatically</option>
-              <option value="estimate">Use an estimate</option>
+              <option value="estimate">Use an exact count</option>
             </select>
           </label>
           {props.speakerCountHint !== null ? (
             <label className="field-stack">
-              <span>Approximate speaker count</span>
+              <span>Exact number of speakers</span>
               <input
                 type="number"
                 min={1}
@@ -153,8 +162,7 @@ export function FilesScreen(props: Props) {
             </label>
           ) : null}
           <p className="muted">
-            Choose an estimate only when you know roughly how many people are
-            speaking.
+            Use an exact count only when you know how many people are speaking.
           </p>
         </details>
       ) : null}
@@ -204,7 +212,9 @@ export function FilesScreen(props: Props) {
                   className={"status-pill stage-" + item.stage}
                   role="status"
                 >
-                  {labels[item.stage]}
+                  {(item.result || item.reviewRef) && item.stage === "diarizing"
+                    ? "Text ready · Identifying speakers"
+                    : labels[item.stage]}
                 </span>
               </div>
               {isFileWorking(item.stage) ? (
@@ -245,7 +255,10 @@ export function FilesScreen(props: Props) {
                     action={() => props.onCancel(item.id)}
                     success="Cancellation requested"
                   >
-                    Cancel
+                    {(item.result || item.reviewRef) &&
+                    item.stage === "diarizing"
+                      ? "Stop identifying speakers"
+                      : "Cancel"}
                   </ActionButton>
                 ) : null}
                 {item.stage === "failed" || item.stage === "canceled" ? (
@@ -257,25 +270,38 @@ export function FilesScreen(props: Props) {
                     Retry transcription
                   </ActionButton>
                 ) : null}
-                {item.result ? (
+                {item.result || (props.onReview && item.reviewRef) ? (
                   <>
                     <Button
                       icon={item.isExpanded ? "chevronLeft" : "disclosure"}
-                      aria-expanded={item.isExpanded}
-                      onClick={() => props.onToggle(item.id)}
+                      aria-expanded={
+                        props.onReview ? undefined : item.isExpanded
+                      }
+                      onClick={() =>
+                        props.onReview
+                          ? props.onReview(item)
+                          : props.onToggle(item.id)
+                      }
                     >
-                      {item.isExpanded ? "Hide transcript" : "Read transcript"}
+                      {props.onReview
+                        ? "Review transcript"
+                        : item.isExpanded
+                          ? "Hide transcript"
+                          : "Read transcript"}
                     </Button>
                     <ActionButton
                       icon="copy"
                       action={() =>
-                        copyTextToClipboard(item.result!.result.plainText)
+                        item.reviewRef
+                          ? copyReview(item.reviewRef, "plain")
+                          : copyTextToClipboard(item.result!.result.plainText)
                       }
                       success="Copied"
                     >
                       Copy text
                     </ActionButton>
-                    {item.result.savedTranscript ? (
+                    {item.reviewRef?.kind === "saved" ||
+                    item.result?.savedTranscript ? (
                       <span className="muted">Saved to Library</span>
                     ) : (
                       <span className="muted">Not saved to Library</span>
@@ -283,7 +309,27 @@ export function FilesScreen(props: Props) {
                   </>
                 ) : null}
               </div>
-              {item.isExpanded && item.result ? (
+              {props.onDismiss && !isFileWorking(item.stage) ? (
+                <div className="queue-actions">
+                  <ActionButton
+                    variant="ghost"
+                    action={() => props.onDismiss!(item.id)}
+                    success=""
+                  >
+                    {item.reviewRef?.kind === "session" ||
+                    (item.result && !item.result.savedTranscript)
+                      ? "Dismiss session result"
+                      : "Dismiss from queue"}
+                  </ActionButton>
+                  {item.reviewRef?.kind === "session" ||
+                  (item.result && !item.result.savedTranscript) ? (
+                    <span className="muted">
+                      Dismissing removes this unsaved transcript.
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+              {!props.onReview && item.isExpanded && item.result ? (
                 <TranscriptReader result={item.result.result} />
               ) : null}
             </article>

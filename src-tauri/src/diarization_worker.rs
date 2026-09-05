@@ -73,11 +73,11 @@ fn run_stdio_worker_inner() -> Result<()> {
     crate::diarization::validate_speaker_count_hint(request.exact_speaker_count)
         .map_err(anyhow::Error::msg)?;
 
-    let finished = Arc::new(AtomicBool::new(false));
+    let (finish_tx, finish_rx) = std::sync::mpsc::channel();
     let stdout = Arc::new(Mutex::new(io::stdout()));
-    let heartbeat = spawn_heartbeat(Arc::clone(&finished), Arc::clone(&stdout));
+    let heartbeat = spawn_heartbeat(finish_rx, Arc::clone(&stdout));
     let result = diarize(&request);
-    finished.store(true, Ordering::SeqCst);
+    let _ = finish_tx.send(());
     let _ = heartbeat.join();
     emit_output_to(&stdout, &WorkerOutput::Result { turns: result? })
 }
@@ -144,26 +144,34 @@ fn diarize(request: &WorkerRequest) -> Result<Vec<RawDiarizationTurn>> {
 }
 
 fn atomic_turns(intervals: &[(i64, i64, i32)]) -> Vec<RawDiarizationTurn> {
-    let mut boundaries = intervals
-        .iter()
-        .flat_map(|(start, end, _)| [*start, *end])
-        .collect::<Vec<_>>();
-    boundaries.sort_unstable();
-    boundaries.dedup();
+    // End/start events at the same instant are applied together. Reference
+    // counts preserve a speaker with intersecting intervals of its own.
+    let mut events = Vec::with_capacity(intervals.len() * 2);
+    for &(start, end, speaker) in intervals {
+        if end > start {
+            events.push((start, speaker, 1i32));
+            events.push((end, speaker, -1));
+        }
+    }
+    events.sort_unstable();
+    let mut active = std::collections::BTreeMap::<i32, i32>::new();
     let mut turns: Vec<RawDiarizationTurn> = Vec::new();
-    for window in boundaries.windows(2) {
-        let start_ms = window[0];
-        let end_ms = window[1];
-        let mut cluster_ids = intervals
-            .iter()
-            .filter(|(start, end, _)| *start < end_ms && *end > start_ms)
-            .map(|(_, _, speaker)| *speaker)
-            .collect::<Vec<_>>();
-        cluster_ids.sort_unstable();
-        cluster_ids.dedup();
-        if cluster_ids.is_empty() {
+    let mut index = 0;
+    while index < events.len() {
+        let start_ms = events[index].0;
+        while index < events.len() && events[index].0 == start_ms {
+            let (_, speaker, delta) = events[index];
+            *active.entry(speaker).or_default() += delta;
+            if active[&speaker] == 0 {
+                active.remove(&speaker);
+            }
+            index += 1;
+        }
+        if index == events.len() || active.is_empty() {
             continue;
         }
+        let end_ms = events[index].0;
+        let cluster_ids: Vec<_> = active.keys().copied().collect();
         if let Some(previous) = turns.last_mut() {
             if previous.end_ms == start_ms && previous.cluster_ids == cluster_ids {
                 previous.end_ms = end_ms;
@@ -181,13 +189,15 @@ fn atomic_turns(intervals: &[(i64, i64, i32)]) -> Vec<RawDiarizationTurn> {
 }
 
 fn spawn_heartbeat(
-    finished: Arc<AtomicBool>,
+    finished: std::sync::mpsc::Receiver<()>,
     stdout: Arc<Mutex<io::Stdout>>,
 ) -> thread::JoinHandle<()> {
-    thread::spawn(move || {
-        while !finished.load(Ordering::SeqCst) {
-            let _ = emit_output_to(&stdout, &WorkerOutput::Heartbeat);
-            thread::sleep(Duration::from_secs(2));
+    thread::spawn(move || loop {
+        let _ = emit_output_to(&stdout, &WorkerOutput::Heartbeat);
+        if finished.recv_timeout(Duration::from_secs(2))
+            != Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        {
+            break;
         }
     })
 }
@@ -317,6 +327,84 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn reference_turns(intervals: &[(i64, i64, i32)]) -> Vec<RawDiarizationTurn> {
+        let mut boundaries: Vec<_> = intervals.iter().flat_map(|(s, e, _)| [*s, *e]).collect();
+        boundaries.sort();
+        boundaries.dedup();
+        let mut result: Vec<RawDiarizationTurn> = Vec::new();
+        for pair in boundaries.windows(2) {
+            let (start, end) = (pair[0], pair[1]);
+            let mut ids: Vec<_> = intervals
+                .iter()
+                .filter(|(s, e, _)| *s < end && *e > start)
+                .map(|(_, _, id)| *id)
+                .collect();
+            ids.sort();
+            ids.dedup();
+            if ids.is_empty() {
+                continue;
+            }
+            if let Some(last) = result.last_mut() {
+                if last.end_ms == start && last.cluster_ids == ids {
+                    last.end_ms = end;
+                    continue;
+                }
+            }
+            result.push(RawDiarizationTurn {
+                start_ms: start,
+                end_ms: end,
+                cluster_ids: ids,
+                confidence: None,
+            });
+        }
+        result
+    }
+
+    #[test]
+    fn sweep_matches_full_scan_with_nested_intervals_ties_gaps_and_overlaps() {
+        let mut seed = 29u64;
+        for count in [1, 2, 10, 100, 1000] {
+            let spans: Vec<_> = (0..count)
+                .map(|_| {
+                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    let start = (seed % 1000) as i64 * 10;
+                    let duration = (seed / 1000 % 100 + 1) as i64 * 10;
+                    (start, start + duration, (seed % 8) as i32)
+                })
+                .collect();
+            assert_eq!(
+                serde_json::to_value(atomic_turns(&spans)).unwrap(),
+                serde_json::to_value(reference_turns(&spans)).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "synthetic performance comparison; run with --ignored --nocapture"]
+    fn benchmark_interval_sweep() {
+        for minutes in [30, 60, 120] {
+            for speakers in [2, 4, 8] {
+                let spans: Vec<_> = (0..minutes * 60 * 4)
+                    .map(|i| {
+                        let start = i * 250;
+                        (start, start + 350, (i / 8 % speakers) as i32)
+                    })
+                    .collect();
+                let start = Instant::now();
+                let reference = reference_turns(&spans);
+                let baseline = start.elapsed();
+                let start = Instant::now();
+                let sweep = atomic_turns(&spans);
+                let optimized = start.elapsed();
+                assert_eq!(
+                    serde_json::to_value(&reference).unwrap(),
+                    serde_json::to_value(&sweep).unwrap()
+                );
+                println!("intervals minutes={minutes} speakers={speakers} count={} baseline_ms={:.3} sweep_ms={:.3}",spans.len(),baseline.as_secs_f64()*1000.,optimized.as_secs_f64()*1000.);
+            }
+        }
+    }
 
     #[test]
     fn converts_overlapping_segments_to_atomic_turns() {

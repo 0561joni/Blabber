@@ -93,14 +93,14 @@ pub fn selected_source_file_from_path(path: PathBuf) -> Result<SelectedSourceFil
         .ok_or_else(|| anyhow!("Unable to determine audio filename"))?
         .to_string();
 
-    let audio_info = audio_preprocess::inspect_audio_file(&path).ok();
+    // Decoding and fingerprinting happen in the queued preparation stage.
     Ok(SelectedSourceFile {
         file_path: path.display().to_string(),
         original_name,
         mime_type: mime_type_for_path(&path),
         size_bytes: metadata.len() as i64,
-        duration_ms: audio_info.as_ref().map(|info| info.duration_ms),
-        sha256: audio_info.map(|info| info.sha256),
+        duration_ms: None,
+        sha256: None,
     })
 }
 

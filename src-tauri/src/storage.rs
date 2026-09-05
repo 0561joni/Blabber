@@ -76,6 +76,8 @@ pub struct TranscriptDetail {
     pub segments: Vec<TranscriptSegment>,
     pub speakers: Vec<TranscriptSpeaker>,
     pub diarization_turns: Vec<DiarizationTurn>,
+    #[serde(default)]
+    pub manual_segment_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +97,7 @@ pub fn initialize_database(state: &AppState) -> Result<()> {
     ensure_settings_columns(&connection)?;
     ensure_transcript_quality_columns(&connection)?;
     ensure_diarization_schema(&connection)?;
+    crate::review::ensure_schema(&connection)?;
     ensure_vocabulary_columns(&connection)?;
     ensure_file_transcription_performance_table(&connection)?;
     connection.execute_batch(
@@ -587,46 +590,34 @@ pub fn delete_all_transcripts(state: &AppState) -> Result<()> {
     Ok(())
 }
 
-pub fn get_transcript(state: &AppState, transcript_id: &str) -> Result<TranscriptDetail> {
-    let connection = open_connection(state)?;
-    fetch_transcript_detail(&connection, transcript_id)
-}
-
-pub fn get_source_file(state: &AppState, transcript_id: &str) -> Result<SelectedSourceFile> {
-    let connection = open_connection(state)?;
-    connection.query_row(
-        "SELECT local_path, original_name, mime_type, size_bytes, duration_ms, sha256 FROM source_files WHERE transcript_id = ?1",
-        [transcript_id],
-        |row| Ok(SelectedSourceFile {
-            file_path: row.get(0)?, original_name: row.get(1)?, mime_type: row.get(2)?,
-            size_bytes: row.get(3)?, duration_ms: row.get(4)?, sha256: row.get(5)?,
-        }),
-    ).context("SOURCE_FILE_REQUIRED: original source audio is unavailable")
-}
-
-pub fn replace_transcript_diarization(
-    state: &AppState,
+pub(crate) fn replace_diarization_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
     transcript_id: &str,
     result: &TranscriptResult,
     replacement_source: Option<&SelectedSourceFile>,
-) -> Result<TranscriptDetail> {
-    let mut connection = open_connection(state)?;
-    let transaction = connection.transaction()?;
+) -> Result<()> {
     transaction.execute(
         "UPDATE transcripts SET diarization_status=?2, diarization_model_id=?3, diarization_warning=?4, diarization_policy_version=?5, speaker_count=?6, diarization_clustering_threshold=?7, diarization_speaker_count_hint=?8, diarization_source=?9 WHERE id=?1",
         params![transcript_id, to_diarization_status(result.diarization_status), &result.diarization_model_id,
             &result.diarization_warning, result.diarization_policy_version,
-            if result.speakers.is_empty() { None } else { Some(result.speakers.len() as i32) },
+            crate::review::active_speaker_count(result),
             result.diarization_clustering_threshold, result.diarization_speaker_count_hint,
             to_diarization_source(result.diarization_source)],
     )?;
+    let mut segment_update=transaction.prepare("UPDATE transcript_segments SET speaker_id=?2, speaker_ids_json=?3, speaker_attribution=?4, speaker_confidence=?5 WHERE id=?1 AND transcript_id=?6")?;
     for segment in &result.segments {
-        transaction.execute(
-            "UPDATE transcript_segments SET speaker_id=?2, speaker_ids_json=?3, speaker_attribution=?4, speaker_confidence=?5 WHERE id=?1 AND transcript_id=?6",
-            params![&segment.id, &segment.speaker_id,
-                segment.speaker_ids.as_ref().map(serde_json::to_string).transpose()?,
-                to_speaker_attribution(segment.speaker_attribution), segment.speaker_confidence, transcript_id],
-        )?;
+        segment_update.execute(params![
+            &segment.id,
+            &segment.speaker_id,
+            segment
+                .speaker_ids
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
+            to_speaker_attribution(segment.speaker_attribution),
+            segment.speaker_confidence,
+            transcript_id
+        ])?;
     }
     transaction.execute(
         "DELETE FROM transcript_speakers WHERE transcript_id=?1",
@@ -642,57 +633,21 @@ pub fn replace_transcript_diarization(
     }
     for turn in &result.diarization_turns {
         transaction.execute("INSERT INTO diarization_turns (id,transcript_id,start_ms,end_ms,speaker_ids_json,confidence,is_overlap,is_uncertain,turn_order) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-            params![format!("{transcript_id}:{}", turn.id), transcript_id, turn.start_ms, turn.end_ms,
+            params![format!("{transcript_id}:{}", turn.id.strip_prefix(&format!("{transcript_id}:")).unwrap_or(&turn.id)), transcript_id, turn.start_ms, turn.end_ms,
                 serde_json::to_string(&turn.speaker_ids)?, turn.confidence, turn.is_overlap, turn.is_uncertain, turn.turn_order])?;
     }
     if let Some(source) = replacement_source {
         transaction.execute("UPDATE source_files SET local_path=?2, original_name=?3, mime_type=?4, size_bytes=?5, duration_ms=?6, sha256=?7 WHERE transcript_id=?1",
             params![transcript_id, &source.file_path, &source.original_name, &source.mime_type, source.size_bytes, source.duration_ms, &source.sha256])?;
     }
-    transaction.commit()?;
-    fetch_transcript_detail(&connection, transcript_id)
-}
-
-pub fn rename_transcript(
-    state: &AppState,
-    transcript_id: &str,
-    title: &str,
-) -> Result<TranscriptSummary> {
-    let title = validate_name(title, 200, "Transcript title")?;
-    let connection = open_connection(state)?;
-    let changed = connection.execute(
-        "UPDATE transcripts SET title = ?2 WHERE id = ?1",
-        params![transcript_id, title],
-    )?;
-    if changed == 0 {
-        anyhow::bail!("Transcript not found.");
-    }
-    fetch_transcript_summary(&connection, transcript_id)
-}
-
-pub fn rename_transcript_speaker(
-    state: &AppState,
-    transcript_id: &str,
-    speaker_id: &str,
-    display_name: &str,
-) -> Result<TranscriptDetail> {
-    let display_name = validate_name(display_name, 80, "Speaker name")?;
-    let connection = open_connection(state)?;
-    let changed = connection.execute(
-        "UPDATE transcript_speakers SET display_name = ?3 WHERE transcript_id = ?1 AND speaker_id = ?2",
-        params![transcript_id, speaker_id, display_name],
-    )?;
-    if changed == 0 {
-        anyhow::bail!("Speaker not found in transcript.");
-    }
-    fetch_transcript_detail(&connection, transcript_id)
+    Ok(())
 }
 
 fn open_connection(state: &AppState) -> Result<Connection> {
     open_connection_by_path(&state.db_path)
 }
 
-fn open_connection_by_path(db_path: &Path) -> Result<Connection> {
+pub(crate) fn open_connection_by_path(db_path: &Path) -> Result<Connection> {
     let connection = Connection::open(db_path)
         .with_context(|| format!("failed to open database at {}", db_path.display()))?;
     connection.execute_batch("PRAGMA foreign_keys = ON;")?;
@@ -1102,7 +1057,7 @@ fn fetch_transcript_summary(
     Ok(transcript)
 }
 
-fn fetch_transcript_detail(
+pub(crate) fn fetch_transcript_detail(
     connection: &Connection,
     transcript_id: &str,
 ) -> Result<TranscriptDetail> {
@@ -1180,6 +1135,7 @@ fn fetch_transcript_detail(
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     Ok(TranscriptDetail {
+        manual_segment_ids: Vec::new(),
         summary,
         full_text,
         timestamped_text,
@@ -1230,7 +1186,7 @@ fn insert_transcript(
             to_diarization_source(result.diarization_source),
             &result.diarization_warning,
             result.diarization_policy_version,
-            if result.speakers.is_empty() { None } else { Some(result.speakers.len() as i32) },
+            crate::review::active_speaker_count(result),
             result.diarization_clustering_threshold,
             result.diarization_speaker_count_hint,
         ],
@@ -1511,17 +1467,6 @@ fn to_speaker_attribution(value: SpeakerAttribution) -> &'static str {
         SpeakerAttribution::Likely => "likely",
         SpeakerAttribution::Overlap => "overlap",
     }
-}
-
-fn validate_name<'a>(value: &'a str, max_chars: usize, label: &str) -> Result<&'a str> {
-    let value = value.trim();
-    if value.is_empty() {
-        anyhow::bail!("{label} cannot be empty.");
-    }
-    if value.chars().count() > max_chars {
-        anyhow::bail!("{label} cannot exceed {max_chars} characters.");
-    }
-    Ok(value)
 }
 
 fn parse_transcript_quality_status(value: String) -> rusqlite::Result<TranscriptQualityStatus> {

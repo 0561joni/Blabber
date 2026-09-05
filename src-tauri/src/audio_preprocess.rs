@@ -28,24 +28,6 @@ pub struct PreparedAudio {
     pub samples: Vec<f32>,
 }
 
-#[derive(Debug, Clone)]
-pub struct AudioFileInfo {
-    pub duration_ms: i64,
-    pub sha256: String,
-}
-
-pub fn inspect_audio_file(path: &Path) -> Result<AudioFileInfo> {
-    validate_audio_file_size(path)?;
-    let prepared = decode_audio_file(path)?;
-    let duration_ms = prepared_duration_ms(&prepared);
-    validate_audio_duration(duration_ms)?;
-    let sha256 = sha256_file(path)?;
-    Ok(AudioFileInfo {
-        duration_ms,
-        sha256,
-    })
-}
-
 pub fn decode_audio_file(path: &Path) -> Result<PreparedAudio> {
     validate_audio_file_size(path)?;
     if path
@@ -107,7 +89,7 @@ fn decode_audio_file_native(path: &Path) -> Result<PreparedAudio> {
     let mut decoder = get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
         .context("failed to create audio decoder")?;
-    let mut samples = Vec::new();
+    let mut normalizer = StreamingNormalizer::new(sample_rate_hz, channels)?;
 
     loop {
         let packet = match format.next_packet() {
@@ -135,10 +117,10 @@ fn decode_audio_file_native(path: &Path) -> Result<PreparedAudio> {
         let duration = decoded.capacity() as u64;
         let mut sample_buffer = SampleBuffer::<f32>::new(duration, spec);
         sample_buffer.copy_interleaved_ref(decoded);
-        samples.extend_from_slice(sample_buffer.samples());
+        normalizer.push(sample_buffer.samples())?;
     }
 
-    Ok(normalize_audio(&samples, sample_rate_hz, channels))
+    normalizer.finish()
 }
 
 fn decode_audio_file_with_fallback(path: &Path) -> Result<PreparedAudio> {
@@ -267,21 +249,31 @@ pub fn decode_wav_file(path: &Path) -> Result<PreparedAudio> {
     let mut reader = hound::WavReader::open(path)
         .with_context(|| format!("failed to read wav file {}", path.display()))?;
     let spec = reader.spec();
-    let samples = match spec.sample_format {
-        SampleFormat::Float => reader
-            .samples::<f32>()
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .context("failed to read float wav samples")?,
-        SampleFormat::Int => {
-            let scale = (1_i64 << (spec.bits_per_sample.saturating_sub(1) as u32)) as f32;
-            reader
-                .samples::<i32>()
-                .map(|sample| sample.map(|value| value as f32 / scale))
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .context("failed to read pcm wav samples")?
+    let mut normalizer = StreamingNormalizer::new(spec.sample_rate, spec.channels)?;
+    let mut chunk = Vec::with_capacity(8192);
+    let mut push = |sample: f32| -> Result<()> {
+        chunk.push(sample);
+        if chunk.len() == 8192 {
+            normalizer.push(&chunk)?;
+            chunk.clear();
         }
+        Ok(())
     };
-    Ok(normalize_audio(&samples, spec.sample_rate, spec.channels))
+    match spec.sample_format {
+        SampleFormat::Float => {
+            for sample in reader.samples::<f32>() {
+                push(sample.context("failed to read float wav samples")?)?;
+            }
+        }
+        SampleFormat::Int => {
+            let scale = (1_i64 << spec.bits_per_sample.saturating_sub(1) as u32) as f32;
+            for sample in reader.samples::<i32>() {
+                push(sample.context("failed to read pcm wav samples")? as f32 / scale)?;
+            }
+        }
+    }
+    normalizer.push(&chunk)?;
+    normalizer.finish()
 }
 
 pub fn normalize_audio(samples: &[f32], sample_rate_hz: u32, channels: u16) -> PreparedAudio {
@@ -352,7 +344,7 @@ fn resample_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     output
 }
 
-fn sha256_file(path: &Path) -> Result<String> {
+pub fn sha256_file(path: &Path) -> Result<String> {
     let mut file =
         File::open(path).with_context(|| format!("failed to read {}", path.display()))?;
     let mut hasher = Sha256::new();
@@ -451,5 +443,198 @@ mod tests {
         assert_eq!(prepared.samples.len(), 2);
         assert!((prepared.samples[0] - 0.4).abs() < 0.0001);
         assert!((prepared.samples[1] - -0.2).abs() < 0.0001);
+    }
+}
+
+/// Lossless normalized float WAV shared by inference workers. Playback uses a
+/// separate PCM16 conversion only when the original codec is unsupported.
+pub struct PreparedJobAudio {
+    pub path: PathBuf,
+    pub duration_ms: i64,
+    pub sha256: String,
+}
+impl Drop for PreparedJobAudio {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+pub fn prepare_job_audio(source: &str, temp_dir: &Path) -> Result<PreparedJobAudio> {
+    std::fs::create_dir_all(temp_dir)?;
+    let before = std::fs::metadata(source)?;
+    let prepared = decode_audio_file(Path::new(source))?;
+    let duration_ms = prepared_duration_ms(&prepared);
+    let sha256 = sha256_file(Path::new(source))?;
+    let after = std::fs::metadata(source)?;
+    if before.len() != after.len() || before.modified()? != after.modified()? {
+        return Err(anyhow!("The source audio changed during preparation. Try again after the file finishes saving."));
+    }
+    let asset = PreparedJobAudio {
+        path: temp_dir.join(format!("review-prepared-{}.wav", Uuid::new_v4())),
+        duration_ms,
+        sha256,
+    };
+    let mut writer = WavWriter::create(
+        &asset.path,
+        WavSpec {
+            channels: prepared.channels,
+            sample_rate: prepared.sample_rate_hz,
+            bits_per_sample: 32,
+            sample_format: SampleFormat::Float,
+        },
+    )?;
+    for sample in &prepared.samples {
+        writer.write_sample(*sample)?;
+    }
+    writer.finalize()?;
+    Ok(asset)
+}
+
+// Normalize packet-by-packet: only the final 16 kHz mono buffer is retained.
+// A carried frame and sample keep interpolation identical across packet edges.
+struct StreamingNormalizer {
+    rate: u32,
+    channels: usize,
+    ratio: f64,
+    frames: usize,
+    sum: f32,
+    channel_count: usize,
+    previous: f32,
+    samples: Vec<f32>,
+    tiny: Vec<f32>,
+}
+impl StreamingNormalizer {
+    fn new(rate: u32, channels: u16) -> Result<Self> {
+        if rate == 0 || channels == 0 {
+            return Err(anyhow!("Invalid audio sample rate or channel count."));
+        }
+        Ok(Self {
+            rate,
+            channels: channels as usize,
+            ratio: TARGET_SAMPLE_RATE_HZ as f64 / rate as f64,
+            frames: 0,
+            sum: 0.0,
+            channel_count: 0,
+            previous: 0.0,
+            samples: Vec::new(),
+            tiny: Vec::new(),
+        })
+    }
+    fn push(&mut self, interleaved: &[f32]) -> Result<()> {
+        for sample in interleaved {
+            self.sum += *sample;
+            self.channel_count += 1;
+            if self.channel_count == self.channels {
+                self.frame()?;
+            }
+        }
+        Ok(())
+    }
+    fn frame(&mut self) -> Result<()> {
+        let sample = self.sum / self.channel_count as f32;
+        self.sum = 0.0;
+        self.channel_count = 0;
+        if (self.frames as u64) * 1000 / self.rate as u64 > MAX_AUDIO_DURATION_MS as u64 {
+            return Err(anyhow!("Audio exceeds the six-hour duration limit."));
+        }
+        if (self.frames as f64 * self.ratio).round() <= 1.0 {
+            self.tiny.push(sample);
+        } else {
+            self.tiny.clear();
+        }
+        let index = self.frames;
+        loop {
+            let position = self.samples.len() as f64 / self.ratio;
+            if position > index as f64 {
+                break;
+            }
+            let value = if position.floor() as usize == index || index == 0 {
+                sample
+            } else {
+                let fraction = (position - position.floor()) as f32;
+                self.previous + (sample - self.previous) * fraction
+            };
+            self.samples.push(value);
+        }
+        self.previous = sample;
+        self.frames += 1;
+        Ok(())
+    }
+    fn finish(mut self) -> Result<PreparedAudio> {
+        if self.channel_count > 0 {
+            self.frame()?;
+        }
+        let target = (self.frames as f64 * self.ratio).round() as usize;
+        if target <= 1 {
+            self.samples = self.tiny;
+        } else {
+            self.samples.resize(target, self.previous);
+        }
+        Ok(PreparedAudio {
+            sample_rate_hz: TARGET_SAMPLE_RATE_HZ,
+            channels: TARGET_CHANNELS,
+            samples: self.samples,
+        })
+    }
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::*;
+    #[test]
+    fn packet_normalization_matches_whole_buffer_for_rates_channels_and_boundaries() {
+        for rate in [8000, 16000, 22050, 44100, 48000, 96000] {
+            for channels in [1, 2, 6] {
+                for frames in [0, 1, 2, 5, 101, 4097] {
+                    let samples: Vec<f32> = (0..frames * channels as usize)
+                        .map(|i| (i as f32 * 0.13).sin())
+                        .collect();
+                    let expected = normalize_audio(&samples, rate, channels);
+                    for chunk in [1, 13, 256, 4096] {
+                        let mut streaming = StreamingNormalizer::new(rate, channels).unwrap();
+                        for part in samples.chunks(chunk) {
+                            streaming.push(part).unwrap();
+                        }
+                        let actual = streaming.finish().unwrap();
+                        assert_eq!(
+                            actual.samples.len(),
+                            expected.samples.len(),
+                            "rate={rate} channels={channels} frames={frames}"
+                        );
+                        for (a, b) in actual.samples.iter().zip(&expected.samples) {
+                            assert!(
+                                (a - b).abs() < 1e-6,
+                                "{a} != {b} rate={rate} channels={channels} frames={frames}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn prepared_float_audio_roundtrips_losslessly_and_cleans_up() {
+        let dir = std::env::temp_dir().join(format!("review-prepare-test-{}", Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let source = dir.join("source.wav");
+        write_wav(
+            &source,
+            &PreparedAudio {
+                sample_rate_hz: 16000,
+                channels: 1,
+                samples: (0..2000).map(|i| (i as f32 / 10.0).sin()).collect(),
+            },
+        )
+        .unwrap();
+        let expected = decode_audio_file(&source).unwrap();
+        let prepared = prepare_job_audio(source.to_str().unwrap(), &dir).unwrap();
+        let target = prepared.path.clone();
+        assert_eq!(
+            decode_audio_file(&target).unwrap().samples,
+            expected.samples
+        );
+        assert_eq!(prepared.sha256, sha256_file(&source).unwrap());
+        drop(prepared);
+        assert!(!target.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

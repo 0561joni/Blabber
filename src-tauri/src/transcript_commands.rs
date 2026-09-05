@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use anyhow::{Context, Result};
@@ -103,30 +103,42 @@ fn format_transcript(detail: &TranscriptDetail, format: TranscriptExportFormat) 
 
 fn format_speaker_text(detail: &TranscriptDetail, markdown: bool) -> String {
     let names = speaker_names(detail);
-    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+    let manual: HashSet<_> = detail
+        .manual_segment_ids
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let mut groups: Vec<(String, String, Vec<String>)> = Vec::new();
     for segment in &detail.segments {
         let label = segment_label(
             segment.speaker_attribution,
             segment.speaker_id.as_deref(),
             segment.speaker_ids.as_deref(),
             &names,
+            manual.contains(segment.id.as_str()),
         );
-        if let Some((previous, texts)) = groups.last_mut() {
-            if *previous == label {
+        let identity = format!(
+            "{:?}|{:?}|{:?}|{}",
+            segment.speaker_attribution, segment.speaker_id, segment.speaker_ids, label
+        );
+        if let Some((previous, _, texts)) = groups.last_mut() {
+            if *previous == identity {
                 texts.push(segment.text.trim().to_string());
                 continue;
             }
         }
-        groups.push((label, vec![segment.text.trim().to_string()]));
+        groups.push((identity, label, vec![segment.text.trim().to_string()]));
     }
     if groups.is_empty() {
         return detail.summary.plain_text.clone();
     }
     groups
         .into_iter()
-        .map(|(label, texts)| {
+        .map(|(_, label, texts)| {
             let text = texts.join(" ");
-            if markdown {
+            if label.is_empty() {
+                text
+            } else if markdown {
                 format!("**{label}:** {text}")
             } else {
                 format!("{label}: {text}")
@@ -138,6 +150,11 @@ fn format_speaker_text(detail: &TranscriptDetail, markdown: bool) -> String {
 
 fn format_subtitles(detail: &TranscriptDetail, webvtt: bool) -> String {
     let names = speaker_names(detail);
+    let manual: HashSet<_> = detail
+        .manual_segment_ids
+        .iter()
+        .map(String::as_str)
+        .collect();
     detail
         .segments
         .iter()
@@ -148,16 +165,22 @@ fn format_subtitles(detail: &TranscriptDetail, webvtt: bool) -> String {
                 segment.speaker_id.as_deref(),
                 segment.speaker_ids.as_deref(),
                 &names,
+                manual.contains(segment.id.as_str()),
             );
             let timing = format!(
                 "{} --> {}",
                 subtitle_time(segment.start_ms, webvtt),
                 subtitle_time(segment.end_ms, webvtt)
             );
-            if webvtt {
-                format!("{timing}\n{label}: {}", segment.text.trim())
+            let text = if label.is_empty() {
+                segment.text.trim().to_string()
             } else {
-                format!("{}\n{timing}\n{label}: {}", index + 1, segment.text.trim())
+                format!("{label}: {}", segment.text.trim())
+            };
+            if webvtt {
+                format!("{timing}\n{text}")
+            } else {
+                format!("{}\n{timing}\n{text}", index + 1)
             }
         })
         .collect::<Vec<_>>()
@@ -177,21 +200,35 @@ fn segment_label(
     speaker_id: Option<&str>,
     speaker_ids: Option<&[String]>,
     names: &HashMap<&str, &str>,
+    manual: bool,
 ) -> String {
-    let name = |id: &str| names.get(id).copied().unwrap_or(id).to_string();
+    let name = |id: &str| {
+        names
+            .get(id)
+            .copied()
+            .unwrap_or("Unknown speaker")
+            .to_string()
+    };
     match attribution {
         SpeakerAttribution::Assigned => speaker_id
             .map(name)
             .unwrap_or_else(|| "Unknown speaker".into()),
         SpeakerAttribution::Likely => speaker_id
-            .map(|id| format!("{}?", name(id)))
-            .unwrap_or_else(|| "Likely speaker?".into()),
-        SpeakerAttribution::Overlap => speaker_ids
-            .unwrap_or_default()
-            .iter()
-            .map(|id| name(id))
-            .collect::<Vec<_>>()
-            .join(" + "),
+            .map(|id| format!("{} (likely)", name(id)))
+            .unwrap_or_else(|| "Likely speaker".into()),
+        SpeakerAttribution::Overlap => {
+            let label = speaker_ids
+                .unwrap_or_default()
+                .iter()
+                .map(|id| name(id))
+                .collect::<Vec<_>>()
+                .join(" + ");
+            if label.is_empty() {
+                "Overlapping speakers".into()
+            } else {
+                label
+            }
+        }
         SpeakerAttribution::Uncertain => {
             let candidates = speaker_ids
                 .unwrap_or_default()
@@ -205,7 +242,13 @@ fn segment_label(
                 format!("Uncertain: {candidates}")
             }
         }
-        SpeakerAttribution::None => "Unknown speaker".into(),
+        SpeakerAttribution::None => {
+            if names.is_empty() && !manual {
+                String::new()
+            } else {
+                "Unknown speaker".into()
+            }
+        }
     }
 }
 
@@ -245,6 +288,89 @@ fn safe_file_stem(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn detail() -> TranscriptDetail {
+        let store =
+            crate::review::ReviewStore::new(std::env::temp_dir().join("unused-export-test.sqlite"));
+        let source = crate::audio_files::SelectedSourceFile {
+            file_path: "/original.wav".into(),
+            original_name: "original.wav".into(),
+            mime_type: "audio/wav".into(),
+            size_bytes: 10,
+            duration_ms: Some(20000),
+            sha256: None,
+        };
+        let reference = store
+            .create_session("export", source, crate::review::fixture_result())
+            .unwrap();
+        store.get(&reference).unwrap().detail
+    }
+
+    #[test]
+    fn every_export_uses_effective_names_without_changing_passage_text_or_times() {
+        let mut detail = detail();
+        detail.speakers[0].display_name = "Maya".into();
+        detail.speakers[1].display_name = "Leo".into();
+        detail.segments[0].speaker_attribution = SpeakerAttribution::Likely;
+        for format in [
+            TranscriptExportFormat::Txt,
+            TranscriptExportFormat::Md,
+            TranscriptExportFormat::Srt,
+            TranscriptExportFormat::Vtt,
+        ] {
+            let output = format_transcript(&detail, format).unwrap();
+            assert!(output.contains("Maya (likely)"));
+            assert!(output.contains("Leo"));
+            assert!(output.contains("First."));
+            assert!(output.contains("Second."));
+        }
+        let srt = format_transcript(&detail, TranscriptExportFormat::Srt).unwrap();
+        assert!(srt.contains("00:00:00,000 --> 00:00:10,000"));
+        let json = format_transcript(&detail, TranscriptExportFormat::Json).unwrap();
+        let roundtrip: TranscriptDetail = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.segments[0].text, detail.segments[0].text);
+        assert_eq!(roundtrip.segments[1].start_ms, 10000);
+        assert_eq!(roundtrip.speakers[0].display_name, "Maya");
+    }
+
+    #[test]
+    fn disabled_identification_does_not_add_unknown_prefixes() {
+        let mut detail = detail();
+        detail.speakers.clear();
+        detail.diarization_turns.clear();
+        for s in &mut detail.segments {
+            s.speaker_id = None;
+            s.speaker_ids = None;
+            s.speaker_attribution = SpeakerAttribution::None;
+        }
+        for format in [
+            TranscriptExportFormat::Txt,
+            TranscriptExportFormat::Md,
+            TranscriptExportFormat::Srt,
+            TranscriptExportFormat::Vtt,
+        ] {
+            let output = format_transcript(&detail, format).unwrap();
+            assert!(!output.contains("Unknown speaker"));
+            assert!(output.contains("First."));
+        }
+        detail.manual_segment_ids = vec![detail.segments[0].id.clone()];
+        assert_eq!(
+            format_speaker_text(&detail, false),
+            "Unknown speaker: First.\n\nSecond."
+        );
+    }
+
+    #[test]
+    fn identical_display_names_do_not_merge_distinct_speaker_passages() {
+        let mut detail = detail();
+        for s in &mut detail.speakers {
+            s.display_name = "Alex".into();
+        }
+        assert_eq!(
+            format_speaker_text(&detail, false),
+            "Alex: First.\n\nAlex: Second."
+        );
+    }
 
     #[test]
     fn formats_subtitle_timestamps() {

@@ -1109,9 +1109,10 @@ export async function getFileTranscriptionStatuses(): Promise<
       (left, right) => right.startedAtMs - left.startedAtMs,
     );
   }
-  return invoke<FileTranscriptionStatusEvent[]>(
+  const statuses = await invoke<FileTranscriptionStatusEvent[]>(
     "get_file_transcription_statuses",
   );
+  return Promise.all(statuses.map(hydrateFileStatus));
 }
 
 export async function cancelFileTranscription(jobId: string): Promise<void> {
@@ -1332,7 +1333,9 @@ export async function listenFileTranscriptionStatus(
   return listen<FileTranscriptionStatusEvent>(
     "file-transcription-status",
     (event) => {
-      handler(event.payload);
+      void hydrateFileStatus(event.payload)
+        .then(handler)
+        .catch(() => handler(event.payload));
     },
   );
 }
@@ -1444,4 +1447,57 @@ export async function reportManualFeedback(
 ): Promise<void> {
   if (!isTauriRuntime()) return;
   await invoke("report_manual_feedback", { operationId, failed });
+}
+
+// Full text is fetched once per result revision. Heartbeats and polling only
+// carry lightweight metadata; concurrent event/poll reads share one promise.
+const fileResults = new Map<
+  string,
+  {
+    revision: number;
+    reference: import("../types/domain").ReviewRef;
+    result: Promise<FileTranscriptionResponse>;
+  }
+>();
+async function hydrateFileStatus(
+  status: FileTranscriptionStatusEvent,
+): Promise<FileTranscriptionStatusEvent> {
+  if (!status.reviewRef || !status.resultRevision || status.result)
+    return status;
+  let entry = fileResults.get(status.jobId);
+  if (!entry || entry.revision !== status.resultRevision) {
+    const result = invoke<FileTranscriptionResponse>(
+      "get_file_transcription_result",
+      { jobId: status.jobId },
+    );
+    entry = {
+      revision: status.resultRevision,
+      reference: status.reviewRef,
+      result,
+    };
+    fileResults.set(status.jobId, entry);
+    const expected = entry;
+    void result.catch(() => {
+      if (fileResults.get(status.jobId) === expected)
+        fileResults.delete(status.jobId);
+    });
+  }
+  return { ...status, result: await entry.result };
+}
+export function invalidateFileReview(
+  reference: import("../types/domain").ReviewRef,
+) {
+  // Edits do not change a file job's processing stage, but its next read must
+  // reflect the latest projection. The review view owns its own revision data.
+  for (const [id, entry] of fileResults)
+    if (
+      entry.reference.kind === reference.kind &&
+      entry.reference.id === reference.id
+    )
+      fileResults.delete(id);
+}
+export async function dismissFileTranscription(jobId: string): Promise<void> {
+  if (isTauriRuntime()) await invoke("dismiss_file_transcription", { jobId });
+  else mockFileTranscriptionStatuses.delete(jobId);
+  fileResults.delete(jobId);
 }

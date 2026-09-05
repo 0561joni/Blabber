@@ -1,7 +1,5 @@
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -35,7 +33,9 @@ pub struct AppState {
     pub model_download_manager: ModelDownloadManager,
     pub desktop_shell: DesktopShellController,
     pub startup_notices: Arc<Mutex<Vec<String>>>,
-    pub rediarization_cancellations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    pub review_store: crate::review::ReviewStore,
+    pub review_jobs: crate::review_jobs::ReviewJobController,
+    pub review_media: crate::review_media::MediaStore,
 }
 
 impl AppState {
@@ -81,11 +81,24 @@ impl AppState {
             desktop_shell.clone(),
             Arc::clone(&sound_player),
         );
+        crate::review_media::cleanup_stale_audio(&temp_dir);
+        let review_store = crate::review::ReviewStore::new(db_path.clone());
+        let processing_queue = crate::review_jobs::ProcessingQueue::default();
+        let review_jobs = crate::review_jobs::ReviewJobController::new(
+            app.clone(),
+            review_store.clone(),
+            models_dir.clone(),
+            temp_dir.clone(),
+            processing_queue.clone(),
+        );
+        let review_media = crate::review_media::MediaStore::new(temp_dir.clone());
         let file_transcription_controller = FileTranscriptionController::new(
             app.clone(),
             Arc::clone(&transcription_engine),
             models_dir.clone(),
             db_path.clone(),
+            review_store.clone(),
+            processing_queue,
         );
         let model_download_manager = ModelDownloadManager::new(
             app.clone(),
@@ -108,7 +121,9 @@ impl AppState {
             model_download_manager,
             desktop_shell,
             startup_notices: Arc::new(Mutex::new(Vec::new())),
-            rediarization_cancellations: Arc::new(Mutex::new(HashMap::new())),
+            review_store,
+            review_jobs,
+            review_media,
         };
 
         report_phase(StartupPhase::Library);

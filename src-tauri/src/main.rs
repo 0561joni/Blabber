@@ -20,6 +20,9 @@ mod model_metadata;
 mod native_asr;
 mod platform;
 mod qwen_asr;
+mod review;
+mod review_jobs;
+mod review_media;
 mod settings;
 mod shutdown;
 mod sound;
@@ -50,8 +53,6 @@ use serde::{Deserialize, Serialize};
 use settings::{AppSettings, HealthCheckResponse, InsertBehavior, SettingsPatch};
 use startup::{StartupCoordinator, StartupPhase, StartupStatus};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 use storage::{TranscriptDetail, TranscriptSummary};
 use tauri::{DragDropEvent, Emitter, Manager, WebviewEvent, Window, WindowEvent};
@@ -321,7 +322,11 @@ fn get_transcript(
     state: tauri::State<'_, AppState>,
     transcript_id: String,
 ) -> Result<TranscriptDetail, String> {
-    storage::get_transcript(state.inner(), &transcript_id).map_err(|error| error.to_string())
+    state
+        .review_store
+        .get(&review::ReviewRef::Saved { id: transcript_id })
+        .map(|document| document.detail)
+        .map_err(|error| error.to_string())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -333,194 +338,204 @@ struct RediarizationRequest {
     speaker_count_hint: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum RediarizationStage {
-    Queued,
-    Validating,
-    Diarizing,
-    Saving,
-    Completed,
-    Failed,
-    Canceled,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RediarizationStatusEvent {
-    job_id: String,
-    transcript_id: String,
-    stage: RediarizationStage,
-    status_text: String,
-    error_message: Option<String>,
-}
-
-fn emit_rediarization_status(
-    app: &tauri::AppHandle,
-    request: &RediarizationRequest,
-    stage: RediarizationStage,
-    status_text: impl Into<String>,
-    error_message: Option<String>,
-) {
-    let _ = app.emit(
-        "rediarization-status",
-        RediarizationStatusEvent {
-            job_id: request.job_id.clone(),
-            transcript_id: request.transcript_id.clone(),
-            stage,
-            status_text: status_text.into(),
-            error_message,
-        },
-    );
-}
-
+// Compatibility entry point; the shared controller owns lifetime and cancellation.
 #[tauri::command]
 async fn rediarize_transcript(
-    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: RediarizationRequest,
 ) -> Result<TranscriptDetail, String> {
-    let work = shutdown::begin_work(true).map_err(|e| e.to_string())?;
-    diarization::validate_speaker_count_hint(request.speaker_count_hint).map_err(str::to_string)?;
-    let app_state = state.inner().clone();
-    let processing_lock = app_state.file_transcription_controller.processing_lock();
-    let cancelled = Arc::new(AtomicBool::new(false));
-    app_state
-        .rediarization_cancellations
-        .lock()
-        .map_err(|_| "Speaker retry state is unavailable.".to_string())?
-        .insert(request.job_id.clone(), Arc::clone(&cancelled));
-    emit_rediarization_status(
-        &app,
-        &request,
-        RediarizationStage::Queued,
-        "Waiting for local file processing…",
-        None,
-    );
-    let request_for_cleanup = request.clone();
-    let state_for_cleanup = app_state.clone();
-    let app_for_work = app.clone();
-    let outcome = tauri::async_runtime::spawn_blocking(move || -> Result<TranscriptDetail, String> {
-        let _work = work;
-        shutdown::ensure_running().map_err(|e| e.to_string())?;
-        let _processing_guard = loop {
-            if cancelled.load(Ordering::SeqCst) || shutdown::is_shutting_down() {
-                emit_rediarization_status(&app_for_work, &request, RediarizationStage::Canceled, "Speaker retry canceled.", None);
-                return Err("REDIARIZATION_CANCELED: Speaker retry canceled.".into());
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<TranscriptDetail> {
+        let reference = review::ReviewRef::Saved {
+            id: request.transcript_id,
+        };
+        if let Some(source) = request.source_file {
+            review_media::validated_source(
+                &state.review_store,
+                &reference,
+                Some(source.file_path),
+            )?;
+        }
+        let job = state.review_jobs.start(
+            reference.clone(),
+            request.speaker_count_hint,
+            false,
+            Some(request.job_id),
+        )?;
+        loop {
+            if let Some(status) = state
+                .review_jobs
+                .statuses()
+                .into_iter()
+                .find(|s| s.job_id == job.job_id)
+            {
+                if !status.active() {
+                    if status.stage == "completed" {
+                        return Ok(state.review_store.get(&reference)?.detail);
+                    }
+                    anyhow::bail!(status
+                        .error
+                        .map(|e| format!("{}: {}", e.code, e.message))
+                        .unwrap_or(status.status_text));
+                }
             }
-            match processing_lock.try_lock() {
-                Ok(guard) => break guard,
-                Err(std::sync::TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(100)),
-                Err(std::sync::TryLockError::Poisoned(_)) => return Err("Local file processing is unavailable.".into()),
-            }
-        };
-        emit_rediarization_status(&app_for_work, &request, RediarizationStage::Validating, "Validating the source audio…", None);
-        let detail = storage::get_transcript(&app_state, &request.transcript_id)
-            .map_err(|error| error.to_string())?;
-        let stored = storage::get_source_file(&app_state, &request.transcript_id)
-            .map_err(|error| error.to_string())?;
-        let candidate = if let Some(source) = request.source_file.clone() {
-            source
-        } else if std::path::Path::new(&stored.file_path).is_file() {
-            audio_files::selected_source_file_from_path(stored.file_path.clone().into())
-                .map_err(|error| error.to_string())?
-        } else {
-            return Err("SOURCE_FILE_REQUIRED: Select the original audio file to retry speaker identification.".into());
-        };
-        let stored_hash = stored.sha256.as_ref().ok_or_else(|| {
-            "SOURCE_FILE_MISMATCH: This older transcript has no source hash and cannot be retried safely."
-                .to_string()
-        })?;
-        if candidate.sha256.as_ref() != Some(stored_hash) {
-            return Err(
-                "SOURCE_FILE_MISMATCH: The selected audio does not match this transcript.".into(),
-            );
+            std::thread::sleep(Duration::from_millis(100));
         }
-        let package_path = model_downloads::installed_diarization_package_path(&app_state.models_dir)
-            .ok_or_else(|| "The updated speaker model is still installing or unavailable.".to_string())?;
-        let worker_request = diarization_worker::WorkerRequest {
-            job_id: uuid::Uuid::new_v4().to_string(),
-            audio_path: candidate.file_path.clone().into(),
-            package_path,
-            exact_speaker_count: request.speaker_count_hint,
-            spec_version: diarization::DIARIZATION_MODEL_SPEC_V2.manifest_version,
-        };
-        emit_rediarization_status(&app_for_work, &request, RediarizationStage::Diarizing, "Identifying speakers locally…", None);
-        let turns = diarization_worker::run_subprocess_worker(&worker_request, Some(&cancelled), || {})
-            .map_err(|error| error.to_string())?;
-        if let Some(warning) = diarization::overclustering_warning(&turns, request.speaker_count_hint) {
-            return Err(warning);
-        }
-        let mut result = asr::TranscriptResult {
-            job_id: worker_request.job_id,
-            model_name: detail.summary.model_name.clone().unwrap_or_default(),
-            full_text: detail.full_text.clone(),
-            plain_text: detail.summary.plain_text.clone(),
-            timestamped_text: detail.timestamped_text.clone(),
-            detected_languages: detail.summary.detected_languages.clone(),
-            segments: detail.segments.clone(),
-            quality_status: detail.summary.quality_status,
-            recovered_region_count: detail.summary.recovered_region_count,
-            warnings: detail.transcription_warnings.clone(),
-            diarization_status: diarization::DiarizationStatus::Pending,
-            diarization_model_id: None,
-            diarization_source: diarization::DiarizationSource::None,
-            diarization_warning: None,
-            diarization_policy_version: None,
-            diarization_clustering_threshold: None,
-            diarization_speaker_count_hint: None,
-            speakers: Vec::new(),
-            diarization_turns: Vec::new(),
-        };
-        diarization::apply_turns_to_transcript(&mut result, turns, request.speaker_count_hint);
-        emit_rediarization_status(&app_for_work, &request, RediarizationStage::Saving, "Saving speaker labels…", None);
-        storage::replace_transcript_diarization(&app_state, &request.transcript_id, &result, Some(&candidate))
-            .map_err(|error| error.to_string())
-    }).await.map_err(|error| error.to_string())?;
-    state_for_cleanup
-        .rediarization_cancellations
-        .lock()
-        .ok()
-        .map(|mut jobs| jobs.remove(&request_for_cleanup.job_id));
-    match &outcome {
-        Ok(_) => emit_rediarization_status(
-            &app,
-            &request_for_cleanup,
-            RediarizationStage::Completed,
-            "Speaker identification updated.",
-            None,
-        ),
-        Err(error) if error.contains("CANCELED") || error == "diarization canceled" => {
-            emit_rediarization_status(
-                &app,
-                &request_for_cleanup,
-                RediarizationStage::Canceled,
-                "Speaker retry canceled.",
-                None,
-            )
-        }
-        Err(error) => emit_rediarization_status(
-            &app,
-            &request_for_cleanup,
-            RediarizationStage::Failed,
-            "Speaker identification failed.",
-            Some(error.clone()),
-        ),
-    }
-    outcome
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn cancel_rediarization(state: tauri::State<'_, AppState>, job_id: String) -> Result<(), String> {
-    let jobs = state
-        .rediarization_cancellations
-        .lock()
-        .map_err(|_| "Speaker retry state is unavailable.".to_string())?;
-    let cancelled = jobs
-        .get(&job_id)
-        .ok_or_else(|| "Speaker retry is no longer active.".to_string())?;
-    cancelled.store(true, Ordering::SeqCst);
-    Ok(())
+    state.review_jobs.cancel(&job_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_review(
+    state: tauri::State<'_, AppState>,
+    reference: review::ReviewRef,
+) -> Result<review::ReviewDocument, review::ReviewError> {
+    let store = state.review_store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.get(&reference))
+        .await
+        .map_err(|e| review::ReviewError::from(anyhow::anyhow!(e)))?
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+async fn edit_review(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    reference: review::ReviewRef,
+    expected_revision: u64,
+    edit: review::ReviewEdit,
+) -> Result<review::ReviewDocument, review::ReviewError> {
+    let work = shutdown::begin_work(false).map_err(review::ReviewError::from)?;
+    let store = state.review_store.clone();
+    let document = tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        store.edit(&reference, expected_revision, edit)
+    })
+    .await
+    .map_err(|e| review::ReviewError::from(anyhow::anyhow!(e)))?
+    .map_err(review::ReviewError::from)?;
+    let _ = app.emit("review-updated", &document.reference);
+    Ok(document)
+}
+
+#[tauri::command]
+async fn start_review_job(
+    state: tauri::State<'_, AppState>,
+    reference: review::ReviewRef,
+    speaker_count: Option<i32>,
+    reset: bool,
+) -> Result<review_jobs::ReviewJobStatus, review::ReviewError> {
+    let jobs = state.review_jobs.clone();
+    tauri::async_runtime::spawn_blocking(move || jobs.start(reference, speaker_count, reset, None))
+        .await
+        .map_err(|e| review::ReviewError::from(anyhow::anyhow!(e)))?
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+fn get_review_job_statuses(state: tauri::State<'_, AppState>) -> Vec<review_jobs::ReviewJobStatus> {
+    state.review_jobs.statuses()
+}
+#[tauri::command]
+fn cancel_review_job(
+    state: tauri::State<'_, AppState>,
+    job_id: String,
+) -> Result<(), review::ReviewError> {
+    state.review_jobs.cancel(&job_id).map_err(Into::into)
+}
+
+#[tauri::command]
+async fn resolve_review_audio(
+    state: tauri::State<'_, AppState>,
+    reference: review::ReviewRef,
+    replacement_path: Option<String>,
+    fallback: bool,
+) -> Result<review_media::ReviewAudio, review::ReviewError> {
+    let state = state.inner().clone();
+    let work = shutdown::begin_work(false).map_err(review::ReviewError::from)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        state
+            .review_media
+            .resolve(&state.review_store, &reference, replacement_path, fallback)
+    })
+    .await
+    .map_err(|e| review::ReviewError::from(anyhow::anyhow!(e)))?
+    .map_err(Into::into)
+}
+#[tauri::command]
+fn release_review_audio(state: tauri::State<'_, AppState>, token: String) {
+    state.review_media.release(&token);
+}
+#[tauri::command]
+async fn copy_review(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    reference: review::ReviewRef,
+    variant: TranscriptCopyVariant,
+) -> Result<(), review::ReviewError> {
+    let store = state.review_store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        transcript_commands::copy(&app, &store.get(&reference)?.detail, variant)
+    })
+    .await
+    .map_err(|e| review::ReviewError::from(anyhow::anyhow!(e)))?
+    .map_err(Into::into)
+}
+#[tauri::command]
+async fn export_review(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    reference: review::ReviewRef,
+    format: TranscriptExportFormat,
+) -> Result<TranscriptExportResult, review::ReviewError> {
+    let store = state.review_store.clone();
+    let work = shutdown::begin_work(false).map_err(review::ReviewError::from)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        transcript_commands::export_blocking(&app, &window, &store.get(&reference)?.detail, format)
+    })
+    .await
+    .map_err(|e| review::ReviewError::from(anyhow::anyhow!(e)))?
+    .map_err(Into::into)
+}
+#[tauri::command]
+async fn get_file_transcription_result(
+    state: tauri::State<'_, AppState>,
+    job_id: String,
+) -> Result<file_jobs::FileTranscriptionResponse, String> {
+    let controller = state.file_transcription_controller.clone();
+    tauri::async_runtime::spawn_blocking(move || controller.result(&job_id))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn dismiss_file_transcription(
+    state: tauri::State<'_, AppState>,
+    job_id: String,
+) -> Result<(), String> {
+    if let Ok(result) = state.file_transcription_controller.result(&job_id) {
+        let reference = result
+            .saved_transcript
+            .map(|s| review::ReviewRef::Saved { id: s.id })
+            .unwrap_or(review::ReviewRef::Session { id: job_id.clone() });
+        if state.review_jobs.active_for(&reference) {
+            return Err("Stop the speaker retry before dismissing this result.".into());
+        }
+    }
+    state
+        .file_transcription_controller
+        .dismiss(&job_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -529,7 +544,9 @@ fn rename_transcript(
     transcript_id: String,
     title: String,
 ) -> Result<TranscriptSummary, String> {
-    storage::rename_transcript(state.inner(), &transcript_id, &title)
+    state
+        .review_store
+        .rename_title(&transcript_id, &title)
         .map_err(|error| error.to_string())
 }
 
@@ -540,7 +557,22 @@ fn rename_transcript_speaker(
     speaker_id: String,
     display_name: String,
 ) -> Result<TranscriptDetail, String> {
-    storage::rename_transcript_speaker(state.inner(), &transcript_id, &speaker_id, &display_name)
+    let reference = review::ReviewRef::Saved { id: transcript_id };
+    let document = state
+        .review_store
+        .get(&reference)
+        .map_err(|e| e.to_string())?;
+    state
+        .review_store
+        .edit(
+            &reference,
+            document.revision,
+            review::ReviewEdit::Rename {
+                speaker_id,
+                name: display_name,
+            },
+        )
+        .map(|document| document.detail)
         .map_err(|error| error.to_string())
 }
 
@@ -551,7 +583,10 @@ fn copy_transcript(
     transcript_id: String,
     variant: TranscriptCopyVariant,
 ) -> Result<(), String> {
-    let detail = storage::get_transcript(state.inner(), &transcript_id)
+    let detail = state
+        .review_store
+        .get(&review::ReviewRef::Saved { id: transcript_id })
+        .map(|document| document.detail)
         .map_err(|error| error.to_string())?;
     transcript_commands::copy(&app, &detail, variant).map_err(|error| error.to_string())
 }
@@ -566,7 +601,10 @@ async fn export_transcript(
 ) -> Result<TranscriptExportResult, String> {
     let app_state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let detail = storage::get_transcript(&app_state, &transcript_id)
+        let detail = app_state
+            .review_store
+            .get(&review::ReviewRef::Saved { id: transcript_id })
+            .map(|document| document.detail)
             .map_err(|error| error.to_string())?;
         transcript_commands::export_blocking(&app, &window, &detail, format)
             .map_err(|error| error.to_string())
@@ -1191,6 +1229,17 @@ fn main() {
             delete_transcript,
             delete_all_transcripts,
             get_transcript,
+            get_review,
+            edit_review,
+            start_review_job,
+            get_review_job_statuses,
+            cancel_review_job,
+            resolve_review_audio,
+            release_review_audio,
+            copy_review,
+            export_review,
+            get_file_transcription_result,
+            dismiss_file_transcription,
             rediarize_transcript,
             cancel_rediarization,
             rename_transcript,

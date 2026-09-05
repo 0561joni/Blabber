@@ -67,6 +67,10 @@ pub struct FileTranscriptionStatusEvent {
     pub eta_seconds: Option<i64>,
     pub status_text: String,
     pub result: Option<FileTranscriptionResponse>,
+    #[serde(default)]
+    pub review_ref: Option<crate::review::ReviewRef>,
+    #[serde(default)]
+    pub result_revision: u64,
     pub error_message: Option<String>,
     pub started_at_ms: i64,
     pub updated_at_ms: i64,
@@ -150,9 +154,12 @@ pub struct FileTranscriptionController {
     db_path: PathBuf,
     statuses: Arc<Mutex<HashMap<String, FileTranscriptionStatusEvent>>>,
     status_updates: Arc<Mutex<()>>,
+    publication: Arc<Mutex<()>>,
     queued_requests: Arc<Mutex<VecDeque<FileTranscriptionRequest>>>,
     active_run: Arc<Mutex<Option<ActiveFileTranscriptionRun>>>,
-    processing_lock: Arc<Mutex<()>>,
+    processing_queue: crate::review_jobs::ProcessingQueue,
+    review_store: crate::review::ReviewStore,
+    published_models: Arc<Mutex<HashMap<String, Option<InstalledModel>>>>,
     log_path: PathBuf,
 }
 
@@ -162,6 +169,8 @@ impl FileTranscriptionController {
         engine: Arc<dyn TranscriptionEngine>,
         models_dir: PathBuf,
         db_path: PathBuf,
+        review_store: crate::review::ReviewStore,
+        processing_queue: crate::review_jobs::ProcessingQueue,
     ) -> Self {
         let log_path = db_path
             .parent()
@@ -174,9 +183,12 @@ impl FileTranscriptionController {
             db_path,
             statuses: Arc::new(Mutex::new(HashMap::new())),
             status_updates: Arc::new(Mutex::new(())),
+            publication: Default::default(),
             queued_requests: Arc::new(Mutex::new(VecDeque::new())),
             active_run: Arc::new(Mutex::new(None)),
-            processing_lock: Arc::new(Mutex::new(())),
+            processing_queue,
+            review_store,
+            published_models: Default::default(),
             log_path,
         }
     }
@@ -195,11 +207,22 @@ impl FileTranscriptionController {
             eta_seconds: None,
             status_text: "Queued for local transcription.".to_string(),
             result: None,
+            review_ref: None,
+            result_revision: 0,
             error_message: None,
             started_at_ms: now,
             updated_at_ms: now,
         };
 
+        // Idempotent admission prevents duplicate workers for repeated IPC calls.
+        {
+            let mut statuses = self.statuses.lock().expect("file status mutex poisoned");
+            if statuses.contains_key(&job_id) {
+                return StartFileTranscriptionResponse { job_id };
+            }
+            statuses.insert(job_id.clone(), queued_status.clone());
+        }
+        self.processing_queue.enqueue(&job_id);
         self.persist_status(queued_status);
         self.log_job(&job_id, "accepted", "Queued for local transcription.");
         self.queued_requests
@@ -238,11 +261,62 @@ impl FileTranscriptionController {
         }
     }
 
-    pub fn processing_lock(&self) -> Arc<Mutex<()>> {
-        Arc::clone(&self.processing_lock)
+    pub fn result(&self, job_id: &str) -> Result<FileTranscriptionResponse> {
+        let status = self
+            .current_status(job_id)
+            .ok_or_else(|| anyhow!("File job not found."))?;
+        let reference = status
+            .review_ref
+            .ok_or_else(|| anyhow!("Text is not ready yet."))?;
+        let document = self.review_store.get(&reference)?;
+        let source_file = self.review_store.source(&reference)?;
+        let result = crate::review::result_from_detail(&document.detail);
+        Ok(FileTranscriptionResponse {
+            source_file,
+            result,
+            resolved_model: self
+                .published_models
+                .lock()
+                .ok()
+                .and_then(|models| models.get(job_id).cloned())
+                .flatten(),
+            saved_transcript: matches!(reference, crate::review::ReviewRef::Saved { .. })
+                .then_some(document.detail.summary),
+        })
+    }
+
+    pub fn dismiss(&self, job_id: &str) -> Result<()> {
+        let status = self
+            .current_status(job_id)
+            .ok_or_else(|| anyhow!("File job not found."))?;
+        if !is_terminal(&status.stage) {
+            return Err(anyhow!("Stop processing before dismissing this file."));
+        }
+        if let Some(reference) = status.review_ref {
+            self.review_store.discard(&reference)?;
+        }
+        self.statuses
+            .lock()
+            .map_err(|_| anyhow!("File status unavailable"))?
+            .remove(job_id);
+        self.published_models
+            .lock()
+            .map_err(|_| anyhow!("File result unavailable"))?
+            .remove(job_id);
+        Ok(())
     }
 
     pub fn cancel(&self, job_id: &str) -> Result<()> {
+        let _publication = self
+            .publication
+            .lock()
+            .map_err(|_| anyhow!("File result unavailable"))?;
+        if self
+            .current_status(job_id)
+            .is_some_and(|s| is_terminal(&s.stage))
+        {
+            return Ok(());
+        }
         let removed_from_queue = {
             let mut queue = self
                 .queued_requests
@@ -270,6 +344,21 @@ impl FileTranscriptionController {
             }
         };
 
+        if removed_from_queue {
+            self.processing_queue.remove(job_id);
+        }
+        if active_cancelled
+            && self
+                .current_status(job_id)
+                .is_some_and(|s| s.review_ref.is_some())
+        {
+            if let Some(mut status) = self.current_status(job_id) {
+                status.status_text = "Stopping speaker processing; keeping your transcript…".into();
+                status.updated_at_ms = now_ms();
+                self.persist_status(status);
+            }
+            return Ok(());
+        }
         if removed_from_queue || active_cancelled {
             self.cancel_job(
                 job_id,
@@ -291,36 +380,27 @@ impl FileTranscriptionController {
         if crate::shutdown::is_shutting_down() {
             return;
         }
-        {
-            let active = self
-                .active_run
-                .lock()
-                .expect("file transcription active mutex poisoned");
-            if active.is_some() {
-                return;
-            }
+        let mut active = self
+            .active_run
+            .lock()
+            .expect("file transcription active mutex poisoned");
+        if active.is_some() {
+            return;
         }
-
         let Some(request) = self
             .queued_requests
             .lock()
-            .expect("file transcription queue mutex poisoned")
+            .expect("file queue mutex poisoned")
             .pop_front()
         else {
             return;
         };
-
         let control = Arc::new(FileJobRunControl::new());
-        {
-            let mut active = self
-                .active_run
-                .lock()
-                .expect("file transcription active mutex poisoned");
-            *active = Some(ActiveFileTranscriptionRun {
-                job_id: request.job_id.clone(),
-                control: Arc::clone(&control),
-            });
-        }
+        *active = Some(ActiveFileTranscriptionRun {
+            job_id: request.job_id.clone(),
+            control: control.clone(),
+        });
+        drop(active);
 
         let controller = self.clone();
         thread::spawn(move || {
@@ -332,15 +412,23 @@ impl FileTranscriptionController {
         let Ok(_work) = crate::shutdown::begin_work(true) else {
             return;
         };
-        let _processing_guard = self
-            .processing_lock
-            .lock()
-            .expect("file processing mutex poisoned");
-        let watchdog = self.spawn_watchdog(request.job_id.clone(), Arc::clone(&control));
+        let permit = self
+            .processing_queue
+            .acquire(&request.job_id, &control.cancelled);
+        if permit.is_err() {
+            self.processing_queue.remove(&request.job_id);
+            self.finish_run(&request.job_id);
+            self.maybe_spawn_next();
+            return;
+        }
+        let _processing_guard = permit.ok();
+        let (watchdog_finished, watchdog_wait) = mpsc::channel();
+        let watchdog =
+            self.spawn_watchdog(request.job_id.clone(), Arc::clone(&control), watchdog_wait);
 
         let result = self.process_file_job(&request, Arc::clone(&control));
         control.stop();
-
+        let _ = watchdog_finished.send(());
         let _ = watchdog.join();
 
         if let Err(error) = result {
@@ -351,6 +439,7 @@ impl FileTranscriptionController {
             );
         }
 
+        drop(_processing_guard);
         self.finish_run(&request.job_id);
         self.maybe_spawn_next();
     }
@@ -375,6 +464,34 @@ impl FileTranscriptionController {
             &request.job_id,
             "preparing",
             &request.source_file.original_name,
+        );
+
+        let preparation_started = Instant::now();
+        let temp_dir = self.db_path.parent().unwrap_or(Path::new(".")).join("temp");
+        let prepared =
+            crate::audio_preprocess::prepare_job_audio(&request.source_file.file_path, &temp_dir)?;
+        if control.is_cancelled() {
+            return Err(anyhow!("File preparation canceled."));
+        }
+        let mut request = request.clone();
+        request.source_file.duration_ms = Some(prepared.duration_ms);
+        request.source_file.sha256 = Some(prepared.sha256.clone());
+        if let Some(status) = self
+            .statuses
+            .lock()
+            .expect("file status mutex poisoned")
+            .get_mut(&request.job_id)
+        {
+            status.source_file = request.source_file.clone();
+        }
+        let request = &request;
+        self.log_job(
+            &request.job_id,
+            "timing",
+            &format!(
+                "preparation_ms={}",
+                preparation_started.elapsed().as_millis()
+            ),
         );
 
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
@@ -450,7 +567,14 @@ impl FileTranscriptionController {
                 fixed_language: settings.fixed_language.clone(),
                 timestamps: true,
                 prefer_gpu: settings.gpu_enabled,
-                file_path: request.source_file.file_path.clone(),
+                file_path: if resolved_model
+                    .as_ref()
+                    .is_some_and(|model| model.engine == "vibevoice-mlx")
+                {
+                    request.source_file.file_path.clone()
+                } else {
+                    prepared.path.to_string_lossy().into_owned()
+                },
                 context_prompt: vocabulary_prompt.as_ref().map(|prompt| prompt.text.clone()),
                 context_terms: vocabulary_prompt
                     .as_ref()
@@ -467,6 +591,12 @@ impl FileTranscriptionController {
             ));
         }
 
+        let asr_duration = started_at.elapsed();
+        self.log_job(
+            &request.job_id,
+            "timing",
+            &format!("asr_ms={}", asr_duration.as_millis()),
+        );
         let mut corrected = vocabulary::correct_transcript_result(&self.db_path, transcript)?;
         if !corrected.warnings.is_empty() {
             self.log_job(
@@ -480,6 +610,62 @@ impl FileTranscriptionController {
                 ),
             );
         }
+        let standalone = should_run_post_process_diarization(
+            settings.file_diarization_enabled,
+            resolved_model.as_ref(),
+        );
+        if standalone {
+            corrected.diarization_status = diarization::DiarizationStatus::Running;
+            corrected.diarization_speaker_count_hint = request.speaker_count_hint;
+        }
+        let initial_publication = self
+            .publication
+            .lock()
+            .map_err(|_| anyhow!("File result unavailable"))?;
+        if control.is_cancelled() {
+            return Err(anyhow!("Transcription canceled before saving."));
+        }
+        let initial_saving = Instant::now();
+        let saved_transcript = if settings.save_history {
+            Some(storage::save_file_transcription(
+                &self.db_path,
+                &request.source_file,
+                &corrected,
+            )?)
+        } else {
+            None
+        };
+        self.update_status(
+            &request.job_id,
+            if standalone {
+                FileTranscriptionJobStage::Diarizing
+            } else {
+                FileTranscriptionJobStage::Saving
+            },
+            if standalone {
+                "Text ready · Identifying speakers"
+            } else {
+                "Text ready"
+            },
+            None,
+            request.source_file.duration_ms,
+            request.source_file.duration_ms,
+            None,
+            Some(FileTranscriptionResponse {
+                source_file: request.source_file.clone(),
+                resolved_model: resolved_model.clone(),
+                result: corrected.clone(),
+                saved_transcript: saved_transcript.clone(),
+            }),
+            None,
+        )?;
+        self.log_job(
+            &request.job_id,
+            "timing",
+            &format!("initial_saving_ms={}", initial_saving.elapsed().as_millis()),
+        );
+        drop(initial_publication);
+        let speaker_started = Instant::now();
         if should_run_post_process_diarization(
             settings.file_diarization_enabled,
             resolved_model.as_ref(),
@@ -487,7 +673,7 @@ impl FileTranscriptionController {
             self.update_status(
                 &request.job_id,
                 FileTranscriptionJobStage::Diarizing,
-                "Identifying speakers locally...",
+                "Text ready · Identifying speakers",
                 None,
                 request.source_file.duration_ms,
                 request.source_file.duration_ms,
@@ -505,7 +691,7 @@ impl FileTranscriptionController {
             {
                 let worker_request = diarization_worker::WorkerRequest {
                     job_id: request.job_id.clone(),
-                    audio_path: request.source_file.file_path.clone().into(),
+                    audio_path: prepared.path.clone(),
                     package_path,
                     exact_speaker_count: request.speaker_count_hint,
                     spec_version: diarization::DIARIZATION_MODEL_SPEC_V2.manifest_version,
@@ -525,10 +711,19 @@ impl FileTranscriptionController {
                             self.log_job(&request.job_id, "diarization_fallback", &warning);
                             diarization::mark_failure(&mut corrected, warning);
                         } else {
+                            let reconciliation = Instant::now();
                             diarization::apply_turns_to_transcript(
                                 &mut corrected,
                                 turns,
                                 request.speaker_count_hint,
+                            );
+                            self.log_job(
+                                &request.job_id,
+                                "timing",
+                                &format!(
+                                    "reconciliation_ms={}",
+                                    reconciliation.elapsed().as_millis()
+                                ),
                             );
                             let assigned = corrected
                                 .segments
@@ -565,10 +760,16 @@ impl FileTranscriptionController {
                                 "diarization_fallback",
                                 "worker stopped reporting activity",
                             );
-                            diarization::mark_failure(
-                                &mut corrected,
-                                "Speaker identification stopped responding. The transcript was saved without speaker labels.",
-                            );
+                            if control.reason() == FileJobCancellationReason::User {
+                                corrected.diarization_status =
+                                    diarization::DiarizationStatus::Canceled;
+                                corrected.diarization_warning = Some(
+                                    "Speaker identification stopped. Your transcript was kept."
+                                        .into(),
+                                );
+                            } else {
+                                diarization::mark_failure(&mut corrected,"Speaker identification stopped responding. Your transcript was kept.");
+                            }
                         } else {
                             return Err(error);
                         }
@@ -593,8 +794,31 @@ impl FileTranscriptionController {
                 );
             }
         }
-        let wall_duration_ms = started_at.elapsed().as_millis() as i64;
+        self.log_job(
+            &request.job_id,
+            "timing",
+            &format!(
+                "speakers_total_ms={}",
+                speaker_started.elapsed().as_millis()
+            ),
+        );
+        let wall_duration_ms = asr_duration.as_millis() as i64;
 
+        let _final_publication = self
+            .publication
+            .lock()
+            .map_err(|_| anyhow!("File result unavailable"))?;
+        if standalone && control.reason() == FileJobCancellationReason::User {
+            if let Some(reference) = self
+                .current_status(&request.job_id)
+                .and_then(|s| s.review_ref)
+            {
+                corrected = self.review_store.machine(&reference)?;
+                corrected.diarization_status = diarization::DiarizationStatus::Canceled;
+                corrected.diarization_warning =
+                    Some("Speaker identification stopped. Your transcript was kept.".into());
+            }
+        }
         let completion_message = match corrected.quality_status {
             crate::asr::TranscriptQualityStatus::Clean => "Transcription completed.",
             crate::asr::TranscriptQualityStatus::Recovered => {
@@ -620,16 +844,6 @@ impl FileTranscriptionController {
             "saving",
             &request.source_file.original_name,
         );
-
-        let saved_transcript = if settings.save_history {
-            Some(storage::save_file_transcription(
-                &self.db_path,
-                &request.source_file,
-                &corrected,
-            )?)
-        } else {
-            None
-        };
 
         if let Some(model_id) =
             resolve_model_id_for_job(&self.db_path, PreviewSourceKind::FileUpload)
@@ -845,13 +1059,18 @@ impl FileTranscriptionController {
         &self,
         job_id: String,
         control: Arc<FileJobRunControl>,
+        finished: mpsc::Receiver<()>,
     ) -> thread::JoinHandle<()> {
         let controller = self.clone();
         thread::spawn(move || loop {
             if control.is_cancelled() {
                 break;
             }
-            thread::sleep(Duration::from_millis(1500));
+            if finished.recv_timeout(Duration::from_millis(1500))
+                != Err(mpsc::RecvTimeoutError::Timeout)
+            {
+                break;
+            }
             if control.is_cancelled() {
                 break;
             }
@@ -914,9 +1133,43 @@ impl FileTranscriptionController {
         result: Option<FileTranscriptionResponse>,
         error_message: Option<String>,
     ) -> Result<()> {
+        let _status_update = self
+            .status_updates
+            .lock()
+            .map_err(|_| anyhow!("File status unavailable"))?;
         let current = self
             .current_status(job_id)
             .ok_or_else(|| anyhow!("Missing file transcription status for job {}", job_id))?;
+        if is_terminal(&current.stage) {
+            return Ok(());
+        }
+        let mut review_ref = current.review_ref.clone();
+        let mut result_revision = current.result_revision;
+        if let Some(response) = result {
+            let document = if let Some(reference) = &review_ref {
+                self.review_store
+                    .replace_machine(reference, response.result, false)?
+            } else {
+                let reference = if let Some(saved) = response.saved_transcript {
+                    crate::review::ReviewRef::Saved { id: saved.id }
+                } else {
+                    self.review_store.create_session(
+                        job_id,
+                        response.source_file.clone(),
+                        response.result,
+                    )?
+                };
+                let document = self.review_store.get(&reference)?;
+                review_ref = Some(reference);
+                document
+            };
+            result_revision = document.revision;
+            self.published_models
+                .lock()
+                .expect("published model mutex poisoned")
+                .insert(job_id.into(), response.resolved_model);
+            let _ = self.app.emit("review-updated", &document.reference);
+        }
         let next = FileTranscriptionStatusEvent {
             job_id: current.job_id.clone(),
             source_file: current.source_file.clone(),
@@ -926,12 +1179,18 @@ impl FileTranscriptionController {
             total_ms,
             eta_seconds,
             status_text: status_text.to_string(),
-            result,
+            result: None,
+            review_ref,
+            result_revision,
             error_message,
             started_at_ms: current.started_at_ms,
-            updated_at_ms: now_ms(),
+            updated_at_ms: now_ms().max(current.updated_at_ms + 1),
         };
-        self.persist_status(next);
+        self.statuses
+            .lock()
+            .map_err(|_| anyhow!("File status unavailable"))?
+            .insert(job_id.into(), next.clone());
+        self.emit_status(next);
         Ok(())
     }
 
@@ -977,7 +1236,7 @@ impl FileTranscriptionController {
         self.log_job(job_id, "canceled", &error_message);
     }
 
-    fn persist_status(&self, status: FileTranscriptionStatusEvent) {
+    fn persist_status(&self, mut status: FileTranscriptionStatusEvent) {
         let _status_update = self
             .status_updates
             .lock()
@@ -987,6 +1246,15 @@ impl FileTranscriptionController {
                 .statuses
                 .lock()
                 .expect("file transcription status mutex poisoned");
+            if let Some(current) = statuses.get(&status.job_id) {
+                if is_terminal(&current.stage) {
+                    return;
+                }
+                if status.updated_at_ms < current.updated_at_ms {
+                    return;
+                }
+                status.updated_at_ms = status.updated_at_ms.max(current.updated_at_ms + 1);
+            }
             statuses.insert(status.job_id.clone(), status.clone());
         }
 
@@ -1125,7 +1393,10 @@ fn watchdog_disposition(stage: &FileTranscriptionJobStage) -> WatchdogDispositio
 }
 
 fn preserve_asr_after_diarization_cancellation(reason: FileJobCancellationReason) -> bool {
-    reason == FileJobCancellationReason::Watchdog
+    matches!(
+        reason,
+        FileJobCancellationReason::Watchdog | FileJobCancellationReason::User
+    )
 }
 
 fn is_terminal(stage: &FileTranscriptionJobStage) -> bool {
@@ -1162,6 +1433,8 @@ mod tests {
             eta_seconds: None,
             status_text: "Identifying speakers locally...".to_string(),
             result: None,
+            review_ref: None,
+            result_revision: 0,
             error_message: None,
             started_at_ms: 0,
             updated_at_ms,
@@ -1245,7 +1518,7 @@ mod tests {
 
         assert!(control.is_cancelled());
         assert_eq!(control.reason(), FileJobCancellationReason::User);
-        assert!(!preserve_asr_after_diarization_cancellation(
+        assert!(preserve_asr_after_diarization_cancellation(
             control.reason()
         ));
     }
