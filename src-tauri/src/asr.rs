@@ -215,6 +215,11 @@ impl LocalTranscriptionEngine {
         }
     }
 
+    pub fn release_resources(&self) {
+        self.whisper.invalidate_context_cache();
+        self.qwen.invalidate_context_cache();
+    }
+
     fn resolve_model(
         &self,
         selected_model_id: Option<&str>,
@@ -275,6 +280,7 @@ impl TranscriptionEngine for LocalTranscriptionEngine {
         mut request: FileTranscriptionRequest,
         progress: Option<Arc<AtomicI32>>,
     ) -> Result<TranscriptResult> {
+        let _work = crate::shutdown::begin_work(true)?;
         let model = self.resolve_model(request.selected_model_id.as_deref(), request.profile)?;
         if let Some(use_context) = request.use_context {
             if !model.capabilities.supported_contexts.contains(&use_context) {
@@ -460,7 +466,7 @@ impl TranscriptionEngine for SharedWhisperEngine {
             vad_model_path.as_deref(),
         )
         .or_else(|error| {
-            if gpu_active {
+            if gpu_active && !crate::shutdown::is_shutting_down() {
                 let cpu_context = self
                     .obtain_context(&model, false)
                     .with_context(|| format!("{}; CPU context creation also failed", error))?;
@@ -612,6 +618,7 @@ fn run_resilient_whisper(
     progress: &Option<Arc<AtomicI32>>,
     vad_model_path: Option<&Path>,
 ) -> Result<TranscriptResult> {
+    crate::shutdown::ensure_running()?;
     let mut decoder_state = context
         .create_state()
         .context("failed to create whisper state for resilient transcription")?;
@@ -756,6 +763,7 @@ fn decode_audio_chunk(
     reporter: Option<&ProgressReporter>,
     options: DecodeOptions,
 ) -> Result<TranscriptResult> {
+    crate::shutdown::ensure_running()?;
     let chunk_audio = audio_preprocess::PreparedAudio {
         sample_rate_hz: prepared.sample_rate_hz,
         channels: prepared.channels,
@@ -1067,6 +1075,7 @@ fn run_whisper(
     progress: &Option<Arc<AtomicI32>>,
     vad_model_path: Option<&Path>,
 ) -> Result<TranscriptResult> {
+    crate::shutdown::ensure_running()?;
     let duration_ms =
         (prepared.samples.len() as u128 * 1000 / prepared.sample_rate_hz.max(1) as u128) as i64;
     if duration_ms > DIRECT_FILE_MAX_MS && request.timestamps {
@@ -1174,6 +1183,7 @@ fn run_whisper_once(
     progress: Option<&ProgressReporter>,
     options: DecodeOptions,
 ) -> Result<TranscriptResult> {
+    crate::shutdown::ensure_running()?;
     let mut state = context
         .create_state()
         .context("failed to create whisper state")?;
@@ -1197,6 +1207,7 @@ fn run_whisper_with_state(
     progress: Option<&ProgressReporter>,
     options: DecodeOptions,
 ) -> Result<TranscriptResult> {
+    crate::shutdown::ensure_running()?;
     let mut params = FullParams::new(SamplingStrategy::BeamSearch {
         beam_size: 5,
         patience: -1.0,
@@ -1204,6 +1215,9 @@ fn run_whisper_with_state(
     let threads = std::thread::available_parallelism()
         .map(|value| value.get().min(8) as i32)
         .unwrap_or(4);
+    params.set_abort_callback_safe::<_, fn() -> bool>(Some(
+        crate::shutdown::is_shutting_down as fn() -> bool,
+    ));
     params.set_n_threads(threads);
     params.set_translate(false);
     params.set_no_context(true);
@@ -1415,6 +1429,34 @@ fn format_ms(ms: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Runs in a dedicated process so C++ static destructors are exercised.
+    /// Set BLABBER_WHISPER_SMOKE_MODEL to an installed Whisper .bin model.
+    #[test]
+    #[ignore = "requires BLABBER_WHISPER_SMOKE_MODEL and a macOS Metal device"]
+    #[cfg(target_os = "macos")]
+    fn metal_cache_release_exits_cleanly() {
+        let path = std::env::var("BLABBER_WHISPER_SMOKE_MODEL").expect("model path");
+        let dir = Path::new(&path).parent().unwrap();
+        let models = discover_whisper_models(dir).unwrap();
+        let model = models
+            .iter()
+            .find(|m| m.local_path == path)
+            .unwrap()
+            .clone();
+        let engine = LocalTranscriptionEngine::new(dir.into(), models);
+        let context = engine
+            .whisper
+            .obtain_context(&model, true)
+            .expect("Metal model load");
+        assert_eq!(Arc::strong_count(&context), 2);
+        drop(context);
+        engine.release_resources();
+        assert!(engine.whisper.context_cache.lock().unwrap().is_none());
+        // Tauri keeps managed state alive until process termination. Mimic
+        // that lifetime; the cache must already be empty before libc exit.
+        std::mem::forget(engine);
+    }
 
     fn model() -> InstalledModel {
         InstalledModel {

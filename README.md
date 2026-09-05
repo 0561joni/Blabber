@@ -35,6 +35,21 @@ npm install
 npm run tauri dev
 ```
 
+### Closing and quitting
+
+On macOS, the red close button hides the workspace. Clicking the Dock icon or the menu-bar icon restores it. Cmd-Q, Dock Quit, the application menu, and the tray's Quit entry share one shutdown path.
+
+Idle quit requires no confirmation. If recording, transcription, or speaker processing is active, Blabber offers **Weiterarbeiten** or **Abbrechen und beenden**. Accepted quit blocks new work, stops capture and workers, restores audio volume, drains active operations, and releases cached model/GPU resources before terminating. The window shows cleanup status while this completes. Engines without a safe mid-call abort finish their current native call before their memory is released. Partial model downloads retain the existing resume behavior.
+
+Native regression probes (macOS, without workspace windows or user data):
+
+```bash
+cargo run --manifest-path src-tauri/Cargo.toml --example macos_quit_smoke -- --native
+cargo run --manifest-path src-tauri/Cargo.toml --example macos_quit_smoke -- --tauri
+```
+
+The ignored `asr::tests::metal_cache_release_exits_cleanly` test can additionally be run in a dedicated test process with `BLABBER_WHISPER_SMOKE_MODEL` set to an installed Whisper `.bin` file. It verifies that a cached Metal model is released before process exit, reproducing the managed-state lifetime involved in the former quit crash.
+
 Platform prerequisites:
 
 - macOS: working Rust toolchain, accepted Xcode license, `macOS 11.0+`

@@ -85,6 +85,11 @@ impl DesktopShellController {
     }
 
     pub fn set_overlay_payload(&self, payload: DictationOverlayPayload) -> Result<()> {
+        let payload = if crate::shutdown::is_shutting_down() {
+            DictationOverlayPayload::default()
+        } else {
+            payload
+        };
         if let Ok(mut current) = self.overlay_payload.lock() {
             *current = payload.clone();
         }
@@ -125,7 +130,7 @@ impl DesktopShellController {
                 return Ok(());
             }
             MainWindowCloseAction::Exit => {
-                self.app.exit(0);
+                crate::shutdown::request_exit(&self.app, crate::shutdown::ExitAction::Quit);
                 return Ok(());
             }
             MainWindowCloseAction::HideToTray => {
@@ -213,7 +218,7 @@ fn build_tray_icon(app: &AppHandle) -> Result<TrayIcon> {
             "show" => {
                 let _ = show_main_window(app);
             }
-            "quit" => app.exit(0),
+            "quit" => crate::shutdown::request_exit(app, crate::shutdown::ExitAction::Quit),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -234,21 +239,21 @@ fn build_tray_icon(app: &AppHandle) -> Result<TrayIcon> {
     builder.build(app).map_err(Into::into)
 }
 
-fn show_main_window(app: &AppHandle) -> Result<()> {
+pub(crate) fn show_main_window(app: &AppHandle) -> Result<()> {
     if let Some(startup) = app.try_state::<StartupCoordinator>() {
         if startup.status().phase != StartupPhase::Ready {
             if let Some(splash) = app.get_webview_window("splashscreen") {
-                let _ = splash.show();
-                let _ = splash.unminimize();
-                let _ = splash.set_focus();
+                splash.show()?;
+                splash.unminimize()?;
+                splash.set_focus()?;
             }
             return Ok(());
         }
     }
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        window.show()?;
+        window.unminimize()?;
+        window.set_focus()?;
     }
     Ok(())
 }

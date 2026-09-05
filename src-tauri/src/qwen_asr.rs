@@ -291,6 +291,7 @@ impl QwenAsrEngine {
         let mut segments = Vec::new();
         let mut warnings = Vec::new();
         for chunk in chunks {
+            crate::shutdown::ensure_running()?;
             let start_percent = (chunk.start_sample as f32 / total_samples * 100.0).floor() as i32;
             let end_percent = (chunk.end_sample as f32 / total_samples * 100.0).ceil() as i32;
             if let Some(progress) = &progress {
@@ -316,6 +317,7 @@ impl QwenAsrEngine {
         if let Some(progress) = &progress {
             progress.store(100, Ordering::Relaxed);
         }
+        crate::shutdown::ensure_running()?;
         let segments = stitch_segments(segments);
         if segments.is_empty() {
             return Err(anyhow!("TRANSCRIPTION_EMPTY: Qwen3-ASR produced no text"));
@@ -387,6 +389,12 @@ fn decode_with_recovery(
     progress_ceiling: i32,
     allow_split: bool,
 ) -> RecoveryOutput {
+    if crate::shutdown::is_shutting_down() {
+        return RecoveryOutput {
+            segments: Vec::new(),
+            warnings: Vec::new(),
+        };
+    }
     let start_ms = chunk.start_ms(prepared.sample_rate_hz);
     let end_ms = chunk.end_ms(prepared.sample_rate_hz);
     let samples = &prepared.samples[chunk.start_sample..chunk.end_sample];
@@ -849,6 +857,7 @@ impl NativeContext {
         progress: Option<&Arc<AtomicI32>>,
         progress_ceiling: i32,
     ) -> Result<NativeOutput> {
+        crate::shutdown::ensure_running()?;
         if samples.len() > c_int::MAX as usize {
             return Err(anyhow!("QWEN_INFERENCE_FAILED: audio chunk is too large"));
         }

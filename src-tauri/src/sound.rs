@@ -27,6 +27,7 @@ pub enum FeedbackCue {
 }
 
 enum SoundCommand {
+    Shutdown,
     Play(FeedbackCue),
     PrepareCapture(bool, SyncSender<()>),
 }
@@ -69,6 +70,7 @@ pub struct SoundPlayer {
     tx: Sender<SoundCommand>,
     policy: Mutex<FeedbackPolicy>,
     playback: Arc<Mutex<PlaybackState>>,
+    thread: Mutex<Option<thread::JoinHandle<()>>>,
 }
 
 impl SoundPlayer {
@@ -77,7 +79,7 @@ impl SoundPlayer {
         let thread_playback = Arc::clone(&playback);
         let (tx, rx) = mpsc::channel::<SoundCommand>();
         let (init_tx, init_rx) = mpsc::sync_channel::<Result<(), String>>(0);
-        thread::Builder::new()
+        let thread = thread::Builder::new()
             .name("blabber-sound".into())
             .spawn(move || run_sound_thread(rx, init_tx, thread_playback))
             .map_err(|err| anyhow!("failed to spawn sound thread: {err}"))?;
@@ -86,9 +88,17 @@ impl SoundPlayer {
                 tx,
                 policy: Mutex::new(FeedbackPolicy::default()),
                 playback,
+                thread: Mutex::new(Some(thread)),
             }),
             Ok(Err(msg)) => Err(anyhow!("sound init failed: {msg}")),
             Err(_) => Err(anyhow!("sound thread exited before init")),
+        }
+    }
+
+    pub fn shutdown(&self) {
+        let _ = self.tx.send(SoundCommand::Shutdown);
+        if let Some(thread) = self.thread.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = thread.join();
         }
     }
 
@@ -164,6 +174,9 @@ impl SoundPlayer {
 }
 
 pub fn notify(app: &tauri::AppHandle, cue: FeedbackCue, key: &str) {
+    if crate::shutdown::is_shutting_down() {
+        return;
+    }
     let Some(state) = app.try_state::<crate::app_state::AppState>() else {
         return;
     };
@@ -311,8 +324,12 @@ fn run_sound_thread(
     let _ = init_tx.send(Ok(()));
 
     while let Ok(cmd) = rx.recv() {
+        if matches!(cmd, SoundCommand::Shutdown) {
+            break;
+        }
         if let Ok(mut playback) = state.lock() {
             match cmd {
+                SoundCommand::Shutdown => unreachable!(),
                 SoundCommand::Play(cue) => {
                     if playback.muted {
                         continue;

@@ -2104,3 +2104,11 @@ html.overlay-window body {
 :root[data-motion="reduced"] button:active {
   transform: none !important;
 }
+
+.shutdown-backdrop {
+  z-index: 10000;
+}
+.shutdown-backdrop .modal-panel {
+  display: grid;
+  gap: 16px;
+}

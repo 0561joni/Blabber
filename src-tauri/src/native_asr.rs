@@ -166,7 +166,7 @@ fn run_worker_process(
     } else {
         Command::new(&worker_path)
     };
-    let mut child = command
+    let child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -179,6 +179,13 @@ fn run_worker_process(
                 worker_path.display()
             )
         })?;
+    let mut child = NativeChild(child);
+    // Drain diagnostics to avoid blocking a verbose model process on stderr.
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            let _ = std::io::copy(&mut std::io::BufReader::new(stderr), &mut std::io::sink());
+        });
+    }
     if let Some(mut stdin) = child.stdin.take() {
         serde_json::to_writer(&mut stdin, &worker_request)?;
         stdin.write_all(b"\n")?;
@@ -188,8 +195,22 @@ fn run_worker_process(
         .take()
         .ok_or_else(|| anyhow::anyhow!("native worker stdout unavailable"))?;
     let mut result = None;
-    for line in BufReader::new(stdout).lines() {
-        match parse_worker_record(&line?)? {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            if sender.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    loop {
+        crate::shutdown::ensure_running()?;
+        let line = match receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+            Ok(line) => line?,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        match parse_worker_record(&line)? {
             NativeWorkerRecord::Progress { progress_percent }
             | NativeWorkerRecord::Heartbeat { progress_percent } => {
                 if let Some(progress) = &progress {
@@ -215,13 +236,39 @@ fn run_worker_process(
             }
         }
     }
-    let status = child.wait()?;
+    let status = loop {
+        crate::shutdown::ensure_running()?;
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    };
     result.ok_or_else(|| {
         anyhow::anyhow!(
             "MODEL_WORKER_FAILED: {} exited with {status} without a result",
             model.model_name
         )
     })
+}
+
+// Reap the worker on every return path, including cancellation and malformed output.
+struct NativeChild(std::process::Child);
+impl std::ops::Deref for NativeChild {
+    type Target = std::process::Child;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for NativeChild {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+impl Drop for NativeChild {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 fn resolve_worker_path(model_id: &str) -> Option<PathBuf> {

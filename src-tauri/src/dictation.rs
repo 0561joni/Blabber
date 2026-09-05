@@ -255,6 +255,7 @@ impl QuickDictationController {
     }
 
     fn begin_listening(&self) -> Result<()> {
+        let _work = crate::shutdown::begin_work(true)?;
         match self.status().state {
             QuickDictationState::Listening => return Ok(()),
             QuickDictationState::Processing => {
@@ -306,6 +307,11 @@ impl QuickDictationController {
             let _ = self.set_error(error.to_string());
             return Err(error);
         }
+        if crate::shutdown::is_shutting_down() {
+            let _ = self.recording_controller.cancel();
+            self.restore_system_volume();
+            return Ok(());
+        }
         self.desktop_shell
             .set_overlay_payload(DictationOverlayPayload {
                 phase: OverlayPhase::Listening,
@@ -342,9 +348,11 @@ impl QuickDictationController {
             status.last_error_message = None;
         })?;
 
+        let work = crate::shutdown::begin_work(true)?;
         let controller = self.clone();
         let generation = self.poller_generation.load(Ordering::SeqCst);
         thread::spawn(move || {
+            let _work = work;
             if let Err(error) = controller.finish_dictation_worker(generation) {
                 if controller.poller_generation.load(Ordering::SeqCst) != generation {
                     return;
@@ -527,7 +535,9 @@ impl QuickDictationController {
         let (response_tx, response_rx) = mpsc::channel();
         let active_generation = self.poller_generation.clone();
         self.app.run_on_main_thread(move || {
-            if active_generation.load(Ordering::SeqCst) != generation {
+            if crate::shutdown::is_shutting_down()
+                || active_generation.load(Ordering::SeqCst) != generation
+            {
                 let _ = response_tx.send(Err("Dictation was reset.".to_string()));
                 return;
             }
@@ -684,10 +694,28 @@ impl QuickDictationController {
         }
     }
 
+    /// Stop capture and insertion without re-registering shortcuts.
+    pub fn prepare_shutdown(&self) {
+        self.poller_generation.fetch_add(1, Ordering::SeqCst);
+        let _ = self.suspend_shortcut_registration();
+        let _ = self.recording_controller.cancel();
+        if let Some(player) = self.sound_player.as_ref().as_ref() {
+            player.finish_capture(false, true);
+        }
+        self.restore_system_volume();
+        let _ = self.update_status(|status| status.state = QuickDictationState::Idle);
+        let _ = self
+            .desktop_shell
+            .set_overlay_payload(DictationOverlayPayload::default());
+    }
+
     /// Force the controller back to a clean Idle state, abandoning any wedged
     /// recording worker and tearing down overlay/volume side effects. Used by
     /// both the manual reset command and the watchdog.
     pub fn force_reset(&self) -> Result<QuickDictationStatusResponse> {
+        if crate::shutdown::is_shutting_down() {
+            return Ok(self.status());
+        }
         // Supersede any running poller and drop a possibly-wedged worker.
         self.poller_generation.fetch_add(1, Ordering::SeqCst);
         let _ = self.recording_controller.cancel();

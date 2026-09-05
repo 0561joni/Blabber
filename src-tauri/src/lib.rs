@@ -19,6 +19,7 @@ pub mod native_asr;
 pub mod platform;
 pub mod qwen_asr;
 pub mod settings;
+pub mod shutdown;
 pub mod sound;
 pub mod speaker_reconciliation;
 pub mod startup;

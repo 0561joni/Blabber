@@ -21,6 +21,7 @@ mod native_asr;
 mod platform;
 mod qwen_asr;
 mod settings;
+mod shutdown;
 mod sound;
 mod speaker_reconciliation;
 mod startup;
@@ -118,13 +119,18 @@ fn get_platform_info() -> PlatformInfo {
 }
 
 #[tauri::command]
+fn is_app_shutting_down() -> bool {
+    shutdown::is_shutting_down()
+}
+
+#[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
-    app.exit(0);
+    shutdown::request_exit(&app, shutdown::ExitAction::Quit);
 }
 
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
-    app.restart();
+    shutdown::request_exit(&app, shutdown::ExitAction::Restart);
 }
 
 #[tauri::command]
@@ -374,6 +380,7 @@ async fn rediarize_transcript(
     state: tauri::State<'_, AppState>,
     request: RediarizationRequest,
 ) -> Result<TranscriptDetail, String> {
+    let work = shutdown::begin_work(true).map_err(|e| e.to_string())?;
     diarization::validate_speaker_count_hint(request.speaker_count_hint).map_err(str::to_string)?;
     let app_state = state.inner().clone();
     let processing_lock = app_state.file_transcription_controller.processing_lock();
@@ -394,8 +401,10 @@ async fn rediarize_transcript(
     let state_for_cleanup = app_state.clone();
     let app_for_work = app.clone();
     let outcome = tauri::async_runtime::spawn_blocking(move || -> Result<TranscriptDetail, String> {
+        let _work = work;
+        shutdown::ensure_running().map_err(|e| e.to_string())?;
         let _processing_guard = loop {
-            if cancelled.load(Ordering::SeqCst) {
+            if cancelled.load(Ordering::SeqCst) || shutdown::is_shutting_down() {
                 emit_rediarization_status(&app_for_work, &request, RediarizationStage::Canceled, "Speaker retry canceled.", None);
                 return Err("REDIARIZATION_CANCELED: Speaker retry canceled.".into());
             }
@@ -651,8 +660,12 @@ async fn preview_transcription(
     state: tauri::State<'_, AppState>,
     request: TranscriptionPreviewRequest,
 ) -> Result<TranscriptionPreviewResponse, String> {
+    let work = shutdown::begin_work(true).map_err(|e| e.to_string())?;
+    shutdown::set_manual_handoff(false);
     let app_state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        shutdown::ensure_running().map_err(|e| e.to_string())?;
         let resolved_model = resolve_model_selection(
             app_state
                 .engine
@@ -744,6 +757,7 @@ fn start_file_transcription(
     state: tauri::State<'_, AppState>,
     request: UploadedFileTranscriptionRequest,
 ) -> Result<StartFileTranscriptionResponse, String> {
+    let _work = shutdown::begin_work(true).map_err(|e| e.to_string())?;
     diarization::validate_speaker_count_hint(request.speaker_count_hint).map_err(str::to_string)?;
     Ok(state.file_transcription_controller.start(request))
 }
@@ -789,8 +803,11 @@ async fn start_recording_session(
     state: tauri::State<'_, AppState>,
     feedback: Option<bool>,
 ) -> Result<RecordingStatusResponse, String> {
+    let work = shutdown::begin_work(true).map_err(|e| e.to_string())?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        shutdown::ensure_running().map_err(|e| e.to_string())?;
         if state
             .recording_controller
             .status()
@@ -823,6 +840,10 @@ async fn start_recording_session(
                 player.finish_capture(false, true);
             }
         }
+        if shutdown::is_shutting_down() {
+            let _ = state.recording_controller.cancel();
+            return Err("APP_SHUTTING_DOWN: Blabber wird beendet.".into());
+        }
         result
     })
     .await
@@ -843,6 +864,7 @@ fn pause_recording_session(
 fn resume_recording_session(
     state: tauri::State<'_, AppState>,
 ) -> Result<RecordingStatusResponse, String> {
+    let _work = shutdown::begin_work(true).map_err(|e| e.to_string())?;
     state
         .recording_controller
         .resume()
@@ -853,12 +875,16 @@ fn resume_recording_session(
 async fn stop_recording_session(
     state: tauri::State<'_, AppState>,
 ) -> Result<RecordingResult, String> {
+    let work = shutdown::begin_work(true).map_err(|e| e.to_string())?;
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        shutdown::ensure_running().map_err(|e| e.to_string())?;
         let result = state
             .recording_controller
             .stop()
             .map_err(|error| error.to_string());
+        shutdown::set_manual_handoff(result.is_ok());
         let enabled = storage::get_settings(&state)
             .map(|settings| settings.sounds_enabled)
             .unwrap_or(false);
@@ -930,6 +956,7 @@ fn get_quick_dictate_status(
 fn reset_quick_dictation(
     state: tauri::State<'_, AppState>,
 ) -> Result<QuickDictationStatusResponse, String> {
+    shutdown::set_manual_handoff(false);
     state
         .dictation_controller
         .force_reset()
@@ -1067,9 +1094,13 @@ fn main() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            shutdown::install_macos_termination_handler(app.handle())?;
+            let startup_work = shutdown::begin_work(false)?;
             let app_handle = app.handle().clone();
             let startup = app.state::<StartupCoordinator>().inner().clone();
             tauri::async_runtime::spawn_blocking(move || {
+                let _startup_work = startup_work;
                 let progress_app = app_handle.clone();
                 let progress_startup = startup.clone();
                 match AppState::initialize(&app_handle, move |phase| {
@@ -1145,6 +1176,7 @@ fn main() {
             health_check,
             get_platform_info,
             quit_app,
+            is_app_shutting_down,
             restart_app,
             get_startup_status,
             frontend_startup_complete,
@@ -1200,8 +1232,24 @@ fn main() {
             update_vocabulary_term,
             delete_vocabulary_term
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            if let tauri::RunEvent::ExitRequested { ref api, .. } = _event {
+                if !shutdown::ready_to_exit() {
+                    api.prevent_exit();
+                    shutdown::request_exit(_app, shutdown::ExitAction::Quit);
+                }
+            }
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                // A visible dictation overlay does not mean the workspace is
+                // open. Always restore it when macOS requests a Dock reopen.
+                if let Err(error) = desktop_shell::show_main_window(_app) {
+                    eprintln!("[desktop] could not reopen Blabber from the Dock: {error:#}");
+                }
+            }
+        });
 }
 
 fn shortcut_unsupported_message() -> &'static str {

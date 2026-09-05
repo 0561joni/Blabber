@@ -142,7 +142,16 @@ impl ModelDownloadManager {
         values
     }
 
+    pub fn cancel_for_shutdown(&self) {
+        if let Ok(flags) = self.cancellation_flags.lock() {
+            for cancelled in flags.values() {
+                cancelled.store(true, Ordering::SeqCst);
+            }
+        }
+    }
+
     pub fn start_download(&self, model_id: &str) -> Result<ModelDownloadStatus> {
+        let work = crate::shutdown::begin_work(false)?;
         let spec = downloadable_specs()
             .into_iter()
             .find(|entry| entry.id == model_id)
@@ -192,6 +201,7 @@ impl ModelDownloadManager {
         let active_download = Arc::clone(&self.active_download);
         let cancellation_flags = Arc::clone(&self.cancellation_flags);
         thread::spawn(move || {
+            let _work = work;
             let result = download_model(
                 &spec,
                 &models_dir,
@@ -519,7 +529,7 @@ fn download_artifact(
 }
 
 fn ensure_not_cancelled(cancelled: &AtomicBool) -> Result<()> {
-    if cancelled.load(Ordering::Relaxed) {
+    if cancelled.load(Ordering::Relaxed) || crate::shutdown::is_shutting_down() {
         Err(anyhow!("MODEL_DOWNLOAD_CANCELED: download canceled"))
     } else {
         Ok(())
@@ -602,7 +612,11 @@ pub fn start_background_vad_download(models_dir: PathBuf) {
     if final_path.exists() {
         return;
     }
+    let Ok(work) = crate::shutdown::begin_work(false) else {
+        return;
+    };
     thread::spawn(move || {
+        let _work = work;
         let spec = vad_model_spec();
         if let Err(error) =
             download_model(&spec, &models_dir, &AtomicBool::new(false), |_, _, _| {})

@@ -223,6 +223,21 @@ impl FileTranscriptionController {
         statuses
     }
 
+    pub fn cancel_for_shutdown(&self) {
+        self.queued_requests
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        if let Some(run) = self
+            .active_run
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            run.control.request_user_cancellation();
+        }
+    }
+
     pub fn processing_lock(&self) -> Arc<Mutex<()>> {
         Arc::clone(&self.processing_lock)
     }
@@ -273,6 +288,9 @@ impl FileTranscriptionController {
     }
 
     fn maybe_spawn_next(&self) {
+        if crate::shutdown::is_shutting_down() {
+            return;
+        }
         {
             let active = self
                 .active_run
@@ -311,6 +329,9 @@ impl FileTranscriptionController {
     }
 
     fn run_job(&self, request: FileTranscriptionRequest, control: Arc<FileJobRunControl>) {
+        let Ok(_work) = crate::shutdown::begin_work(true) else {
+            return;
+        };
         let _processing_guard = self
             .processing_lock
             .lock()
