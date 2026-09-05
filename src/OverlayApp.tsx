@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getHealthCheck } from "./lib/api";
+import { formatPasteShortcutForDisplay } from "./lib/formatting";
+import { AppIcon } from "./components/IconButton";
 
 type OverlayPhase =
   | "hidden"
@@ -9,195 +12,99 @@ type OverlayPhase =
   | "inserted"
   | "clipboard_only"
   | "failed";
-
 interface OverlayPayload {
   phase: OverlayPhase;
   audioLevel: number;
 }
 
-const RESULT_PHASES = new Set<OverlayPhase>([
-  "inserted",
-  "clipboard_only",
-  "failed",
-]);
-
-const OVERLAY_EVENT = "quick-dictation-overlay";
-const POLL_INTERVAL_MS = 50;
-const ANIMATION_INTERVAL_MS = 42;
-
-function isTauriRuntime() {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
 export function OverlayApp() {
-  const [phase, setPhase] = useState<OverlayPhase>("hidden");
-  const [targetLevel, setTargetLevel] = useState(0);
-  const [displayLevel, setDisplayLevel] = useState(0);
-  const [speechPulse, setSpeechPulse] = useState(0);
-  const [wavePhase, setWavePhase] = useState(0);
-
+  const [status, setStatus] = useState<OverlayPayload>({
+    phase: "hidden",
+    audioLevel: 0,
+  });
+  const [platform, setPlatform] = useState<string | null>(null);
   useEffect(() => {
-    if (!isTauriRuntime()) {
-      return;
-    }
-
-    let mounted = true;
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let disposed = false;
+    let receivedEvent = false;
     let unlisten: (() => void) | undefined;
-    let pollId = 0;
-
-    const syncOverlayStatus = async () => {
-      try {
-        const payload = await invoke<OverlayPayload>("get_dictation_overlay_status");
-        if (!mounted) {
+    void getHealthCheck()
+      .then((health) => {
+        if (!disposed) setPlatform(health.platform);
+      })
+      .catch(() => undefined);
+    void listen<OverlayPayload>("quick-dictation-overlay", ({ payload }) => {
+      receivedEvent = true;
+      if (!disposed) setStatus(payload);
+    })
+      .then(async (cleanup) => {
+        if (disposed) {
+          cleanup();
           return;
         }
-        setPhase(payload.phase);
-        setTargetLevel(payload.audioLevel ?? 0);
-      } catch {
-        // Ignore polling failures; the next tick can recover.
-      }
-    };
-
-    void syncOverlayStatus();
-    pollId = window.setInterval(() => {
-      void syncOverlayStatus();
-    }, POLL_INTERVAL_MS);
-
-    void listen<OverlayPayload>(OVERLAY_EVENT, (event) => {
-      if (!mounted) {
-        return;
-      }
-      setPhase(event.payload.phase);
-      setTargetLevel(event.payload.audioLevel ?? 0);
-    }).then((cleanup) => {
-      unlisten = cleanup;
-    });
-
+        unlisten = cleanup;
+        const snapshot = await invoke<OverlayPayload>(
+          "get_dictation_overlay_status",
+        );
+        if (!disposed && !receivedEvent) setStatus(snapshot);
+      })
+      .catch(() => undefined);
     return () => {
-      mounted = false;
-      window.clearInterval(pollId);
+      disposed = true;
       unlisten?.();
     };
   }, []);
 
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setDisplayLevel((current) => {
-        const nextTarget = phase === "listening" ? targetLevel : 0;
-        const factor = nextTarget > current ? 0.56 : 0.22;
-        return current + (nextTarget - current) * factor;
-      });
-      setSpeechPulse((current) => {
-        const rise = Math.max(0, targetLevel - displayLevel) * 2.6;
-        const decayed = current * 0.74;
-        return phase === "listening" ? Math.max(decayed, rise) : decayed * 0.4;
-      });
-      setWavePhase((current) => {
-        const velocity = phase === "listening" ? 0.06 + targetLevel * 0.14 : 0.04;
-        return current + velocity;
-      });
-    }, ANIMATION_INTERVAL_MS);
-
-    return () => window.clearInterval(intervalId);
-  }, [phase, targetLevel]);
-
-  const baseHeights = [8, 10, 14, 10, 8];
-  const bodyMultipliers = [16, 24, 34, 24, 16];
-  const pulseMultipliers = [6, 10, 14, 10, 6];
-  const normalizedLevel = phase === "listening" ? Math.min(1, displayLevel * 2.8) : 0;
-  const pulseLevel = phase === "listening" ? Math.min(1, speechPulse) : 0;
-  const responsiveLevel = Math.pow(normalizedLevel, 0.62);
-
-  const isResult = RESULT_PHASES.has(phase);
-  const resultLabel =
-    phase === "inserted"
-      ? "Pasted"
-      : phase === "clipboard_only"
-        ? "Copied — Ctrl+V"
-        : phase === "failed"
-          ? "Failed"
-          : "";
-  const resultColor =
-    phase === "inserted"
-      ? "#4b9d77"
-      : phase === "clipboard_only"
-        ? "#5d96dd"
-        : phase === "failed"
-          ? "#c36157"
-          : undefined;
-
+  const { phase } = status;
+  const label =
+    phase === "listening"
+      ? "Listening"
+      : phase === "processing"
+        ? "Transcribing"
+        : phase === "inserted"
+          ? "Pasted"
+          : phase === "clipboard_only"
+            ? "Copied · " + formatPasteShortcutForDisplay(platform)
+            : phase === "failed"
+              ? "Needs attention"
+              : "";
+  const result =
+    phase === "inserted" || phase === "clipboard_only" || phase === "failed";
+  const level = Math.pow(Math.max(0, Math.min(1, status.audioLevel)), 0.65);
   return (
-    <div className={phase === "hidden" ? "overlay-root is-hidden" : "overlay-root"}>
-      <div
-        className={
-          phase === "processing"
-            ? "overlay-capsule is-processing"
-            : isResult
-              ? "overlay-capsule is-result"
-              : "overlay-capsule"
-        }
-        aria-label={
-          phase === "listening"
-            ? "Blabber is listening"
-            : phase === "processing"
-              ? "Blabber is transcribing"
-              : phase === "inserted"
-                ? "Pasted"
-                : phase === "clipboard_only"
-                  ? "Copied to clipboard, press Ctrl+V"
-                  : phase === "failed"
-                    ? "Dictation failed"
-                    : "Blabber overlay"
-        }
-      >
+    <div
+      className={"overlay-root" + (phase === "hidden" ? " is-hidden" : "")}
+      aria-hidden={phase === "hidden"}
+    >
+      <div className="overlay-capsule" role="status" aria-label={label}>
         {phase === "processing" ? (
-          <div className="overlay-spinner" aria-hidden="true" />
-        ) : isResult ? (
+          <>
+            <span className="overlay-spinner" aria-hidden="true" />
+            <span className="sr-only">{label}</span>
+          </>
+        ) : result ? (
           <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-              fontSize: "0.92rem",
-              fontWeight: 700,
-              letterSpacing: "-0.01em",
-              color: resultColor,
-              whiteSpace: "nowrap",
-            }}
+            className={
+              "overlay-result" +
+              (phase === "failed"
+                ? " is-error"
+                : phase === "clipboard_only"
+                  ? " is-copied"
+                  : "")
+            }
           >
-            <span
-              aria-hidden="true"
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 999,
-                background: resultColor,
-              }}
-            />
-            {resultLabel}
+            <AppIcon name={phase === "failed" ? "info" : "check"} />
+            {label}
           </span>
         ) : (
           <div className="overlay-bars" aria-hidden="true">
-            {baseHeights.map((baseHeight, index) => {
-              const ambientMotion =
-                Math.sin(wavePhase + index * 0.85) * (0.45 + responsiveLevel * 1.4);
-              const height = Math.max(
-                8,
-                baseHeight +
-                  responsiveLevel * bodyMultipliers[index] +
-                  pulseLevel * pulseMultipliers[index] +
-                  ambientMotion,
-              );
-              return (
-                <span
-                  key={index}
-                  className="overlay-bar"
-                  style={{
-                    height: `${height}px`,
-                  }}
-                />
-              );
-            })}
+            {[0.4, 0.7, 1, 0.7, 0.4].map((weight, index) => (
+              <span
+                className="overlay-bar"
+                key={index}
+                style={{ height: 4 + 30 * level * weight + "px" }}
+              />
+            ))}
           </div>
         )}
       </div>

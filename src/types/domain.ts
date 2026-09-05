@@ -1,12 +1,7 @@
 export type SourceType = "quick_dictate" | "file_upload";
 
 export type TranscriptStatus =
-  | "queued"
-  | "recording"
-  | "processing"
-  | "completed"
-  | "failed"
-  | "canceled";
+  "queued" | "recording" | "processing" | "completed" | "failed" | "canceled";
 
 export type TranscriptQualityStatus = "clean" | "recovered" | "partial";
 
@@ -14,11 +9,21 @@ export type LanguageMode = "auto" | "fixed";
 export type InsertBehavior = "paste" | "clipboard_only";
 export type ModelProfile = "fast" | "balanced" | "accurate";
 export type ModelCapability = "asr" | "vad" | "diarization";
-export type ModelUseContext = "shortcut_dictation" | "quick_dictate" | "file_transcription";
+export type ModelUseContext =
+  "shortcut_dictation" | "quick_dictate" | "file_transcription";
 export type ModelLanguageControl = "automatic_and_fixed" | "automatic_only";
 export type DiarizationSource = "none" | "native_model" | "post_process";
-export type DiarizationStatus = "not_requested" | "pending" | "running" | "completed" | "completed_with_uncertainty" | "failed" | "canceled" | "not_enough_speech";
-export type SpeakerAttribution = "none" | "assigned" | "likely" | "uncertain" | "overlap";
+export type DiarizationStatus =
+  | "not_requested"
+  | "pending"
+  | "running"
+  | "completed"
+  | "completed_with_uncertainty"
+  | "failed"
+  | "canceled"
+  | "not_enough_speech";
+export type SpeakerAttribution =
+  "none" | "assigned" | "likely" | "uncertain" | "overlap";
 export type ShortcutMode = "push_to_talk" | "toggle";
 
 export type StartupPhase =
@@ -96,6 +101,8 @@ export interface AppSettings {
   quickDictateSelectedModelId: string | null;
   fileTranscribeModelProfile: ModelProfile;
   fileTranscribeSelectedModelId: string | null;
+  appearance: "system" | "light" | "dark";
+  motionPreference: "system" | "reduced";
   saveHistory: boolean;
   soundsEnabled: boolean;
   volumeDuckingEnabled: boolean;
@@ -118,6 +125,8 @@ export interface SettingsPatch {
   quickDictateSelectedModelId?: string | null;
   fileTranscribeModelProfile?: ModelProfile;
   fileTranscribeSelectedModelId?: string | null;
+  appearance?: AppSettings["appearance"];
+  motionPreference?: AppSettings["motionPreference"];
   saveHistory?: boolean;
   soundsEnabled?: boolean;
   volumeDuckingEnabled?: boolean;
@@ -162,11 +171,7 @@ export interface DownloadableModel {
 }
 
 export type ModelDownloadState =
-  | "idle"
-  | "downloading"
-  | "completed"
-  | "canceled"
-  | "failed";
+  "idle" | "downloading" | "completed" | "canceled" | "failed";
 
 export interface ModelDownloadStatus {
   modelId: string;
@@ -197,8 +202,21 @@ export interface TranscriptSegment {
   speakerConfidence: number | null;
 }
 
-export interface DiarizationTurn { id: string; startMs: number; endMs: number; speakerIds: string[]; confidence: number | null; isOverlap: boolean; isUncertain: boolean; turnOrder: number; }
-export interface TranscriptSpeaker { speakerId: string; displayName: string; speakerOrder: number; }
+export interface DiarizationTurn {
+  id: string;
+  startMs: number;
+  endMs: number;
+  speakerIds: string[];
+  confidence: number | null;
+  isOverlap: boolean;
+  isUncertain: boolean;
+  turnOrder: number;
+}
+export interface TranscriptSpeaker {
+  speakerId: string;
+  displayName: string;
+  speakerOrder: number;
+}
 
 export interface TranscriptResult {
   jobId: string;
@@ -239,7 +257,9 @@ export interface TranscriptDetail extends TranscriptSummary {
 
 export type TranscriptExportFormat = "txt" | "md" | "srt" | "vtt" | "json";
 export type TranscriptCopyVariant = "speaker_aware" | "plain";
-export interface TranscriptExportResult { path: string | null; }
+export interface TranscriptExportResult {
+  path: string | null;
+}
 
 export interface TranscriptWarning {
   startMs: number;
@@ -300,7 +320,14 @@ export interface RediarizationRequest {
   speakerCountHint: number | null;
 }
 
-export type RediarizationStage = "queued" | "validating" | "diarizing" | "saving" | "completed" | "failed" | "canceled";
+export type RediarizationStage =
+  | "queued"
+  | "validating"
+  | "diarizing"
+  | "saving"
+  | "completed"
+  | "failed"
+  | "canceled";
 export interface RediarizationStatusEvent {
   jobId: string;
   transcriptId: string;
@@ -348,6 +375,7 @@ export interface FileTranscriptionStatusEvent {
 export type FileQueueCopyState = "idle" | "copied" | "error";
 
 export interface FileQueueItem {
+  updatedAt?: number;
   id: string;
   sourceFile: SelectedSourceFile;
   stage: FileTranscriptionJobStage;
@@ -364,12 +392,7 @@ export interface FileQueueItem {
 }
 
 export type RecordingOverlayState =
-  | "idle"
-  | "listening"
-  | "paused"
-  | "processing"
-  | "success"
-  | "error";
+  "idle" | "listening" | "paused" | "processing" | "success" | "error";
 
 export interface RecordingStatusResponse {
   state: RecordingOverlayState;
@@ -401,12 +424,7 @@ export interface ManualTranscriptionUiState {
 }
 
 export type QuickDictationState =
-  | "idle"
-  | "listening"
-  | "processing"
-  | "inserted"
-  | "clipboard_only"
-  | "error";
+  "idle" | "listening" | "processing" | "inserted" | "clipboard_only" | "error";
 
 export type InsertionOutcome = "pasted" | "clipboard_only";
 

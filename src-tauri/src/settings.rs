@@ -48,6 +48,23 @@ pub enum DefaultMode {
     FileTranscribe,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MotionPreference {
+    #[default]
+    System,
+    Reduced,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -66,6 +83,10 @@ pub struct AppSettings {
     pub quick_dictate_selected_model_id: Option<String>,
     pub file_transcribe_model_profile: ModelProfile,
     pub file_transcribe_selected_model_id: Option<String>,
+    #[serde(default)]
+    pub appearance: Appearance,
+    #[serde(default)]
+    pub motion_preference: MotionPreference,
     pub save_history: bool,
     pub sounds_enabled: bool,
     pub volume_ducking_enabled: bool,
@@ -90,6 +111,8 @@ pub struct SettingsPatch {
     pub quick_dictate_selected_model_id: Option<Option<String>>,
     pub file_transcribe_model_profile: Option<ModelProfile>,
     pub file_transcribe_selected_model_id: Option<Option<String>>,
+    pub appearance: Option<Appearance>,
+    pub motion_preference: Option<MotionPreference>,
     pub save_history: Option<bool>,
     pub sounds_enabled: Option<bool>,
     pub volume_ducking_enabled: Option<bool>,

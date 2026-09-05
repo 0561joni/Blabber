@@ -973,6 +973,19 @@ impl FileTranscriptionController {
     }
 
     fn emit_status(&self, status: FileTranscriptionStatusEvent) {
+        match status.stage {
+            FileTranscriptionJobStage::Completed => crate::sound::notify(
+                &self.app,
+                crate::sound::FeedbackCue::Complete,
+                &format!("file:{}:complete", status.job_id),
+            ),
+            FileTranscriptionJobStage::Failed => crate::sound::notify(
+                &self.app,
+                crate::sound::FeedbackCue::Error,
+                &format!("file:{}:error", status.job_id),
+            ),
+            _ => {}
+        }
         if let Err(error) = self
             .app
             .emit(FILE_TRANSCRIPTION_STATUS_EVENT, status.clone())

@@ -8,7 +8,10 @@ import type {
 interface VocabularyScreenProps {
   vocabularyTerms: VocabularyTerm[];
   onCreateVocabularyTerm: (input: CreateVocabularyTermInput) => Promise<void>;
-  onUpdateVocabularyTerm: (termId: string, input: UpdateVocabularyTermInput) => Promise<void>;
+  onUpdateVocabularyTerm: (
+    termId: string,
+    input: UpdateVocabularyTermInput,
+  ) => Promise<void>;
   onDeleteVocabularyTerm: (termId: string) => Promise<void>;
 }
 
@@ -30,6 +33,8 @@ export function VocabularyScreen({
   onUpdateVocabularyTerm,
   onDeleteVocabularyTerm,
 }: VocabularyScreenProps) {
+  const [query, setQuery] = useState("");
+  const [savedMessage, setSavedMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [createDraft, setCreateDraft] = useState(EMPTY_EDITOR);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -38,10 +43,30 @@ export function VocabularyScreen({
   const [builtinsOpen, setBuiltinsOpen] = useState(false);
 
   const customTerms = vocabularyTerms
-    .filter((term) => !term.isBuiltin)
+    .filter(
+      (term) =>
+        !term.isBuiltin &&
+        (
+          term.canonical +
+          " " +
+          term.aliases.map((alias) => alias.alias).join(" ")
+        )
+          .toLowerCase()
+          .includes(query.trim().toLowerCase()),
+    )
     .sort((left, right) => left.canonical.localeCompare(right.canonical));
   const builtinTerms = vocabularyTerms
-    .filter((term) => term.isBuiltin)
+    .filter(
+      (term) =>
+        term.isBuiltin &&
+        (
+          term.canonical +
+          " " +
+          term.aliases.map((alias) => alias.alias).join(" ")
+        )
+          .toLowerCase()
+          .includes(query.trim().toLowerCase()),
+    )
     .sort((left, right) => left.canonical.localeCompare(right.canonical));
 
   async function createTerm(event: FormEvent<HTMLFormElement>) {
@@ -49,12 +74,18 @@ export function VocabularyScreen({
     if (createDraft.canonical.trim().length === 0) return;
 
     setIsSaving(true);
+    setSavedMessage("");
     setErrorMessage(null);
     try {
       await onCreateVocabularyTerm(normalizeEditorInput(createDraft));
       setCreateDraft({ ...EMPTY_EDITOR });
+      setSavedMessage("Term added");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to create vocabulary term.");
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to create vocabulary term.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -80,12 +111,18 @@ export function VocabularyScreen({
     if (editDraft.canonical.trim().length === 0) return;
 
     setIsSaving(true);
+    setSavedMessage("");
     setErrorMessage(null);
     try {
       await onUpdateVocabularyTerm(termId, normalizeEditorInput(editDraft));
       cancelEdit();
+      setSavedMessage("Changes saved");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to update vocabulary term.");
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to update vocabulary term.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -93,12 +130,18 @@ export function VocabularyScreen({
 
   async function deleteTerm(termId: string) {
     setIsSaving(true);
+    setSavedMessage("");
     setErrorMessage(null);
     try {
       await onDeleteVocabularyTerm(termId);
+      setSavedMessage("Term deleted");
       if (editingId === termId) cancelEdit();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to delete vocabulary term.");
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to delete vocabulary term.",
+      );
     } finally {
       setIsSaving(false);
     }
@@ -111,7 +154,8 @@ export function VocabularyScreen({
           <p className="eyebrow">Transcript accuracy</p>
           <h2>Vocabulary</h2>
           <p className="muted">
-            Teach Blabber the exact spelling of names, brands, and specialist terms.
+            Teach Blabber the exact spelling of names, brands, and specialist
+            terms.
           </p>
         </header>
 
@@ -119,17 +163,28 @@ export function VocabularyScreen({
           <div className="vocabulary-section-heading">
             <div>
               <h3>Add a term</h3>
-              <p className="muted">Add the spelling you want to see in future transcripts.</p>
+              <p className="muted">
+                Add the spelling you want to see in future transcripts.
+              </p>
             </div>
           </div>
 
+          {savedMessage ? (
+            <p className="inline-feedback" role="status">
+              {savedMessage}
+            </p>
+          ) : null}
           {errorMessage ? (
             <p className="error-text" role="alert">
               {errorMessage}
             </p>
           ) : null}
 
-          <form className="vocabulary-form" aria-label="Add vocabulary term" onSubmit={createTerm}>
+          <form
+            className="vocabulary-form"
+            aria-label="Add vocabulary term"
+            onSubmit={createTerm}
+          >
             <VocabularyEditorFields
               draft={createDraft}
               disabled={isSaving}
@@ -149,11 +204,25 @@ export function VocabularyScreen({
           </form>
         </article>
 
-        <section className="vocabulary-terms-section" aria-labelledby="custom-vocabulary-title">
+        <label className="search-field">
+          <input
+            type="search"
+            aria-label="Search vocabulary"
+            placeholder="Find a name, term, or spelling…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+        <section
+          className="vocabulary-terms-section"
+          aria-labelledby="custom-vocabulary-title"
+        >
           <div className="vocabulary-section-heading">
             <div>
               <h3 id="custom-vocabulary-title">Your terms</h3>
-              <p className="muted">Custom spellings are prioritized during transcription.</p>
+              <p className="muted">
+                Custom spellings are prioritized during transcription.
+              </p>
             </div>
             <span
               className="vocabulary-count"
@@ -167,7 +236,10 @@ export function VocabularyScreen({
             <div className="vocabulary-term-list">
               {customTerms.map((term) =>
                 editingId === term.id ? (
-                  <article className="vocabulary-term-row is-editing" key={term.id}>
+                  <article
+                    className="vocabulary-term-row is-editing"
+                    key={term.id}
+                  >
                     <form
                       className="vocabulary-form vocabulary-edit-form"
                       aria-label={`Edit ${term.canonical}`}
@@ -184,7 +256,9 @@ export function VocabularyScreen({
                         <button
                           type="submit"
                           className="primary-button vocabulary-primary-action"
-                          disabled={isSaving || editDraft.canonical.trim().length === 0}
+                          disabled={
+                            isSaving || editDraft.canonical.trim().length === 0
+                          }
                         >
                           {isSaving ? "Saving…" : "Save changes"}
                         </button>
@@ -214,7 +288,8 @@ export function VocabularyScreen({
             <div className="vocabulary-empty-state">
               <strong>No custom terms yet</strong>
               <p className="muted">
-                Add a name or phrase above when Blabber needs help spelling it consistently.
+                Add a name or phrase above when Blabber needs help spelling it
+                consistently.
               </p>
             </div>
           )}
@@ -242,7 +317,10 @@ export function VocabularyScreen({
             </button>
 
             {builtinsOpen ? (
-              <div id="builtin-vocabulary-list" className="vocabulary-term-list vocabulary-builtins-list">
+              <div
+                id="builtin-vocabulary-list"
+                className="vocabulary-term-list vocabulary-builtins-list"
+              >
                 {builtinTerms.map((term) => (
                   <VocabularyTermRow key={term.id} term={term} />
                 ))}
@@ -278,12 +356,16 @@ function VocabularyEditorFields({
           autoComplete="off"
           disabled={disabled}
           value={draft.canonical}
-          onChange={(event) => onChange({ ...draft, canonical: event.target.value })}
+          onChange={(event) =>
+            onChange({ ...draft, canonical: event.target.value })
+          }
         />
       </div>
 
       <div className="field-stack">
-        <label htmlFor={`${idPrefix}-aliases`}>Common mishearings or alternatives</label>
+        <label htmlFor={`${idPrefix}-aliases`}>
+          Common mishearings or alternatives
+        </label>
         <input
           id={`${idPrefix}-aliases`}
           aria-describedby={`${idPrefix}-aliases-help`}
@@ -291,9 +373,14 @@ function VocabularyEditorFields({
           autoComplete="off"
           disabled={disabled}
           value={draft.aliases}
-          onChange={(event) => onChange({ ...draft, aliases: event.target.value })}
+          onChange={(event) =>
+            onChange({ ...draft, aliases: event.target.value })
+          }
         />
-        <small id={`${idPrefix}-aliases-help`} className="vocabulary-field-help">
+        <small
+          id={`${idPrefix}-aliases-help`}
+          className="vocabulary-field-help"
+        >
           Separate multiple alternatives with commas.
         </small>
       </div>
@@ -305,7 +392,12 @@ function VocabularyEditorFields({
         aria-checked={draft.correctCloseMatches}
         aria-label={switchLabel}
         disabled={disabled}
-        onClick={() => onChange({ ...draft, correctCloseMatches: !draft.correctCloseMatches })}
+        onClick={() =>
+          onChange({
+            ...draft,
+            correctCloseMatches: !draft.correctCloseMatches,
+          })
+        }
       >
         <span className="vocabulary-match-copy">
           <strong>Correct close matches</strong>
@@ -339,10 +431,15 @@ function VocabularyTermRow({
         <div className="vocabulary-term-title-row">
           <strong>{term.canonical}</strong>
           <span className="vocabulary-match-status">
-            {term.matchMode === "exact_and_fuzzy" ? "Close matches" : "Exact only"}
+            {term.matchMode === "exact_and_fuzzy"
+              ? "Close matches"
+              : "Exact only"}
           </span>
         </div>
-        <div className="vocabulary-alias-list" aria-label={`Alternatives for ${term.canonical}`}>
+        <div
+          className="vocabulary-alias-list"
+          aria-label={`Alternatives for ${term.canonical}`}
+        >
           {term.aliases.length > 0 ? (
             term.aliases.map((alias) => (
               <span className="vocabulary-alias-chip" key={alias.id}>

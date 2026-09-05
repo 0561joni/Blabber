@@ -195,9 +195,75 @@ fn update_settings(
     state: tauri::State<'_, AppState>,
     patch: SettingsPatch,
 ) -> Result<AppSettings, String> {
+    let previous = storage::get_settings(state.inner()).map_err(|error| error.to_string())?;
+    let sync_autostart = patch.launch_at_login_enabled.is_some();
+    let sync_shortcut = patch.shortcut.is_some() || patch.shortcut_mode.is_some();
     let diarization_change = patch.file_diarization_enabled;
     let settings =
         storage::update_settings(state.inner(), patch).map_err(|error| error.to_string())?;
+    let integration_result = (|| -> Result<(), String> {
+        if sync_autostart {
+            autostart::sync_launch_at_login(&app, settings.launch_at_login_enabled)
+                .map_err(|error| error.to_string())?;
+        }
+        if sync_shortcut && platform::global_shortcut_supported() {
+            state
+                .dictation_controller
+                .sync_shortcut_registration()
+                .map_err(|error| error.to_string())?;
+        } else if sync_shortcut {
+            state
+                .dictation_controller
+                .mark_shortcut_unsupported(shortcut_unsupported_message())
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = integration_result {
+        // Failed OS integration must not leave a different preference in the database.
+        let restored = storage::update_settings(
+            state.inner(),
+            SettingsPatch {
+                default_mode: Some(previous.default_mode.clone()),
+                shortcut: Some(previous.shortcut.clone()),
+                shortcut_mode: Some(previous.shortcut_mode.clone()),
+                language_mode: Some(previous.language_mode.clone()),
+                fixed_language: Some(previous.fixed_language.clone()),
+                preferred_input_device: Some(previous.preferred_input_device.clone()),
+                insert_behavior: Some(previous.insert_behavior.clone()),
+                launch_at_login_enabled: Some(previous.launch_at_login_enabled.clone()),
+                gpu_enabled: Some(previous.gpu_enabled.clone()),
+                shortcut_dictation_model_profile: Some(
+                    previous.shortcut_dictation_model_profile.clone(),
+                ),
+                shortcut_dictation_selected_model_id: Some(
+                    previous.shortcut_dictation_selected_model_id.clone(),
+                ),
+                quick_dictate_model_profile: Some(previous.quick_dictate_model_profile.clone()),
+                quick_dictate_selected_model_id: Some(
+                    previous.quick_dictate_selected_model_id.clone(),
+                ),
+                file_transcribe_model_profile: Some(previous.file_transcribe_model_profile.clone()),
+                file_transcribe_selected_model_id: Some(
+                    previous.file_transcribe_selected_model_id.clone(),
+                ),
+                appearance: Some(previous.appearance.clone()),
+                motion_preference: Some(previous.motion_preference.clone()),
+                save_history: Some(previous.save_history.clone()),
+                sounds_enabled: Some(previous.sounds_enabled.clone()),
+                volume_ducking_enabled: Some(previous.volume_ducking_enabled.clone()),
+                file_diarization_enabled: Some(previous.file_diarization_enabled.clone()),
+            },
+        )
+        .map_err(|rollback| format!("{error}; could not restore previous settings: {rollback}"))?;
+        if sync_autostart {
+            let _ = autostart::sync_launch_at_login(&app, restored.launch_at_login_enabled);
+        }
+        if sync_shortcut {
+            let _ = state.dictation_controller.sync_shortcut_registration();
+        }
+        return Err(error);
+    }
     match diarization_change {
         Some(true)
             if model_downloads::installed_diarization_package_path(&state.models_dir).is_none() =>
@@ -219,19 +285,7 @@ fn update_settings(
     state
         .recording_controller
         .set_preferred_input_device(settings.preferred_input_device.clone());
-    autostart::sync_launch_at_login(&app, settings.launch_at_login_enabled)
-        .map_err(|error| error.to_string())?;
-    if platform::global_shortcut_supported() {
-        state
-            .dictation_controller
-            .sync_shortcut_registration()
-            .map_err(|error| error.to_string())?;
-    } else {
-        state
-            .dictation_controller
-            .mark_shortcut_unsupported(shortcut_unsupported_message())
-            .map_err(|error| error.to_string())?;
-    }
+    let _ = app.emit("settings-changed", &settings);
     Ok(settings)
 }
 
@@ -731,13 +785,48 @@ fn get_recording_input_level(state: tauri::State<'_, AppState>) -> Result<f32, S
 }
 
 #[tauri::command]
-fn start_recording_session(
+async fn start_recording_session(
     state: tauri::State<'_, AppState>,
+    feedback: Option<bool>,
 ) -> Result<RecordingStatusResponse, String> {
-    state
-        .recording_controller
-        .start()
-        .map_err(|error| error.to_string())
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        if state
+            .recording_controller
+            .status()
+            .map(|status| {
+                matches!(
+                    status.state,
+                    audio_capture::RecordingOverlayState::Listening
+                        | audio_capture::RecordingOverlayState::Paused
+                )
+            })
+            .unwrap_or(false)
+        {
+            return Err("A recording is already active.".to_string());
+        }
+        let enabled = storage::get_settings(&state)
+            .map(|settings| settings.sounds_enabled)
+            .unwrap_or(false)
+            && feedback.unwrap_or(true);
+        if let Some(player) = state.sound_player.as_ref().as_ref() {
+            player
+                .prepare_capture(enabled)
+                .map_err(|error| error.to_string())?;
+        }
+        let result = state
+            .recording_controller
+            .start()
+            .map_err(|error| error.to_string());
+        if result.is_err() {
+            if let Some(player) = state.sound_player.as_ref().as_ref() {
+                player.finish_capture(false, true);
+            }
+        }
+        result
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -764,11 +853,19 @@ fn resume_recording_session(
 async fn stop_recording_session(
     state: tauri::State<'_, AppState>,
 ) -> Result<RecordingResult, String> {
-    let recording_controller = state.recording_controller.clone();
+    let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        recording_controller
+        let result = state
+            .recording_controller
             .stop()
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string());
+        let enabled = storage::get_settings(&state)
+            .map(|settings| settings.sounds_enabled)
+            .unwrap_or(false);
+        if let Some(player) = state.sound_player.as_ref().as_ref() {
+            player.finish_capture(enabled, result.is_err());
+        }
+        result
     })
     .await
     .map_err(|error| error.to_string())?
@@ -778,10 +875,48 @@ async fn stop_recording_session(
 fn cancel_recording_session(
     state: tauri::State<'_, AppState>,
 ) -> Result<RecordingStatusResponse, String> {
-    state
+    let result = state
         .recording_controller
         .cancel()
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string());
+    if result.is_ok() {
+        if let Some(player) = state.sound_player.as_ref().as_ref() {
+            player.finish_capture(false, true);
+        }
+    }
+    result
+}
+
+#[tauri::command]
+fn preview_feedback_sound(
+    state: tauri::State<'_, AppState>,
+    cue: sound::FeedbackCue,
+) -> Result<(), String> {
+    if !storage::get_settings(state.inner())
+        .map_err(|error| error.to_string())?
+        .sounds_enabled
+    {
+        return Err("Enable feedback sounds first.".into());
+    }
+    let player = state
+        .sound_player
+        .as_ref()
+        .as_ref()
+        .ok_or("Sound output unavailable.")?;
+    player.preview(cue).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn report_manual_feedback(app: tauri::AppHandle, operation_id: String, failed: bool) {
+    sound::notify(
+        &app,
+        if failed {
+            sound::FeedbackCue::Error
+        } else {
+            sound::FeedbackCue::Complete
+        },
+        &format!("manual:{operation_id}"),
+    );
 }
 
 #[tauri::command]
@@ -1048,6 +1183,8 @@ fn main() {
             get_recording_status,
             get_recording_input_level,
             start_recording_session,
+            preview_feedback_sound,
+            report_manual_feedback,
             pause_recording_session,
             resume_recording_session,
             stop_recording_session,

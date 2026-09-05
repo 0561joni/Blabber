@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  reportManualFeedback,
+  cancelFileTranscription,
   deleteAllTranscripts,
   deleteTranscript,
   getFileTranscriptionStatuses,
+  getModelDownloadStatuses,
+  listenModelDownloadStatus,
   getStartupStatus,
   getHealthCheck,
   getDictationReadiness,
@@ -30,11 +34,12 @@ import {
   createVocabularyTerm,
   updateVocabularyTerm,
   deleteVocabularyTerm,
-  copyTextToClipboard,
   frontendStartupComplete,
   reportStartupFailure,
 } from "./lib/api";
-import { HomeScreen } from "./screens/HomeScreen";
+import { DictateScreen } from "./screens/DictateScreen";
+import { FilesScreen, isFileWorking } from "./screens/FilesScreen";
+import { applyAppearance } from "./lib/appearance";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { VocabularyScreen } from "./screens/VocabularyScreen";
@@ -58,7 +63,7 @@ import type {
   VocabularyTerm,
 } from "./types/domain";
 
-type ScreenId = "home" | "settings" | "vocabulary" | "history";
+type ScreenId = "dictate" | "files" | "settings" | "vocabulary" | "history";
 
 type ToastKind = "success" | "info" | "error";
 
@@ -77,22 +82,32 @@ const TERMINAL_DICTATION_STATES = new Set([
 ]);
 
 const NAV_ITEMS: Array<{ id: ScreenId; label: string; icon: AppIconName }> = [
-  { id: "home", label: "Home", icon: "home" },
-  { id: "settings", label: "Settings", icon: "gear" },
+  { id: "dictate", label: "Dictate", icon: "microphone" },
+  { id: "files", label: "Transcribe files", icon: "folder" },
+  { id: "history", label: "Library", icon: "clock" },
   { id: "vocabulary", label: "Vocabulary", icon: "book" },
-  { id: "history", label: "History", icon: "clock" },
+  { id: "settings", label: "Settings", icon: "gear" },
 ];
 
 export function App() {
-  const [screen, setScreen] = useState<ScreenId>("home");
+  const [screen, setScreen] = useState<ScreenId>("dictate");
+  const [settingsSection, setSettingsSection] = useState("general");
+  const [downloadCount, setDownloadCount] = useState(0);
+  const downloadStages = useRef(new Map<string, string>());
+  const currentSettingsSection = useRef(settingsSection);
+  currentSettingsSection.current = settingsSection;
+  const [libraryVisited, setLibraryVisited] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [health, setHealth] = useState<HealthCheckResponse | null>(null);
   const [installedModels, setInstalledModels] = useState<InstalledModel[]>([]);
   const [transcripts, setTranscripts] = useState<TranscriptSummary[]>([]);
   const [vocabularyTerms, setVocabularyTerms] = useState<VocabularyTerm[]>([]);
-  const [preview, setPreview] = useState<TranscriptionPreviewResponse | null>(null);
-  const [recordingStatus, setRecordingStatus] = useState<RecordingStatusResponse | null>(null);
+  const [preview, setPreview] = useState<TranscriptionPreviewResponse | null>(
+    null,
+  );
+  const [recordingStatus, setRecordingStatus] =
+    useState<RecordingStatusResponse | null>(null);
   const [manualTranscriptionState, setManualTranscriptionState] =
     useState<ManualTranscriptionUiState>({
       stage: "idle",
@@ -102,17 +117,28 @@ export function App() {
     });
   const [quickDictationStatus, setQuickDictationStatus] =
     useState<QuickDictationStatusResponse | null>(null);
+  const [dictationError, setDictationError] = useState<string | null>(null);
   const [readiness, setReadiness] = useState<DictationReadiness | null>(null);
   const [fileQueueItems, setFileQueueItems] = useState<FileQueueItem[]>([]);
   const [isFileDragActive, setIsFileDragActive] = useState(false);
   const [speakerCountHint, setSpeakerCountHint] = useState<number | null>(null);
   const speakerCountHintRef = useRef<number | null>(null);
   speakerCountHintRef.current = speakerCountHint;
-  const currentScreenRef = useRef<ScreenId>("home");
+  const currentScreenRef = useRef<ScreenId>("dictate");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [trayClosePrompt, setTrayClosePrompt] =
     useState<TrayUnavailableClosePayload | null>(null);
   const toastIdRef = useRef(0);
+  const mainRef = useRef<HTMLElement>(null);
+  const manualGeneration = useRef(0);
+  const fileEventStages = useRef(new Map<string, string>());
+  const fileModelReady = useRef(false);
+  fileModelReady.current = installedModels.some(
+    (model) =>
+      !model.capabilities ||
+      model.capabilities.supportedContexts.includes("file_transcription"),
+  );
+  const fileHints = useRef(new Map<string, number | null>());
   const lastDictationStateRef = useRef<string | null>(null);
 
   const dismissToast = useCallback((id: number) => {
@@ -132,7 +158,10 @@ export function App() {
 
   const showDroppedAudioError = useCallback(
     (error: unknown) => {
-      const message = errorMessage(error, "Drop WAV, MP3, M4A, or OPUS files to transcribe.");
+      const message = errorMessage(
+        error,
+        "Drop WAV, MP3, M4A, or OPUS files to transcribe.",
+      );
       console.error(message);
       pushToast({
         kind: "error",
@@ -144,40 +173,19 @@ export function App() {
     [pushToast],
   );
 
-  const copyTranscriptToClipboard = useCallback(
-    async (text: string) => {
-      const pasteShortcut = formatPasteShortcutForDisplay(health?.platform ?? null);
+  const refreshReadiness =
+    useCallback(async (): Promise<DictationReadiness | null> => {
       try {
-        await copyTextToClipboard(text);
-        pushToast({
-          kind: "success",
-          message: "Copied to clipboard",
-          hint: `Press ${pasteShortcut} to paste`,
-          durationMs: 2500,
-        });
+        const nextReadiness = await getDictationReadiness();
+        setReadiness(nextReadiness);
+        return nextReadiness;
       } catch (error) {
-        pushToast({
-          kind: "error",
-          message: "Copy failed",
-          hint: errorMessage(error, "Could not copy transcript."),
-          durationMs: 4000,
-        });
-        throw error;
+        console.error(
+          errorMessage(error, "Failed to check dictation readiness."),
+        );
+        return null;
       }
-    },
-    [health?.platform, pushToast],
-  );
-
-  const refreshReadiness = useCallback(async (): Promise<DictationReadiness | null> => {
-    try {
-      const nextReadiness = await getDictationReadiness();
-      setReadiness(nextReadiness);
-      return nextReadiness;
-    } catch (error) {
-      console.error(errorMessage(error, "Failed to check dictation readiness."));
-      return null;
-    }
-  }, []);
+    }, []);
 
   const {
     isPolling: isPollingAccessibility,
@@ -190,7 +198,9 @@ export function App() {
     let startupStarted = false;
     let unlisten: (() => void) | null = null;
 
-    const handleStartupStatus = async (status: Awaited<ReturnType<typeof getStartupStatus>>) => {
+    const handleStartupStatus = async (
+      status: Awaited<ReturnType<typeof getStartupStatus>>,
+    ) => {
       if (
         disposed ||
         startupStarted ||
@@ -205,7 +215,10 @@ export function App() {
           await frontendStartupComplete();
         }
       } catch (error) {
-        const message = errorMessage(error, "Failed to load the Blabber workspace.");
+        const message = errorMessage(
+          error,
+          "Failed to load the Blabber workspace.",
+        );
         console.error(message);
         await reportStartupFailure(message).catch(() => undefined);
       }
@@ -248,18 +261,25 @@ export function App() {
   ]);
 
   useEffect(() => {
-    if (recordingStatus?.state !== "listening") {
+    if (
+      recordingStatus?.state !== "listening" &&
+      quickDictationStatus?.state !== "listening"
+    ) {
       return;
     }
     const interval = window.setInterval(() => {
-      void getRecordingStatus().then(setRecordingStatus).catch(() => undefined);
+      void getRecordingStatus()
+        .then(setRecordingStatus)
+        .catch(() => undefined);
     }, 400);
     return () => window.clearInterval(interval);
-  }, [recordingStatus?.state]);
+  }, [recordingStatus?.state, quickDictationStatus?.state]);
 
   useEffect(() => {
     currentScreenRef.current = screen;
-    if (screen !== "home") {
+    mainRef.current?.scrollTo?.({ top: 0 });
+    if (screen === "history") setLibraryVisited(true);
+    if (screen !== "files") {
       setIsFileDragActive(false);
     }
   }, [screen]);
@@ -268,11 +288,20 @@ export function App() {
     let unlisten: (() => void) | null = null;
     void listenQuickDictateStatus(async (nextStatus) => {
       setQuickDictationStatus(nextStatus);
+      void getRecordingStatus()
+        .then(setRecordingStatus)
+        .catch(() => undefined);
+      if (nextStatus.state === "error")
+        setDictationError(nextStatus.lastErrorMessage ?? "Dictation failed.");
+      else if (nextStatus.state === "listening") setDictationError(null);
 
       const previousState = lastDictationStateRef.current;
       lastDictationStateRef.current = nextStatus.state;
       if (
+        previousState !== null &&
         previousState !== nextStatus.state &&
+        currentScreenRef.current !== "dictate" &&
+        document.visibilityState === "visible" &&
         TERMINAL_DICTATION_STATES.has(nextStatus.state)
       ) {
         switch (nextStatus.state) {
@@ -310,7 +339,9 @@ export function App() {
         try {
           setTranscripts(await listTranscripts(""));
         } catch (error) {
-          console.error(errorMessage(error, "Failed to refresh shortcut transcripts."));
+          console.error(
+            errorMessage(error, "Failed to refresh shortcut transcripts."),
+          );
         }
       }
     }).then((cleanup) => {
@@ -354,14 +385,16 @@ export function App() {
     if ("__TAURI_INTERNALS__" in window) {
       void import("@tauri-apps/api/window")
         .then(async ({ getCurrentWindow }) => {
-          const cleanup = await getCurrentWindow().onFocusChanged(({ payload }) => {
-            if (disposed) {
-              return;
-            }
-            if (payload) {
-              refreshVisibleState();
-            }
-          });
+          const cleanup = await getCurrentWindow().onFocusChanged(
+            ({ payload }) => {
+              if (disposed) {
+                return;
+              }
+              if (payload) {
+                refreshVisibleState();
+              }
+            },
+          );
 
           if (disposed) {
             cleanup();
@@ -383,9 +416,29 @@ export function App() {
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     void listenFileTranscriptionStatus(async (event) => {
+      const previousStage = fileEventStages.current.get(event.jobId);
+      fileEventStages.current.set(event.jobId, event.stage);
+      if (
+        previousStage &&
+        previousStage !== event.stage &&
+        (event.stage === "completed" || event.stage === "failed") &&
+        currentScreenRef.current !== "files"
+      ) {
+        pushToast({
+          kind: event.stage === "failed" ? "error" : "success",
+          message:
+            event.stage === "failed"
+              ? "File needs attention"
+              : "Transcript ready",
+          hint: event.sourceFile.originalName,
+          durationMs: event.stage === "failed" ? 0 : 4000,
+        });
+      }
       setFileQueueItems((current) => mergeFileStatusIntoQueue(current, event));
       if (event.stage === "completed" && event.result?.savedTranscript) {
-        setTranscripts((current) => prependTranscriptUnique(current, event.result!.savedTranscript!));
+        setTranscripts((current) =>
+          prependTranscriptUnique(current, event.result!.savedTranscript!),
+        );
       }
     }).then((cleanup) => {
       unlisten = cleanup;
@@ -412,7 +465,7 @@ export function App() {
 
         unlisteners.push(
           await listen("app://file-drag-enter", () => {
-            if (currentScreenRef.current === "home") {
+            if (currentScreenRef.current === "files") {
               setIsFileDragActive(true);
             }
           }),
@@ -427,7 +480,7 @@ export function App() {
         unlisteners.push(
           await listen<string[]>("app://file-drop", async (event) => {
             setIsFileDragActive(false);
-            if (currentScreenRef.current !== "home") return;
+            if (currentScreenRef.current !== "files") return;
             try {
               const files = await prepareDroppedAudioFiles(event.payload);
               enqueueSelectedFiles(files, speakerCountHintRef.current);
@@ -438,7 +491,10 @@ export function App() {
         );
       })
       .catch((error) => {
-        console.error("[drag-drop] Failed to set up drag-drop listeners:", error);
+        console.error(
+          "[drag-drop] Failed to set up drag-drop listeners:",
+          error,
+        );
       });
 
     return () => {
@@ -470,35 +526,95 @@ export function App() {
     };
   }, [fileQueueItems]);
 
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const updateCount = () =>
+      setDownloadCount(
+        [...downloadStages.current.values()].filter(
+          (stage) => stage === "downloading",
+        ).length,
+      );
+    void getModelDownloadStatuses()
+      .then((statuses) => {
+        if (disposed) return;
+        statuses.forEach((status) => {
+          if (!downloadStages.current.has(status.modelId))
+            downloadStages.current.set(status.modelId, status.state);
+        });
+        updateCount();
+      })
+      .catch(() => undefined);
+    void listenModelDownloadStatus((status) => {
+      if (disposed) return;
+      const previous = downloadStages.current.get(status.modelId);
+      downloadStages.current.set(status.modelId, status.state);
+      updateCount();
+      if (
+        previous === "downloading" &&
+        (status.state === "completed" || status.state === "failed") &&
+        (currentScreenRef.current !== "settings" ||
+          currentSettingsSection.current !== "models")
+      ) {
+        pushToast({
+          kind: status.state === "failed" ? "error" : "success",
+          message:
+            status.state === "failed"
+              ? "Model download needs attention"
+              : "Model installed",
+          hint: status.errorMessage ?? status.modelName,
+          durationMs: status.state === "failed" ? 0 : 4000,
+        });
+      }
+      if (status.state === "completed") void reloadModelState();
+    })
+      .then((cleanup) => {
+        if (disposed) cleanup();
+        else unlisten = cleanup;
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [pushToast]);
+
   async function loadAppState() {
     const [
-        nextHealth,
-        nextSettings,
-        nextInstalledModels,
-        nextTranscripts,
-        nextVocabularyTerms,
-        nextRecordingStatus,
-        nextQuickDictateStatus,
-        nextFileStatuses,
+      nextHealth,
+      nextSettings,
+      nextInstalledModels,
+      nextTranscripts,
+      nextVocabularyTerms,
+      nextRecordingStatus,
+      nextQuickDictateStatus,
+      nextFileStatuses,
     ] = await Promise.all([
-        getHealthCheck(),
-        getSettings(),
-        listInstalledModels(),
-        listTranscripts(""),
-        listVocabularyTerms(),
-        getRecordingStatus(),
-        getQuickDictateStatus(),
-        getFileTranscriptionStatuses(),
-      ]);
+      getHealthCheck(),
+      getSettings(),
+      listInstalledModels(),
+      listTranscripts(""),
+      listVocabularyTerms(),
+      getRecordingStatus(),
+      getQuickDictateStatus(),
+      getFileTranscriptionStatuses(),
+    ]);
 
     setHealth(nextHealth);
     setSettings(nextSettings);
     setInstalledModels(nextInstalledModels);
-    setScreen("home");
+    setScreen(
+      nextSettings.defaultMode === "file_transcribe" ? "files" : "dictate",
+    );
+    applyAppearance(nextSettings);
+    lastDictationStateRef.current = nextQuickDictateStatus.state;
     setTranscripts(nextTranscripts);
     setVocabularyTerms(nextVocabularyTerms);
     setRecordingStatus(nextRecordingStatus);
     setQuickDictationStatus(nextQuickDictateStatus);
+    nextFileStatuses.forEach((event) =>
+      fileEventStages.current.set(event.jobId, event.stage),
+    );
     setFileQueueItems(mergeFileStatusesIntoQueue([], nextFileStatuses));
     for (const notice of nextHealth.startupNotices) {
       pushToast({
@@ -520,14 +636,18 @@ export function App() {
       setQuickDictationStatus(nextQuickDictateStatus);
       setTranscripts(nextTranscripts);
     } catch (error) {
-      console.error(errorMessage(error, "Failed to refresh shortcut output state."));
+      console.error(
+        errorMessage(error, "Failed to refresh shortcut output state."),
+      );
     }
   }
 
   async function refreshFileStatuses() {
     try {
       const statuses = await getFileTranscriptionStatuses();
-      setFileQueueItems((current) => mergeFileStatusesIntoQueue(current, statuses));
+      setFileQueueItems((current) =>
+        mergeFileStatusesIntoQueue(current, statuses),
+      );
       for (const status of statuses) {
         if (status.stage === "completed" && status.result?.savedTranscript) {
           setTranscripts((current) =>
@@ -536,19 +656,27 @@ export function App() {
         }
       }
     } catch (error) {
-      console.error(errorMessage(error, "Failed to refresh file transcription statuses."));
+      console.error(
+        errorMessage(error, "Failed to refresh file transcription statuses."),
+      );
     }
   }
 
   async function saveSettings(patch: SettingsPatch) {
     const nextSettings = await updateSettings(patch);
     setSettings(nextSettings);
-    setQuickDictationStatus(await getQuickDictateStatus());
+    applyAppearance(nextSettings);
+    void getQuickDictateStatus()
+      .then(setQuickDictationStatus)
+      .catch(() => undefined);
     void refreshReadiness();
   }
 
   const reloadModelState = useCallback(async () => {
-    const [nextSettings, nextInstalledModels] = await Promise.all([getSettings(), listInstalledModels()]);
+    const [nextSettings, nextInstalledModels] = await Promise.all([
+      getSettings(),
+      listInstalledModels(),
+    ]);
     setSettings(nextSettings);
     setInstalledModels(nextInstalledModels);
     void refreshReadiness();
@@ -565,6 +693,7 @@ export function App() {
         startAccessibilityPolling();
         return;
       }
+      setSettingsSection(item === "model" ? "models" : "audio");
       setScreen("settings");
     },
     [isPollingAccessibility, refreshReadiness, startAccessibilityPolling],
@@ -572,7 +701,9 @@ export function App() {
 
   async function removeTranscript(transcriptId: string) {
     await deleteTranscript(transcriptId);
-    setTranscripts((current) => current.filter((item) => item.id !== transcriptId));
+    setTranscripts((current) =>
+      current.filter((item) => item.id !== transcriptId),
+    );
   }
 
   async function removeAllTranscripts() {
@@ -581,20 +712,30 @@ export function App() {
   }
 
   async function beginManualRecording() {
-    setPreview(null);
-    setManualTranscriptionState({
-      stage: "idle",
-      statusText: "",
-      startedAt: null,
-      errorMessage: null,
-    });
-    setRecordingStatus(await startRecordingSession());
+    manualGeneration.current += 1;
+    try {
+      const nextRecording = await startRecordingSession();
+      setRecordingStatus(nextRecording);
+      setPreview(null);
+      setManualTranscriptionState({
+        stage: "idle",
+        statusText: "",
+        startedAt: null,
+        errorMessage: null,
+      });
+    } catch (error) {
+      void reportManualFeedback(crypto.randomUUID(), true).catch(
+        () => undefined,
+      );
+      throw error;
+    }
   }
 
   async function stopAndPreviewManualRecording() {
     if (!settings) {
       return;
     }
+    const generation = manualGeneration.current;
     const startedAt = Date.now();
     setPreview(null);
     setManualTranscriptionState({
@@ -616,6 +757,7 @@ export function App() {
 
     try {
       const result = await stopRecordingSession();
+      if (generation !== manualGeneration.current) return;
       setManualTranscriptionState({
         stage: "processing",
         statusText: "Transcribing your recording locally...",
@@ -643,7 +785,12 @@ export function App() {
         preferGpu: settings.gpuEnabled,
         filePath: result.filePath,
       });
+      if (generation !== manualGeneration.current) return;
       setPreview(nextPreview);
+      void reportManualFeedback(
+        result.sessionId,
+        Boolean(nextPreview.error),
+      ).catch(() => undefined);
       if (nextPreview.error) {
         setManualTranscriptionState({
           stage: "failed",
@@ -660,6 +807,11 @@ export function App() {
         });
       }
     } catch (error) {
+      if (generation !== manualGeneration.current) return;
+      void reportManualFeedback(
+        recordingStatus?.currentSessionId ?? crypto.randomUUID(),
+        true,
+      ).catch(() => undefined);
       setPreview(null);
       setManualTranscriptionState({
         stage: "failed",
@@ -668,46 +820,48 @@ export function App() {
         errorMessage: errorMessage(error, "Manual dictation failed."),
       });
     } finally {
-      setRecordingStatus(await getRecordingStatus());
+      const status = await getRecordingStatus().catch(() => null);
+      if (status && generation === manualGeneration.current)
+        setRecordingStatus(status);
     }
   }
 
   async function cancelManualRecording() {
+    const status = await cancelRecordingSession();
+    manualGeneration.current += 1;
     setPreview(null);
     setManualTranscriptionState({
       stage: "idle",
-      statusText: "",
+      statusText: "Recording canceled",
       startedAt: null,
       errorMessage: null,
     });
-    setRecordingStatus(await cancelRecordingSession());
+    setRecordingStatus(status);
   }
 
   async function resetDictation() {
-    try {
-      const status = await resetQuickDictation();
+    await resetQuickDictation().then((status) => {
+      manualGeneration.current += 1;
+      setDictationError(null);
+      setManualTranscriptionState({
+        stage: "idle",
+        statusText: "Dictation reset",
+        startedAt: null,
+        errorMessage: null,
+      });
       setQuickDictationStatus(status);
-      setRecordingStatus(await getRecordingStatus());
-      pushToast({
-        kind: "success",
-        message: "Dictation reset",
-        hint: "Audio engine restarted and the shortcut is ready again.",
-        durationMs: 4000,
-      });
-    } catch (error) {
-      pushToast({
-        kind: "error",
-        message: "Reset failed",
-        hint: errorMessage(error, "Could not reset dictation."),
-        durationMs: 6000,
-      });
-    }
+    });
+    setRecordingStatus(await getRecordingStatus());
   }
 
-  async function createVocabulary(input: Parameters<typeof createVocabularyTerm>[0]) {
+  async function createVocabulary(
+    input: Parameters<typeof createVocabularyTerm>[0],
+  ) {
     const term = await createVocabularyTerm(input);
     setVocabularyTerms((current) =>
-      [...current, term].sort((left, right) => left.canonical.localeCompare(right.canonical)),
+      [...current, term].sort((left, right) =>
+        left.canonical.localeCompare(right.canonical),
+      ),
     );
   }
 
@@ -725,7 +879,9 @@ export function App() {
 
   async function removeVocabulary(termId: string) {
     await deleteVocabularyTerm(termId);
-    setVocabularyTerms((current) => current.filter((term) => term.id !== termId));
+    setVocabularyTerms((current) =>
+      current.filter((term) => term.id !== termId),
+    );
   }
 
   async function enqueueFiles(speakerCountHint: number | null) {
@@ -733,20 +889,63 @@ export function App() {
     enqueueSelectedFiles(files, speakerCountHint);
   }
 
-  function enqueueSelectedFiles(files: FileQueueItem["sourceFile"][], speakerCountHint: number | null) {
+  async function retryFile(itemId: string) {
+    const item = fileQueueItems.find((entry) => entry.id === itemId);
+    if (!item) return;
+    let files: FileQueueItem["sourceFile"][];
+    try {
+      files = await prepareDroppedAudioFiles([item.sourceFile.filePath]);
+    } catch {
+      files = await pickAudioFiles();
+      if (!files.length)
+        throw new Error("Choose the original audio file to retry.");
+    }
+    enqueueSelectedFiles(
+      files.slice(0, 1),
+      fileHints.current.get(itemId) ?? null,
+    );
+  }
+
+  async function cancelFile(itemId: string) {
+    await cancelFileTranscription(itemId);
+    await refreshFileStatuses();
+  }
+
+  function enqueueSelectedFiles(
+    files: FileQueueItem["sourceFile"][],
+    speakerCountHint: number | null,
+  ) {
     if (files.length === 0) {
       return;
     }
-    const queuedItems = files.map((sourceFile) => createQueuedFileItem(crypto.randomUUID(), sourceFile));
-    setFileQueueItems((current) => mergeFileStatusesIntoQueue([...queuedItems, ...current], []));
+    if (!fileModelReady.current) {
+      pushToast({
+        kind: "error",
+        message: "A speech model is needed",
+        hint: "Open Settings → Models to download a model for file transcription.",
+        durationMs: 0,
+      });
+      return;
+    }
+    const queuedItems = files.map((sourceFile) =>
+      createQueuedFileItem(crypto.randomUUID(), sourceFile),
+    );
+    setFileQueueItems((current) =>
+      mergeFileStatusesIntoQueue([...queuedItems, ...current], []),
+    );
 
     for (const item of queuedItems) {
+      fileHints.current.set(item.id, speakerCountHint);
+      fileEventStages.current.set(item.id, "queued");
       void startFileTranscription({
         jobId: item.id,
         sourceFile: item.sourceFile,
         speakerCountHint,
       }).catch((error) => {
-        const message = errorMessage(error, "Failed to transcribe the selected file.");
+        const message = errorMessage(
+          error,
+          "Failed to transcribe the selected file.",
+        );
         setFileQueueItems((current) =>
           current.map((entry) =>
             entry.id === item.id
@@ -763,7 +962,10 @@ export function App() {
     }
   }
 
-  async function handleDroppedFiles(fileList: FileList, speakerCountHint: number | null) {
+  async function handleDroppedFiles(
+    fileList: FileList,
+    speakerCountHint: number | null,
+  ) {
     // Extract file paths from the HTML5 FileList.
     // In Tauri's webview, File objects from drag-and-drop carry the native path.
     // In a plain browser, we fall back to the file name.
@@ -784,31 +986,10 @@ export function App() {
 
   function toggleQueuedFile(itemId: string) {
     setFileQueueItems((current) =>
-      current.map((item) => (item.id === itemId ? { ...item, isExpanded: !item.isExpanded } : item)),
+      current.map((item) =>
+        item.id === itemId ? { ...item, isExpanded: !item.isExpanded } : item,
+      ),
     );
-  }
-
-  async function copyQueuedFile(itemId: string, text: string) {
-    try {
-      await copyTranscriptToClipboard(text);
-      setFileQueueItems((current) =>
-        current.map((item) => (item.id === itemId ? { ...item, copyState: "copied" } : item)),
-      );
-      window.setTimeout(() => {
-        setFileQueueItems((current) =>
-          current.map((item) => (item.id === itemId ? { ...item, copyState: "idle" } : item)),
-        );
-      }, 1800);
-    } catch {
-      setFileQueueItems((current) =>
-        current.map((item) => (item.id === itemId ? { ...item, copyState: "error" } : item)),
-      );
-      window.setTimeout(() => {
-        setFileQueueItems((current) =>
-          current.map((item) => (item.id === itemId ? { ...item, copyState: "idle" } : item)),
-        );
-      }, 1800);
-    }
   }
 
   return (
@@ -823,8 +1004,20 @@ export function App() {
           }}
         />
       ) : null}
-      <div className={sidebarExpanded ? "app-shell" : "app-shell sidebar-collapsed"}>
-        <aside className="sidebar glass-panel glass-nav">
+      <div
+        className={
+          sidebarExpanded ? "app-shell" : "app-shell sidebar-collapsed"
+        }
+      >
+        <aside className="sidebar">
+          <div className="sidebar-brand">
+            <span className="brand-mark">
+              <AppIcon name="microphone" />
+            </span>
+            <span className="brand-wordmark">
+              blabber<span>Space for your words</span>
+            </span>
+          </div>
           <IconButton
             className="sidebar-toggle"
             icon={sidebarExpanded ? "chevronLeft" : "chevronRight"}
@@ -833,12 +1026,20 @@ export function App() {
             onClick={() => setSidebarExpanded((current) => !current)}
           />
 
-          <nav className="nav-list">
+          <nav className="nav-list" aria-label="Main navigation">
             {NAV_ITEMS.map((item) => (
               <button
                 key={item.id}
-                className={screen === item.id ? "nav-item active" : "nav-item"}
-                onClick={() => setScreen(item.id)}
+                className={
+                  "nav-item" +
+                  (screen === item.id ? " active" : "") +
+                  (item.id === "settings" ? " nav-settings" : "")
+                }
+                aria-current={screen === item.id ? "page" : undefined}
+                onClick={() => {
+                  if (item.id === "settings") setSettingsSection("general");
+                  setScreen(item.id);
+                }}
                 aria-label={item.label}
                 title={item.label}
               >
@@ -846,43 +1047,94 @@ export function App() {
                   <AppIcon name={item.icon} />
                 </span>
                 <span className="nav-item-label">{item.label}</span>
+                {item.id === "settings" && downloadCount > 0 ? (
+                  <span
+                    className="nav-count"
+                    aria-label="Model downloads in progress"
+                  >
+                    {downloadCount}
+                  </span>
+                ) : null}
+                {item.id === "files" &&
+                fileQueueItems.some((entry) => isFileWorking(entry.stage)) ? (
+                  <span className="nav-count" aria-label="Files in progress">
+                    {
+                      fileQueueItems.filter((entry) =>
+                        isFileWorking(entry.stage),
+                      ).length
+                    }
+                  </span>
+                ) : null}
+                {item.id === "dictate" &&
+                (recordingStatus?.state === "listening" ||
+                  manualTranscriptionState.stage === "processing" ||
+                  quickDictationStatus?.state === "listening" ||
+                  quickDictationStatus?.state === "processing") ? (
+                  <span
+                    className="nav-activity"
+                    aria-label="Dictation in progress"
+                  />
+                ) : null}
               </button>
             ))}
           </nav>
+          <div className="sidebar-footer">
+            <span className="privacy-dot" />
+            <span>Local. Private. Yours.</span>
+          </div>
         </aside>
 
-        <main className="main-content">
+        <main className="main-content" ref={mainRef}>
           <div className="content-frame">
-            {screen === "home" ? (
-              <HomeScreen
+            {screen === "dictate" ? (
+              <DictateScreen
                 settings={settings}
                 platform={health?.platform ?? null}
                 preview={preview}
                 recordingStatus={recordingStatus}
                 manualTranscriptionState={manualTranscriptionState}
                 quickDictationStatus={quickDictationStatus}
+                dictationError={dictationError}
                 readiness={readiness}
                 isPollingAccessibility={isPollingAccessibility}
                 onResolveReadiness={handleResolveReadiness}
-                fileQueueItems={fileQueueItems}
-                isFileDragActive={isFileDragActive}
-                speakerCountHint={speakerCountHint}
-                fileModelHasNativeDiarization={installedModels.find((model) => model.id === settings?.fileTranscribeSelectedModelId)?.capabilities?.nativeDiarization ?? false}
-                onSpeakerCountHintChange={setSpeakerCountHint}
                 onStartRecording={beginManualRecording}
                 onStopAndTranscribeRecording={stopAndPreviewManualRecording}
                 onCancelRecording={cancelManualRecording}
                 onResetDictation={resetDictation}
-                onPickFiles={enqueueFiles}
-                onDropFiles={handleDroppedFiles}
-                onSetFileDragActive={setIsFileDragActive}
-                onToggleFileTranscript={toggleQueuedFile}
-                onCopyFileTranscript={copyQueuedFile}
+              />
+            ) : null}
+            {screen === "files" ? (
+              <FilesScreen
+                modelReady={fileModelReady.current}
+                onResolveModel={() => {
+                  setSettingsSection("models");
+                  setScreen("settings");
+                }}
+                items={fileQueueItems}
+                dragging={isFileDragActive}
+                speakerCountHint={speakerCountHint}
+                showSpeakerOptions={Boolean(
+                  settings?.fileDiarizationEnabled &&
+                  !installedModels.find(
+                    (model) =>
+                      model.id === settings.fileTranscribeSelectedModelId,
+                  )?.capabilities?.nativeDiarization,
+                )}
+                onSpeakerCountHintChange={setSpeakerCountHint}
+                onDragChange={setIsFileDragActive}
+                onPick={() => enqueueFiles(speakerCountHint)}
+                onDrop={(files) => handleDroppedFiles(files, speakerCountHint)}
+                onToggle={toggleQueuedFile}
+                onCancel={cancelFile}
+                onRetry={retryFile}
               />
             ) : null}
 
             {screen === "settings" ? (
               <SettingsScreen
+                initialSection={settingsSection}
+                onSectionChange={setSettingsSection}
                 settings={settings}
                 platform={health?.platform ?? null}
                 installedModels={installedModels}
@@ -900,13 +1152,21 @@ export function App() {
               />
             ) : null}
 
-            {screen === "history" ? (
-              <HistoryScreen
-                transcripts={transcripts}
-                onTranscriptUpdated={(updated) => setTranscripts((current) => current.map((item) => item.id === updated.id ? updated : item))}
-                onDelete={removeTranscript}
-                onDeleteAll={removeAllTranscripts}
-              />
+            {libraryVisited || screen === "history" ? (
+              <div hidden={screen !== "history"}>
+                <HistoryScreen
+                  transcripts={transcripts}
+                  onTranscriptUpdated={(updated) =>
+                    setTranscripts((current) =>
+                      current.map((item) =>
+                        item.id === updated.id ? updated : item,
+                      ),
+                    )
+                  }
+                  onDelete={removeTranscript}
+                  onDeleteAll={removeAllTranscripts}
+                />
+              </div>
             ) : null}
           </div>
         </main>
@@ -924,22 +1184,7 @@ function ToastStack({
 }) {
   if (toasts.length === 0) return null;
   return (
-    <div
-      role="region"
-      aria-label="Notifications"
-      style={{
-        position: "fixed",
-        left: "50%",
-        bottom: 24,
-        transform: "translateX(-50%)",
-        display: "flex",
-        flexDirection: "column",
-        gap: 8,
-        zIndex: 9999,
-        pointerEvents: "none",
-        maxWidth: "min(560px, calc(100vw - 32px))",
-      }}
-    >
+    <div role="region" aria-label="Notifications" className="toast-stack">
       {toasts.map((toast) => (
         <ToastChip key={toast.id} toast={toast} onDismiss={onDismiss} />
       ))}
@@ -956,31 +1201,47 @@ function TrayClosePrompt({
   onKeepOpen: () => void;
   onQuit: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onKeepOpenRef = useRef(onKeepOpen);
+  onKeepOpenRef.current = onKeepOpen;
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    dialog?.querySelector<HTMLButtonElement>("button")?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onKeepOpenRef.current();
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const controls = Array.from(
+        dialog.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+      );
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, []);
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="tray-close-title"
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 9998,
-        display: "grid",
-        placeItems: "center",
-        padding: 18,
-        background: "rgba(31, 45, 61, 0.18)",
-        backdropFilter: "blur(10px)",
-        WebkitBackdropFilter: "blur(10px)",
-      }}
+      className="modal-backdrop"
     >
-      <div
-        className="glass-panel"
-        style={{
-          width: "min(520px, calc(100vw - 36px))",
-          display: "grid",
-          gap: 16,
-        }}
-      >
+      <div className="surface modal-panel">
         <div className="field-stack">
           <h2 id="tray-close-title" style={{ margin: 0 }}>
             {payload.title}
@@ -989,8 +1250,15 @@ function TrayClosePrompt({
             {payload.message}
           </p>
         </div>
-        <div className="toolbar" style={{ justifyContent: "flex-end", flexWrap: "wrap" }}>
-          <button type="button" className="secondary-inline-button" onClick={onKeepOpen}>
+        <div
+          className="toolbar"
+          style={{ justifyContent: "flex-end", flexWrap: "wrap" }}
+        >
+          <button
+            type="button"
+            className="secondary-inline-button"
+            onClick={onKeepOpen}
+          >
             Keep open
           </button>
           <button type="button" className="danger-button" onClick={onQuit}>
@@ -1009,68 +1277,30 @@ function ToastChip({
   toast: Toast;
   onDismiss: (id: number) => void;
 }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    // Trigger the slide-up + fade-in on the next frame.
-    const handle = requestAnimationFrame(() => setMounted(true));
-    return () => cancelAnimationFrame(handle);
-  }, []);
-
-  const accent =
-    toast.kind === "success"
-      ? "var(--accent-success)"
-      : toast.kind === "error"
-        ? "var(--accent-error)"
-        : "var(--accent-live)";
-  const tint =
-    toast.kind === "success"
-      ? "rgba(130, 199, 162, 0.12)"
-      : toast.kind === "error"
-        ? "rgba(239, 143, 131, 0.16)"
-        : "rgba(121, 174, 244, 0.14)";
-
   return (
     <div
       role={toast.kind === "error" ? "alert" : "status"}
-      onClick={() => onDismiss(toast.id)}
-      style={{
-        pointerEvents: "auto",
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "12px 18px",
-        borderRadius: 999,
-        border: `1px solid ${accent}`,
-        background: `linear-gradient(180deg, #ffffffe6, #f6f9fdcc), ${tint}`,
-        boxShadow: "0 12px 28px rgba(45, 66, 94, 0.18)",
-        backdropFilter: "blur(18px)",
-        WebkitBackdropFilter: "blur(18px)",
-        color: "var(--text-primary)",
-        fontSize: "0.94rem",
-        fontWeight: 600,
-        opacity: mounted ? 1 : 0,
-        transform: mounted ? "translateY(0)" : "translateY(8px)",
-        transition: "opacity 180ms ease, transform 180ms ease",
-      }}
-      title="Click to dismiss"
+      className={"toast-chip toast-" + toast.kind}
     >
-      <span
-        aria-hidden="true"
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 999,
-          background: accent,
-          flex: "0 0 auto",
-        }}
+      <AppIcon
+        name={
+          toast.kind === "error"
+            ? "info"
+            : toast.kind === "success"
+              ? "check"
+              : "info"
+        }
       />
-      <span>{toast.message}</span>
-      {toast.hint ? (
-        <span style={{ color: "var(--text-secondary)", fontWeight: 450 }}>
-          {toast.hint}
-        </span>
-      ) : null}
+      <div className="toast-copy">
+        <strong>{toast.message}</strong>
+        {toast.hint ? <p>{toast.hint}</p> : null}
+      </div>
+      <IconButton
+        icon="xmark"
+        size="compact"
+        label="Dismiss notification"
+        onClick={() => onDismiss(toast.id)}
+      />
     </div>
   );
 }
@@ -1085,7 +1315,10 @@ function errorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function createQueuedFileItem(id: string, sourceFile: FileQueueItem["sourceFile"]): FileQueueItem {
+function createQueuedFileItem(
+  id: string,
+  sourceFile: FileQueueItem["sourceFile"],
+): FileQueueItem {
   return {
     id,
     sourceFile,
@@ -1139,7 +1372,10 @@ function mergeStatusWithQueueItem(
   existing: FileQueueItem | undefined,
   status: FileTranscriptionStatusEvent,
 ): FileQueueItem {
+  if (existing?.updatedAt && status.updatedAtMs < existing.updatedAt)
+    return existing;
   return {
+    updatedAt: status.updatedAtMs,
     id: status.jobId,
     sourceFile: status.result?.sourceFile ?? status.sourceFile,
     stage: status.stage,

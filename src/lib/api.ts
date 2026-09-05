@@ -48,6 +48,8 @@ const mockSettings: AppSettings = {
   quickDictateSelectedModelId: "ggml-large-v3-turbo-q5_0-bin",
   fileTranscribeModelProfile: "accurate",
   fileTranscribeSelectedModelId: "ggml-large-v3-turbo-q5_0-bin",
+  appearance: "system",
+  motionPreference: "system",
   saveHistory: true,
   soundsEnabled: true,
   volumeDuckingEnabled: true,
@@ -102,7 +104,8 @@ const mockDownloadableModels: DownloadableModel[] = [
     id: "ggml-small-bin",
     engine: "whisper.cpp",
     modelName: "ggml-small.bin",
-    description: "Good balance when you want lower memory use and reliable everyday quality.",
+    description:
+      "Good balance when you want lower memory use and reliable everyday quality.",
     sizeBytes: 487_601_967,
     profile: "balanced",
     availability: "available",
@@ -116,7 +119,8 @@ const mockDownloadableModels: DownloadableModel[] = [
     id: "ggml-medium-bin",
     engine: "whisper.cpp",
     modelName: "ggml-medium.bin",
-    description: "Strong default for shortcut dictation when you want better accuracy.",
+    description:
+      "Strong default for shortcut dictation when you want better accuracy.",
     sizeBytes: 1_533_763_059,
     profile: "accurate",
     availability: "available",
@@ -130,7 +134,8 @@ const mockDownloadableModels: DownloadableModel[] = [
     id: "ggml-large-v3-turbo-bin",
     engine: "whisper.cpp",
     modelName: "ggml-large-v3-turbo.bin",
-    description: "Best full-size turbo model when you want top quality and speed.",
+    description:
+      "Best full-size turbo model when you want top quality and speed.",
     sizeBytes: 1_624_555_275,
     profile: "accurate",
     availability: "available",
@@ -144,7 +149,8 @@ const mockDownloadableModels: DownloadableModel[] = [
     id: "ggml-large-v3-turbo-q5_0-bin",
     engine: "whisper.cpp",
     modelName: "ggml-large-v3-turbo-q5_0.bin",
-    description: "Quantized turbo model with lower memory use and a strong quality-speed tradeoff.",
+    description:
+      "Quantized turbo model with lower memory use and a strong quality-speed tradeoff.",
     sizeBytes: 574_041_195,
     profile: "accurate",
     availability: "available",
@@ -173,17 +179,23 @@ const mockDownloadableModels: DownloadableModel[] = [
     id: "moss-transcribe-diarize-0.9b-f16",
     engine: "moss-transcribe-cpp",
     modelName: "MOSS Transcribe + Diarize 0.9B F16",
-    description: "Long-form multilingual transcription with built-in speakers, timestamps, and vocabulary hotwords.",
+    description:
+      "Long-form multilingual transcription with built-in speakers, timestamps, and vocabulary hotwords.",
     sizeBytes: 1_833_647_104,
     profile: "accurate",
     availability: "available",
     availabilityReason: null,
     installed: false,
-    requirements: "CPU-only · up to 90 minutes · speaker identification built in",
+    requirements:
+      "CPU-only · up to 90 minutes · speaker identification built in",
     artifactCount: 1,
     capability: "asr",
     capabilities: {
-      supportedContexts: ["shortcut_dictation", "quick_dictate", "file_transcription"],
+      supportedContexts: [
+        "shortcut_dictation",
+        "quick_dictate",
+        "file_transcription",
+      ],
       nativeDiarization: true,
       timestampedSegments: true,
       contextSupport: true,
@@ -195,13 +207,15 @@ const mockDownloadableModels: DownloadableModel[] = [
     id: "vibevoice-asr-8bit-mlx",
     engine: "vibevoice-mlx",
     modelName: "VibeVoice-ASR 8-bit MLX",
-    description: "Apple Silicon long-form transcription with built-in speakers, timestamps, and vocabulary context.",
+    description:
+      "Apple Silicon long-form transcription with built-in speakers, timestamps, and vocabulary context.",
     sizeBytes: 9_521_624_407,
     profile: "accurate",
     availability: "available",
     availabilityReason: null,
     installed: false,
-    requirements: "Apple Silicon · macOS 14+ · 32 GB unified memory recommended · file transcription only",
+    requirements:
+      "Apple Silicon · macOS 14+ · 32 GB unified memory recommended · file transcription only",
     artifactCount: 4,
     capability: "asr",
     capabilities: {
@@ -217,7 +231,8 @@ const mockDownloadableModels: DownloadableModel[] = [
     id: "sherpa-diarization-pyannote3-eres2net-voxceleb-v2",
     engine: "sherpa-onnx",
     modelName: "Offline speaker diarization",
-    description: "Local speaker separation using pyannote segmentation and VoxCeleb ERes2Net embeddings.",
+    description:
+      "Local speaker separation using pyannote segmentation and VoxCeleb ERes2Net embeddings.",
     sizeBytes: 32_478_041,
     profile: "balanced",
     availability: "available",
@@ -228,7 +243,9 @@ const mockDownloadableModels: DownloadableModel[] = [
     capability: "diarization",
   },
 ];
-const mockModelDownloadListeners = new Set<(status: ModelDownloadStatus) => void>();
+const mockModelDownloadListeners = new Set<
+  (status: ModelDownloadStatus) => void
+>();
 const mockModelDownloadStatuses = new Map<string, ModelDownloadStatus>(
   mockDownloadableModels.map((model) => [
     model.id,
@@ -256,8 +273,16 @@ const mockVocabularyTerms: VocabularyTerm[] = [
     createdAt: "2026-03-14T00:00:00Z",
     updatedAt: "2026-03-14T00:00:00Z",
     aliases: [
-      { id: "builtin-linkedin-linked-in", alias: "linked in", normalizedAlias: "linked in" },
-      { id: "builtin-linkedin-linken", alias: "linken", normalizedAlias: "linken" },
+      {
+        id: "builtin-linkedin-linked-in",
+        alias: "linked in",
+        normalizedAlias: "linked in",
+      },
+      {
+        id: "builtin-linkedin-linken",
+        alias: "linken",
+        normalizedAlias: "linken",
+      },
     ],
   },
 ];
@@ -314,7 +339,10 @@ let mockQuickDictationStatus: QuickDictationStatusResponse = {
 const mockFileTranscriptionListeners = new Set<
   (event: FileTranscriptionStatusEvent) => void
 >();
-const mockFileTranscriptionStatuses = new Map<string, FileTranscriptionStatusEvent>();
+const mockFileTranscriptionStatuses = new Map<
+  string,
+  FileTranscriptionStatusEvent
+>();
 let mockStartupStatus: StartupStatus = {
   phase: "workspace",
   step: 6,
@@ -434,9 +462,12 @@ export async function listenTrayUnavailableCloseRequested(
   }
 
   const { listen } = await import("@tauri-apps/api/event");
-  return listen<TrayUnavailableClosePayload>("app://tray-unavailable-close-requested", (event) => {
-    handler(event.payload);
-  });
+  return listen<TrayUnavailableClosePayload>(
+    "app://tray-unavailable-close-requested",
+    (event) => {
+      handler(event.payload);
+    },
+  );
 }
 
 export async function dictatePress(): Promise<void> {
@@ -471,20 +502,26 @@ export async function listDownloadableModels(): Promise<DownloadableModel[]> {
   if (!isTauriRuntime()) {
     return mockDownloadableModels.map((model) => ({
       ...model,
-      installed: model.installed || mockModels.some((installed) => installed.id === model.id),
+      installed:
+        model.installed ||
+        mockModels.some((installed) => installed.id === model.id),
     }));
   }
   return invoke<DownloadableModel[]>("list_downloadable_models");
 }
 
-export async function getModelDownloadStatuses(): Promise<ModelDownloadStatus[]> {
+export async function getModelDownloadStatuses(): Promise<
+  ModelDownloadStatus[]
+> {
   if (!isTauriRuntime()) {
     return Array.from(mockModelDownloadStatuses.values());
   }
   return invoke<ModelDownloadStatus[]>("get_model_download_statuses");
 }
 
-export async function startModelDownload(modelId: string): Promise<ModelDownloadStatus> {
+export async function startModelDownload(
+  modelId: string,
+): Promise<ModelDownloadStatus> {
   if (!isTauriRuntime()) {
     const model = mockDownloadableModels.find((entry) => entry.id === modelId);
     if (!model) {
@@ -514,7 +551,8 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
       totalBytes,
       progressPercent: 0,
       errorMessage: null,
-      currentArtifact: model.artifactCount > 1 ? "config.json" : model.modelName,
+      currentArtifact:
+        model.artifactCount > 1 ? "config.json" : model.modelName,
       artifactIndex: 1,
       artifactCount: model.artifactCount,
     };
@@ -540,7 +578,10 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
           artifactIndex: isFinal ? model.artifactCount : 1,
           artifactCount: model.artifactCount,
         };
-        if (isFinal && !mockModels.some((installed) => installed.id === model.id)) {
+        if (
+          isFinal &&
+          !mockModels.some((installed) => installed.id === model.id)
+        ) {
           mockModels.push({
             id: model.id,
             engine: model.engine,
@@ -563,7 +604,9 @@ export async function startModelDownload(modelId: string): Promise<ModelDownload
   return invoke<ModelDownloadStatus>("start_model_download", { modelId });
 }
 
-export async function cancelModelDownload(modelId: string): Promise<ModelDownloadStatus> {
+export async function cancelModelDownload(
+  modelId: string,
+): Promise<ModelDownloadStatus> {
   if (!isTauriRuntime()) {
     const current = mockModelDownloadStatuses.get(modelId);
     if (!current || current.state !== "downloading") {
@@ -611,21 +654,29 @@ export async function listInputDevices(): Promise<InputDeviceOption[]> {
   return invoke<InputDeviceOption[]>("list_input_devices");
 }
 
-export async function updateSettings(patch: SettingsPatch): Promise<AppSettings> {
+export async function updateSettings(
+  patch: SettingsPatch,
+): Promise<AppSettings> {
   if (!isTauriRuntime()) {
     Object.assign(mockSettings, patch);
     if (patch.fileDiarizationEnabled === true) {
       const diarizationModel = mockDownloadableModels.find(
         (model) => model.capability === "diarization",
       );
-      if (diarizationModel && !mockModels.some((model) => model.id === diarizationModel.id)) {
+      if (
+        diarizationModel &&
+        !mockModels.some((model) => model.id === diarizationModel.id)
+      ) {
         await startModelDownload(diarizationModel.id);
       }
     } else if (patch.fileDiarizationEnabled === false) {
-      const diarizationStatus = Array.from(mockModelDownloadStatuses.values()).find(
+      const diarizationStatus = Array.from(
+        mockModelDownloadStatuses.values(),
+      ).find(
         (status) =>
           status.state === "downloading" &&
-          mockDownloadableModels.find((model) => model.id === status.modelId)?.capability === "diarization",
+          mockDownloadableModels.find((model) => model.id === status.modelId)
+            ?.capability === "diarization",
       );
       if (diarizationStatus) {
         await cancelModelDownload(diarizationStatus.modelId);
@@ -667,7 +718,9 @@ export async function resumeShortcutCapture(): Promise<void> {
   await invoke("resume_shortcut_capture");
 }
 
-export async function listTranscripts(query: string): Promise<TranscriptSummary[]> {
+export async function listTranscripts(
+  query: string,
+): Promise<TranscriptSummary[]> {
   if (!isTauriRuntime()) {
     const normalized = query.trim().toLowerCase();
     return normalized.length === 0
@@ -702,7 +755,9 @@ export async function deleteAllTranscripts(): Promise<void> {
   return invoke("delete_all_transcripts");
 }
 
-export async function getTranscript(transcriptId: string): Promise<TranscriptDetail> {
+export async function getTranscript(
+  transcriptId: string,
+): Promise<TranscriptDetail> {
   if (!isTauriRuntime()) {
     const summary = mockTranscripts.find((item) => item.id === transcriptId);
     if (!summary) throw new Error("Transcript not found.");
@@ -716,12 +771,21 @@ export async function getTranscript(transcriptId: string): Promise<TranscriptDet
       diarizationPolicyVersion: null,
       diarizationClusteringThreshold: null,
       diarizationSpeakerCountHint: null,
-      segments: [{
-        id: `${summary.id}:0`, startMs: 0, endMs: summary.durationMs ?? 0,
-        text: summary.plainText, languageCode: summary.detectedLanguages[0] ?? "und",
-        segmentOrder: 0, confidence: null, speakerId: null, speakerIds: null,
-        speakerAttribution: "none", speakerConfidence: null,
-      }],
+      segments: [
+        {
+          id: `${summary.id}:0`,
+          startMs: 0,
+          endMs: summary.durationMs ?? 0,
+          text: summary.plainText,
+          languageCode: summary.detectedLanguages[0] ?? "und",
+          segmentOrder: 0,
+          confidence: null,
+          speakerId: null,
+          speakerIds: null,
+          speakerAttribution: "none",
+          speakerConfidence: null,
+        },
+      ],
       speakers: [],
       diarizationTurns: [],
     };
@@ -729,14 +793,20 @@ export async function getTranscript(transcriptId: string): Promise<TranscriptDet
   return invoke<TranscriptDetail>("get_transcript", { transcriptId });
 }
 
-export async function renameTranscript(transcriptId: string, title: string): Promise<TranscriptSummary> {
+export async function renameTranscript(
+  transcriptId: string,
+  title: string,
+): Promise<TranscriptSummary> {
   if (!isTauriRuntime()) {
     const transcript = mockTranscripts.find((item) => item.id === transcriptId);
     if (!transcript) throw new Error("Transcript not found.");
     transcript.title = title.trim();
     return transcript;
   }
-  return invoke<TranscriptSummary>("rename_transcript", { transcriptId, title });
+  return invoke<TranscriptSummary>("rename_transcript", {
+    transcriptId,
+    title,
+  });
 }
 
 export async function renameTranscriptSpeaker(
@@ -752,7 +822,9 @@ export async function renameTranscriptSpeaker(
   });
 }
 
-export async function rediarizeTranscript(request: RediarizationRequest): Promise<TranscriptDetail> {
+export async function rediarizeTranscript(
+  request: RediarizationRequest,
+): Promise<TranscriptDetail> {
   if (!isTauriRuntime()) return getTranscript(request.transcriptId);
   return invoke<TranscriptDetail>("rediarize_transcript", { request });
 }
@@ -767,7 +839,9 @@ export async function listenRediarizationStatus(
 ): Promise<() => void> {
   if (!isTauriRuntime()) return () => undefined;
   const { listen } = await import("@tauri-apps/api/event");
-  return listen<RediarizationStatusEvent>("rediarization-status", (event) => handler(event.payload));
+  return listen<RediarizationStatusEvent>("rediarization-status", (event) =>
+    handler(event.payload),
+  );
 }
 
 export async function copyTranscript(
@@ -787,7 +861,10 @@ export async function exportTranscript(
   format: TranscriptExportFormat,
 ): Promise<TranscriptExportResult> {
   if (!isTauriRuntime()) return { path: null };
-  return invoke<TranscriptExportResult>("export_transcript", { transcriptId, format });
+  return invoke<TranscriptExportResult>("export_transcript", {
+    transcriptId,
+    format,
+  });
 }
 
 export async function copyTextToClipboard(text: string): Promise<void> {
@@ -822,7 +899,9 @@ export async function previewTranscription(
       },
     };
   }
-  return invoke<TranscriptionPreviewResponse>("preview_transcription", { request });
+  return invoke<TranscriptionPreviewResponse>("preview_transcription", {
+    request,
+  });
 }
 
 export async function pickAudioFiles(): Promise<SelectedSourceFile[]> {
@@ -859,7 +938,8 @@ export async function startFileTranscription(
           createdAt: new Date().toISOString(),
           sourceType: "file_upload",
           title: sourceFile.originalName,
-          plainText: "Hallo Lena, LinkedIn bleibt LinkedIn und Empanadas bleiben Empanadas.",
+          plainText:
+            "Hallo Lena, LinkedIn bleibt LinkedIn und Empanadas bleiben Empanadas.",
           status: "completed",
           detectedLanguages: ["de", "en", "es"],
           durationMs: 8_400,
@@ -885,8 +965,10 @@ export async function startFileTranscription(
       result: {
         jobId: crypto.randomUUID(),
         modelName: "browser-preview",
-        fullText: "Hallo Lena, LinkedIn bleibt LinkedIn und Empanadas bleiben Empanadas.",
-        plainText: "Hallo Lena, LinkedIn bleibt LinkedIn und Empanadas bleiben Empanadas.",
+        fullText:
+          "Hallo Lena, LinkedIn bleibt LinkedIn und Empanadas bleiben Empanadas.",
+        plainText:
+          "Hallo Lena, LinkedIn bleibt LinkedIn und Empanadas bleiben Empanadas.",
         timestampedText:
           "[00:00 - 00:04] de: Hallo Lena, LinkedIn bleibt LinkedIn.\n[00:04 - 00:08] es: Und Empanadas bleiben Empanadas.",
         detectedLanguages: ["de", "en", "es"],
@@ -910,7 +992,10 @@ export async function startFileTranscription(
             languageCode: "de",
             segmentOrder: 0,
             confidence: 0.89,
-            speakerId: null, speakerIds: null, speakerAttribution: "none", speakerConfidence: null,
+            speakerId: null,
+            speakerIds: null,
+            speakerAttribution: "none",
+            speakerConfidence: null,
           },
           {
             id: crypto.randomUUID(),
@@ -920,7 +1005,10 @@ export async function startFileTranscription(
             languageCode: "es",
             segmentOrder: 1,
             confidence: 0.9,
-            speakerId: null, speakerIds: null, speakerAttribution: "none", speakerConfidence: null,
+            speakerId: null,
+            speakerIds: null,
+            speakerAttribution: "none",
+            speakerConfidence: null,
           },
         ],
       },
@@ -1008,16 +1096,22 @@ export async function startFileTranscription(
     });
     return { jobId };
   }
-  return invoke<StartFileTranscriptionResponse>("start_file_transcription", { request });
+  return invoke<StartFileTranscriptionResponse>("start_file_transcription", {
+    request,
+  });
 }
 
-export async function getFileTranscriptionStatuses(): Promise<FileTranscriptionStatusEvent[]> {
+export async function getFileTranscriptionStatuses(): Promise<
+  FileTranscriptionStatusEvent[]
+> {
   if (!isTauriRuntime()) {
     return Array.from(mockFileTranscriptionStatuses.values()).sort(
       (left, right) => right.startedAtMs - left.startedAtMs,
     );
   }
-  return invoke<FileTranscriptionStatusEvent[]>("get_file_transcription_statuses");
+  return invoke<FileTranscriptionStatusEvent[]>(
+    "get_file_transcription_statuses",
+  );
 }
 
 export async function cancelFileTranscription(jobId: string): Promise<void> {
@@ -1077,7 +1171,8 @@ export async function getRecordingStatus(): Promise<RecordingStatusResponse> {
     if (mockRecordingStatus.state === "listening") {
       mockRecordingStatus = {
         ...mockRecordingStatus,
-        durationMs: mockRecordingAccumulatedMs + (Date.now() - mockRecordingStartedAt),
+        durationMs:
+          mockRecordingAccumulatedMs + (Date.now() - mockRecordingStartedAt),
       };
     }
     return mockRecordingStatus;
@@ -1096,7 +1191,9 @@ export async function getRecordingInputLevel(): Promise<number> {
   return invoke<number>("get_recording_input_level");
 }
 
-export async function startRecordingSession(): Promise<RecordingStatusResponse> {
+export async function startRecordingSession(
+  feedback = true,
+): Promise<RecordingStatusResponse> {
   if (!isTauriRuntime()) {
     mockRecordingStartedAt = Date.now();
     mockRecordingAccumulatedMs = 0;
@@ -1112,7 +1209,9 @@ export async function startRecordingSession(): Promise<RecordingStatusResponse> 
     };
     return mockRecordingStatus;
   }
-  return invoke<RecordingStatusResponse>("start_recording_session");
+  return invoke<RecordingStatusResponse>("start_recording_session", {
+    feedback,
+  });
 }
 
 export async function stopRecordingSession(): Promise<RecordingResult> {
@@ -1212,9 +1311,12 @@ export async function listenQuickDictateStatus(
   }
 
   const { listen } = await import("@tauri-apps/api/event");
-  return listen<QuickDictationStatusResponse>("quick-dictate-status", (event) => {
-    handler(event.payload);
-  });
+  return listen<QuickDictationStatusResponse>(
+    "quick-dictate-status",
+    (event) => {
+      handler(event.payload);
+    },
+  );
 }
 
 export async function listenFileTranscriptionStatus(
@@ -1227,9 +1329,12 @@ export async function listenFileTranscriptionStatus(
     };
   }
   const { listen } = await import("@tauri-apps/api/event");
-  return listen<FileTranscriptionStatusEvent>("file-transcription-status", (event) => {
-    handler(event.payload);
-  });
+  return listen<FileTranscriptionStatusEvent>(
+    "file-transcription-status",
+    (event) => {
+      handler(event.payload);
+    },
+  );
 }
 
 function emitMockFileTranscriptionStatus(event: FileTranscriptionStatusEvent) {
@@ -1324,4 +1429,19 @@ export async function deleteVocabularyTerm(termId: string): Promise<void> {
     return;
   }
   return invoke("delete_vocabulary_term", { termId });
+}
+
+export async function previewFeedbackSound(
+  cue: "start" | "stop" | "complete" | "error",
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke("preview_feedback_sound", { cue });
+}
+
+export async function reportManualFeedback(
+  operationId: string,
+  failed: boolean,
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke("report_manual_feedback", { operationId, failed });
 }

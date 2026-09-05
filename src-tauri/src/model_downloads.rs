@@ -346,8 +346,29 @@ fn persist_status(
     statuses: &Arc<Mutex<HashMap<String, ModelDownloadStatus>>>,
     status: ModelDownloadStatus,
 ) {
-    if let Ok(mut map) = statuses.lock() {
-        map.insert(status.model_id.clone(), status.clone());
+    let changed = if let Ok(mut map) = statuses.lock() {
+        let previous = map.insert(status.model_id.clone(), status.clone());
+        previous.is_some_and(|previous| {
+            previous.state == ModelDownloadState::Downloading && previous.state != status.state
+        })
+    } else {
+        false
+    };
+    if changed {
+        let key = format!(
+            "download:{}:{}",
+            status.model_id,
+            chrono::Utc::now().timestamp_millis()
+        );
+        match status.state {
+            ModelDownloadState::Completed => {
+                crate::sound::notify(app, crate::sound::FeedbackCue::Complete, &key)
+            }
+            ModelDownloadState::Failed => {
+                crate::sound::notify(app, crate::sound::FeedbackCue::Error, &key)
+            }
+            _ => {}
+        }
     }
     let _ = app.emit(MODEL_DOWNLOAD_EVENT, status);
 }

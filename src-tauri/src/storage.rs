@@ -16,8 +16,8 @@ use crate::diarization::{
     DiarizationSource, DiarizationStatus, DiarizationTurn, TranscriptSpeaker,
 };
 use crate::settings::{
-    AppSettings, DefaultMode, InsertBehavior, LanguageMode, ModelProfile, SettingsPatch,
-    ShortcutMode,
+    AppSettings, Appearance, DefaultMode, InsertBehavior, LanguageMode, ModelProfile,
+    MotionPreference, SettingsPatch, ShortcutMode,
 };
 use crate::speaker_reconciliation::SpeakerAttribution;
 
@@ -365,6 +365,8 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
         file_transcribe_selected_model_id: patch
             .file_transcribe_selected_model_id
             .unwrap_or(current.file_transcribe_selected_model_id),
+        appearance: patch.appearance.unwrap_or(current.appearance),
+        motion_preference: patch.motion_preference.unwrap_or(current.motion_preference),
         save_history: patch.save_history.unwrap_or(current.save_history),
         sounds_enabled: patch.sounds_enabled.unwrap_or(current.sounds_enabled),
         volume_ducking_enabled: patch
@@ -376,7 +378,7 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
     };
     let connection = open_connection_by_path(db_path)?;
     connection.execute(
-        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19 WHERE id = 1",
+        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19, appearance = ?20, motion_preference = ?21 WHERE id = 1",
         params![
             to_default_mode(next.default_mode),
             next.shortcut,
@@ -397,6 +399,8 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
             next.sounds_enabled,
             next.volume_ducking_enabled,
             next.file_diarization_enabled,
+            match next.appearance { Appearance::System => "system", Appearance::Light => "light", Appearance::Dark => "dark" },
+            match next.motion_preference { MotionPreference::System => "system", MotionPreference::Reduced => "reduced" },
         ],
     )?;
     get_settings_from_db_path(db_path)
@@ -697,7 +701,7 @@ fn open_connection_by_path(db_path: &Path) -> Result<Connection> {
 
 fn query_settings(connection: &Connection) -> Result<AppSettings> {
     let settings = connection.query_row(
-        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled FROM settings WHERE id = 1",
+        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled, appearance, motion_preference FROM settings WHERE id = 1",
         [],
         map_settings_row,
     )?;
@@ -710,6 +714,14 @@ fn ensure_settings_columns(connection: &Connection) -> Result<()> {
         .query_map([], |row| row.get::<_, String>("name"))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
+    for column in ["appearance", "motion_preference"] {
+        if !columns.iter().any(|name| name == column) {
+            connection.execute(
+                &format!("ALTER TABLE settings ADD COLUMN {column} TEXT NOT NULL DEFAULT 'system'"),
+                [],
+            )?;
+        }
+    }
     let mut added_shortcut_dictation_columns = false;
     let mut added_quick_dictate_columns = false;
     let mut added_file_transcribe_columns = false;
@@ -1319,6 +1331,15 @@ fn map_settings_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AppSettings> {
             row.get("file_transcribe_model_profile")?,
         )?,
         file_transcribe_selected_model_id: row.get("file_transcribe_selected_model_id")?,
+        appearance: match row.get::<_, String>("appearance")?.as_str() {
+            "light" => Appearance::Light,
+            "dark" => Appearance::Dark,
+            _ => Appearance::System,
+        },
+        motion_preference: match row.get::<_, String>("motion_preference")?.as_str() {
+            "reduced" => MotionPreference::Reduced,
+            _ => MotionPreference::System,
+        },
         save_history: row.get("save_history")?,
         sounds_enabled: row.get("sounds_enabled")?,
         volume_ducking_enabled: row.get("volume_ducking_enabled")?,
@@ -1627,6 +1648,30 @@ fn to_source_type(value: SourceType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn appearance_migration_preserves_settings_and_is_idempotent() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INIT_MIGRATION).unwrap();
+        ensure_settings_columns(&connection).unwrap();
+        seed_default_settings(&connection).unwrap();
+        let initial = query_settings(&connection).unwrap();
+        assert!(matches!(initial.appearance, Appearance::System));
+        assert!(matches!(
+            initial.motion_preference,
+            MotionPreference::System
+        ));
+        connection.execute("UPDATE settings SET appearance = 'dark', motion_preference = 'reduced', sounds_enabled = 0", []).unwrap();
+        ensure_settings_columns(&connection).unwrap();
+        let settings = query_settings(&connection).unwrap();
+        assert!(matches!(settings.appearance, Appearance::Dark));
+        assert!(matches!(
+            settings.motion_preference,
+            MotionPreference::Reduced
+        ));
+        assert!(!settings.sounds_enabled);
+        assert_eq!(initial.shortcut, settings.shortcut);
+    }
 
     #[test]
     fn native_model_variants_map_to_accurate_profile() {

@@ -1,57 +1,196 @@
+use serde::{Deserialize, Serialize};
+use std::collections::{HashSet, VecDeque};
+#[cfg(test)]
 use std::io::Cursor;
 use std::sync::mpsc::{self, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
+use tauri::Manager;
 
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 
+#[cfg(test)]
 const LISTEN_START_WAV: &[u8] = include_bytes!("../assets/sounds/listen_start.wav");
+#[cfg(test)]
 const LISTEN_STOP_WAV: &[u8] = include_bytes!("../assets/sounds/listen_stop.wav");
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedbackCue {
+    Start,
+    Stop,
+    Complete,
+    Error,
+}
+
 enum SoundCommand {
-    PlayListenStart,
-    PlayListenStop,
+    Play(FeedbackCue),
+    PrepareCapture(bool, SyncSender<()>),
+}
+
+#[derive(Default)]
+struct FeedbackPolicy {
+    capturing: bool,
+    capture_cues: bool,
+    seen: HashSet<String>,
+    order: VecDeque<String>,
+    last_outcome: Option<Instant>,
+}
+
+impl FeedbackPolicy {
+    fn accept_outcome(&mut self, key: &str, enabled: bool, now: Instant) -> bool {
+        if !self.seen.insert(key.to_string()) {
+            return false;
+        }
+        self.order.push_back(key.to_string());
+        if self.order.len() > 2048 {
+            if let Some(old) = self.order.pop_front() {
+                self.seen.remove(&old);
+            }
+        }
+        if !enabled || self.capturing {
+            return false;
+        }
+        if self
+            .last_outcome
+            .is_some_and(|last| now.duration_since(last) < Duration::from_millis(750))
+        {
+            return false;
+        }
+        self.last_outcome = Some(now);
+        true
+    }
 }
 
 pub struct SoundPlayer {
     tx: Sender<SoundCommand>,
+    policy: Mutex<FeedbackPolicy>,
+    playback: Arc<Mutex<PlaybackState>>,
 }
 
 impl SoundPlayer {
     pub fn new() -> Result<Self> {
+        let playback = Arc::new(Mutex::new(PlaybackState::new()));
+        let thread_playback = Arc::clone(&playback);
         let (tx, rx) = mpsc::channel::<SoundCommand>();
         let (init_tx, init_rx) = mpsc::sync_channel::<Result<(), String>>(0);
-
         thread::Builder::new()
             .name("blabber-sound".into())
-            .spawn(move || run_sound_thread(rx, init_tx))
+            .spawn(move || run_sound_thread(rx, init_tx, thread_playback))
             .map_err(|err| anyhow!("failed to spawn sound thread: {err}"))?;
-
         match init_rx.recv() {
-            Ok(Ok(())) => Ok(SoundPlayer { tx }),
+            Ok(Ok(())) => Ok(Self {
+                tx,
+                policy: Mutex::new(FeedbackPolicy::default()),
+                playback,
+            }),
             Ok(Err(msg)) => Err(anyhow!("sound init failed: {msg}")),
             Err(_) => Err(anyhow!("sound thread exited before init")),
         }
     }
 
-    pub fn play_listen_start(&self) {
-        if self.tx.send(SoundCommand::PlayListenStart).is_err() {
-            eprintln!("[sound] play_listen_start: channel closed");
+    /// Drain the boundary cue before opening capture. No feedback is queued
+    /// while a microphone is open, including during a microphone test.
+    pub fn prepare_capture(&self, enabled: bool) -> Result<()> {
+        if let Ok(mut policy) = self.policy.lock() {
+            if policy.capturing {
+                return Err(anyhow!("A recording is already active."));
+            }
+            policy.capturing = true;
+            policy.capture_cues = enabled;
+        }
+        if let Ok(mut playback) = self.playback.lock() {
+            playback.muted = false;
+        }
+        let (tx, rx) = mpsc::sync_channel(1);
+        if self
+            .tx
+            .send(SoundCommand::PrepareCapture(enabled, tx))
+            .is_ok()
+        {
+            let _ = rx.recv_timeout(Duration::from_millis(800));
+        }
+        // Also gate the output callback: a failed audio driver must never play
+        // a delayed boundary cue into an already-open microphone.
+        if let Ok(mut playback) = self.playback.lock() {
+            playback.muted = true;
+            playback.samples.clear();
+            playback.position = 0;
+            playback.completion.take();
+        }
+        Ok(())
+    }
+
+    /// Call only after capture has stopped, so the stop tone cannot enter audio.
+    pub fn finish_capture(&self, enabled: bool, canceled: bool) {
+        if let Ok(mut policy) = self.policy.lock() {
+            let play = policy.capturing && policy.capture_cues && enabled && !canceled;
+            policy.capturing = false;
+            policy.capture_cues = false;
+            if let Ok(mut playback) = self.playback.lock() {
+                playback.samples.clear();
+                playback.position = 0;
+                playback.muted = false;
+            }
+            if play {
+                let _ = self.tx.send(SoundCommand::Play(FeedbackCue::Stop));
+            }
         }
     }
 
-    pub fn play_listen_stop(&self) {
-        if self.tx.send(SoundCommand::PlayListenStop).is_err() {
-            eprintln!("[sound] play_listen_stop: channel closed");
+    pub fn outcome(&self, cue: FeedbackCue, key: &str, enabled: bool) {
+        if let Ok(mut policy) = self.policy.lock() {
+            if policy.accept_outcome(key, enabled, Instant::now()) {
+                let _ = self.tx.send(SoundCommand::Play(cue));
+            }
         }
+    }
+
+    pub fn preview(&self, cue: FeedbackCue) -> Result<()> {
+        let policy = self
+            .policy
+            .lock()
+            .map_err(|_| anyhow!("Sound feedback unavailable"))?;
+        if policy.capturing {
+            return Err(anyhow!("Stop recording before previewing sounds."));
+        }
+        self.tx
+            .send(SoundCommand::Play(cue))
+            .map_err(|_| anyhow!("Sound output unavailable"))
+    }
+}
+
+pub fn notify(app: &tauri::AppHandle, cue: FeedbackCue, key: &str) {
+    let Some(state) = app.try_state::<crate::app_state::AppState>() else {
+        return;
+    };
+    let enabled = crate::storage::get_settings_from_db_path(&state.db_path)
+        .map(|settings| settings.sounds_enabled)
+        .unwrap_or(false);
+    let capturing = state
+        .recording_controller
+        .status()
+        .map(|status| {
+            matches!(
+                status.state,
+                crate::audio_capture::RecordingOverlayState::Listening
+                    | crate::audio_capture::RecordingOverlayState::Paused
+            )
+        })
+        .unwrap_or(true);
+    if let Some(player) = state.sound_player.as_ref().as_ref() {
+        player.outcome(cue, key, enabled && !capturing);
     }
 }
 
 struct PlaybackState {
     samples: Vec<f32>,
     position: usize,
+    completion: Option<SyncSender<()>>,
+    muted: bool,
 }
 
 impl PlaybackState {
@@ -59,6 +198,8 @@ impl PlaybackState {
         Self {
             samples: Vec::new(),
             position: 0,
+            completion: None,
+            muted: false,
         }
     }
 
@@ -71,32 +212,27 @@ impl PlaybackState {
     }
 
     fn pull(&mut self) -> Option<f32> {
+        if self.muted {
+            return None;
+        }
         if self.position < self.samples.len() {
             let s = self.samples[self.position];
             self.position += 1;
             Some(s)
         } else {
+            if let Some(done) = self.completion.take() {
+                let _ = done.try_send(());
+            }
             None
         }
     }
 }
 
-fn run_sound_thread(rx: mpsc::Receiver<SoundCommand>, init_tx: SyncSender<Result<(), String>>) {
-    let listen_start_44k = match decode_wav(LISTEN_START_WAV) {
-        Ok(samples) => samples,
-        Err(err) => {
-            let _ = init_tx.send(Err(format!("decode listen_start.wav: {err}")));
-            return;
-        }
-    };
-    let listen_stop_44k = match decode_wav(LISTEN_STOP_WAV) {
-        Ok(samples) => samples,
-        Err(err) => {
-            let _ = init_tx.send(Err(format!("decode listen_stop.wav: {err}")));
-            return;
-        }
-    };
-
+fn run_sound_thread(
+    rx: mpsc::Receiver<SoundCommand>,
+    init_tx: SyncSender<Result<(), String>>,
+    state: Arc<Mutex<PlaybackState>>,
+) {
     let host = cpal::default_host();
     let device = match host.default_output_device() {
         Some(d) => d,
@@ -119,10 +255,11 @@ fn run_sound_thread(rx: mpsc::Receiver<SoundCommand>, init_tx: SyncSender<Result
     let sample_format = supported.sample_format();
     let config: StreamConfig = supported.into();
 
-    let listen_start_resampled = resample_linear(&listen_start_44k, 44_100, device_sample_rate);
-    let listen_stop_resampled = resample_linear(&listen_stop_44k, 44_100, device_sample_rate);
+    let start_samples = cue_samples(FeedbackCue::Start, device_sample_rate);
+    let stop_samples = cue_samples(FeedbackCue::Stop, device_sample_rate);
+    let complete_samples = cue_samples(FeedbackCue::Complete, device_sample_rate);
+    let error_samples = cue_samples(FeedbackCue::Error, device_sample_rate);
 
-    let state = Arc::new(Mutex::new(PlaybackState::new()));
     let stream_state = Arc::clone(&state);
 
     let err_fn = |err| eprintln!("[sound] stream error: {err}");
@@ -174,15 +311,38 @@ fn run_sound_thread(rx: mpsc::Receiver<SoundCommand>, init_tx: SyncSender<Result
     let _ = init_tx.send(Ok(()));
 
     while let Ok(cmd) = rx.recv() {
-        match cmd {
-            SoundCommand::PlayListenStart => {
-                if let Ok(mut s) = state.lock() {
-                    s.enqueue(&listen_start_resampled);
+        if let Ok(mut playback) = state.lock() {
+            match cmd {
+                SoundCommand::Play(cue) => {
+                    if playback.muted {
+                        continue;
+                    }
+                    let samples = match cue {
+                        FeedbackCue::Start => &start_samples,
+                        FeedbackCue::Stop => &stop_samples,
+                        FeedbackCue::Complete => &complete_samples,
+                        FeedbackCue::Error => &error_samples,
+                    };
+                    playback.enqueue(samples);
                 }
-            }
-            SoundCommand::PlayListenStop => {
-                if let Ok(mut s) = state.lock() {
-                    s.enqueue(&listen_stop_resampled);
+                SoundCommand::PrepareCapture(enabled, done) => {
+                    if playback.muted {
+                        let _ = done.try_send(());
+                        continue;
+                    }
+                    playback.samples.clear();
+                    playback.position = 0;
+                    if let Some(previous) = playback.completion.take() {
+                        let _ = previous.try_send(());
+                    }
+                    if enabled {
+                        playback.enqueue(&start_samples);
+                    }
+                    // Output-buffer tail is silence before capture begins.
+                    playback
+                        .samples
+                        .extend(std::iter::repeat_n(0.0, device_sample_rate as usize / 12));
+                    playback.completion = Some(done);
                 }
             }
         }
@@ -247,6 +407,7 @@ fn fill_u16(output: &mut [u16], channels: usize, state: &Arc<Mutex<PlaybackState
     }
 }
 
+#[cfg(test)]
 fn decode_wav(bytes: &[u8]) -> Result<Vec<f32>> {
     let cursor = Cursor::new(bytes);
     let mut reader = hound::WavReader::new(cursor).map_err(|err| anyhow!("invalid WAV: {err}"))?;
@@ -275,27 +436,91 @@ fn decode_wav(bytes: &[u8]) -> Result<Vec<f32>> {
     Ok(samples)
 }
 
-fn resample_linear(input: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
-    if src_rate == dst_rate || input.is_empty() {
-        return input.to_vec();
+fn cue_samples(cue: FeedbackCue, rate: u32) -> Vec<f32> {
+    let notes: &[(f32, f32)] = match cue {
+        FeedbackCue::Start => &[(660.0, 0.055), (880.0, 0.07)],
+        FeedbackCue::Stop => &[(660.0, 0.055), (520.0, 0.07)],
+        FeedbackCue::Complete => &[(660.0, 0.07), (880.0, 0.09), (1100.0, 0.1)],
+        FeedbackCue::Error => &[(330.0, 0.09), (260.0, 0.12)],
+    };
+    let mut samples = Vec::new();
+    for &(frequency, duration) in notes {
+        let count = (rate as f32 * duration) as usize;
+        for index in 0..count {
+            let position = index as f32 / count as f32;
+            let envelope = (position * std::f32::consts::PI).sin().powi(2);
+            samples.push(
+                (index as f32 * frequency * std::f32::consts::TAU / rate as f32).sin()
+                    * envelope
+                    * 0.10,
+            );
+        }
     }
-    let ratio = src_rate as f64 / dst_rate as f64;
-    let dst_len = ((input.len() as f64) / ratio).floor() as usize;
-    let mut out = Vec::with_capacity(dst_len);
-    for i in 0..dst_len {
-        let src_pos = i as f64 * ratio;
-        let idx = src_pos.floor() as usize;
-        let frac = (src_pos - idx as f64) as f32;
-        let a = input[idx.min(input.len() - 1)];
-        let b = input[(idx + 1).min(input.len() - 1)];
-        out.push(a + (b - a) * frac);
-    }
-    out
+    samples
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feedback_deduplicates_coalesces_and_does_not_replay_muted_events() {
+        let mut policy = FeedbackPolicy::default();
+        let now = Instant::now();
+        assert!(policy.accept_outcome("first", true, now));
+        assert!(!policy.accept_outcome("first", true, now + Duration::from_secs(1)));
+        assert!(!policy.accept_outcome("nearby", true, now + Duration::from_millis(100)));
+        assert!(policy.accept_outcome("later", true, now + Duration::from_secs(2)));
+        policy.capturing = true;
+        assert!(!policy.accept_outcome("during-capture", true, now + Duration::from_secs(3)));
+        policy.capturing = false;
+        assert!(!policy.accept_outcome("during-capture", true, now + Duration::from_secs(4)));
+        assert!(!policy.accept_outcome("muted", false, now + Duration::from_secs(5)));
+        assert!(!policy.accept_outcome("muted", true, now + Duration::from_secs(6)));
+    }
+
+    #[test]
+    fn boundary_completion_is_acknowledged_only_after_samples_are_drained() {
+        let (tx, rx) = mpsc::sync_channel(1);
+        let mut playback = PlaybackState::new();
+        playback.enqueue(&[0.1, 0.0, 0.0]);
+        playback.completion = Some(tx);
+        assert!(rx.try_recv().is_err());
+        assert_eq!(playback.pull(), Some(0.1));
+        assert_eq!(playback.pull(), Some(0.0));
+        assert!(rx.try_recv().is_err());
+        assert_eq!(playback.pull(), Some(0.0));
+        assert_eq!(playback.pull(), None);
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    fn capture_gate_silences_already_queued_samples() {
+        let mut playback = PlaybackState::new();
+        playback.enqueue(&[0.1, 0.2]);
+        playback.muted = true;
+        assert_eq!(playback.pull(), None);
+        assert_eq!(playback.position, 0);
+    }
+
+    #[test]
+    fn cues_have_quiet_envelopes_and_no_clipped_samples() {
+        for cue in [
+            FeedbackCue::Start,
+            FeedbackCue::Stop,
+            FeedbackCue::Complete,
+            FeedbackCue::Error,
+        ] {
+            let samples = cue_samples(cue, 48_000);
+            assert!(!samples.is_empty());
+            assert!(samples.len() < 48_000 / 2);
+            assert_eq!(samples[0], 0.0);
+            assert!(samples
+                .iter()
+                .all(|sample| sample.is_finite() && sample.abs() <= 0.101));
+            assert!(samples.last().unwrap().abs() < 0.001);
+        }
+    }
 
     #[test]
     fn embedded_feedback_sounds_decode() {

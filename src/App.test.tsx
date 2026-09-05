@@ -16,16 +16,18 @@ vi.mock("./lib/api", async (importOriginal) => ({
   getStartupStatus: apiMocks.getStartupStatus,
   frontendStartupComplete: apiMocks.frontendStartupComplete,
   reportStartupFailure: apiMocks.reportStartupFailure,
-  listenStartupStatus: vi.fn(async (listener: (status: StartupStatus) => void) => {
-    apiMocks.startupListener = listener;
-    return () => {
-      apiMocks.startupListener = null;
-    };
-  }),
+  listenStartupStatus: vi.fn(
+    async (listener: (status: StartupStatus) => void) => {
+      apiMocks.startupListener = listener;
+      return () => {
+        apiMocks.startupListener = null;
+      };
+    },
+  ),
 }));
 
-vi.mock("./screens/HomeScreen", () => ({
-  HomeScreen: ({ readiness }: { readiness: DictationReadiness | null }) => (
+vi.mock("./screens/DictateScreen", () => ({
+  DictateScreen: ({ readiness }: { readiness: DictationReadiness | null }) => (
     <output data-testid="accessibility-readiness">
       {String(readiness?.accessibilityGranted ?? false)}
     </output>
@@ -56,17 +58,29 @@ describe("App readiness lifecycle", () => {
   });
 
   it("waits for backend readiness before loading the workspace", async () => {
-    apiMocks.getStartupStatus.mockResolvedValue({ phase: "models", step: 2, totalSteps: 6 });
+    apiMocks.getStartupStatus.mockResolvedValue({
+      phase: "models",
+      step: 2,
+      totalSteps: 6,
+    });
     render(<App />);
 
-    await waitFor(() => expect(apiMocks.getStartupStatus).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(apiMocks.getStartupStatus).toHaveBeenCalledTimes(1),
+    );
     expect(apiMocks.getDictationReadiness).not.toHaveBeenCalled();
     expect(apiMocks.frontendStartupComplete).not.toHaveBeenCalled();
 
     act(() => {
-      apiMocks.startupListener?.({ phase: "workspace", step: 6, totalSteps: 6 });
+      apiMocks.startupListener?.({
+        phase: "workspace",
+        step: 6,
+        totalSteps: 6,
+      });
     });
-    await waitFor(() => expect(apiMocks.frontendStartupComplete).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(apiMocks.frontendStartupComplete).toHaveBeenCalledTimes(1),
+    );
     expect(apiMocks.getDictationReadiness).toHaveBeenCalledTimes(1);
   });
 
@@ -75,7 +89,9 @@ describe("App readiness lifecycle", () => {
 
     await waitFor(() => {
       expect(apiMocks.getDictationReadiness).toHaveBeenCalledTimes(1);
-      expect(screen.getByTestId("accessibility-readiness").textContent).toBe("false");
+      expect(screen.getByTestId("accessibility-readiness").textContent).toBe(
+        "false",
+      );
     });
 
     apiMocks.getDictationReadiness.mockResolvedValue({
@@ -89,7 +105,9 @@ describe("App readiness lifecycle", () => {
 
     await waitFor(() => {
       expect(apiMocks.getDictationReadiness).toHaveBeenCalledTimes(2);
-      expect(screen.getByTestId("accessibility-readiness").textContent).toBe("true");
+      expect(screen.getByTestId("accessibility-readiness").textContent).toBe(
+        "true",
+      );
     });
   });
 });

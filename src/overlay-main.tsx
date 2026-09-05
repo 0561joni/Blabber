@@ -1,3 +1,4 @@
+import { AppearanceProvider } from "./lib/appearance";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { OverlayApp } from "./OverlayApp";
@@ -8,6 +9,8 @@ document.body.classList.add("overlay-window");
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <OverlayApp />
+    <AppearanceProvider>
+      <OverlayApp />
+    </AppearanceProvider>
   </StrictMode>,
 );

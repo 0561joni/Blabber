@@ -255,19 +255,36 @@ impl QuickDictationController {
     }
 
     fn begin_listening(&self) -> Result<()> {
-        if self.status().state == QuickDictationState::Listening {
-            return Ok(());
+        match self.status().state {
+            QuickDictationState::Listening => return Ok(()),
+            QuickDictationState::Processing => {
+                return Err(anyhow!("Dictation is still transcribing."))
+            }
+            _ => {}
+        }
+        if self
+            .recording_controller
+            .status()
+            .map(|status| {
+                matches!(
+                    status.state,
+                    crate::audio_capture::RecordingOverlayState::Listening
+                        | crate::audio_capture::RecordingOverlayState::Paused
+                )
+            })
+            .unwrap_or(false)
+        {
+            return Err(anyhow!("Another recording is already active."));
         }
 
         let settings = storage::get_settings_from_db_path(&self.db_path).ok();
-        if settings
-            .as_ref()
-            .map(|settings| settings.sounds_enabled)
-            .unwrap_or(true)
-        {
-            if let Some(player) = (*self.sound_player).as_ref() {
-                player.play_listen_start();
-            }
+        if let Some(player) = self.sound_player.as_ref().as_ref() {
+            player.prepare_capture(
+                settings
+                    .as_ref()
+                    .map(|settings| settings.sounds_enabled)
+                    .unwrap_or(false),
+            )?;
         }
 
         if settings
@@ -314,7 +331,6 @@ impl QuickDictationController {
             return Ok(());
         }
         self.restore_system_volume();
-        self.play_listen_stop_feedback();
 
         self.desktop_shell
             .set_overlay_payload(DictationOverlayPayload {
@@ -327,8 +343,12 @@ impl QuickDictationController {
         })?;
 
         let controller = self.clone();
+        let generation = self.poller_generation.load(Ordering::SeqCst);
         thread::spawn(move || {
-            if let Err(error) = controller.finish_dictation_worker() {
+            if let Err(error) = controller.finish_dictation_worker(generation) {
+                if controller.poller_generation.load(Ordering::SeqCst) != generation {
+                    return;
+                }
                 eprintln!("[dictation] finish worker failed: {error:?}");
                 let _ = controller.set_error(error.to_string());
             }
@@ -336,16 +356,24 @@ impl QuickDictationController {
         Ok(())
     }
 
-    fn finish_dictation_worker(&self) -> Result<()> {
+    fn finish_dictation_worker(&self, generation: u64) -> Result<()> {
+        if self.poller_generation.load(Ordering::SeqCst) != generation {
+            return Ok(());
+        }
         let recording = match self.recording_controller.stop() {
             Ok(result) => result,
             Err(error) => {
-                self.set_error(error.to_string())?;
-                return Ok(());
+                return Err(error);
             }
         };
 
+        if self.poller_generation.load(Ordering::SeqCst) != generation {
+            return Ok(());
+        }
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
+        if let Some(player) = self.sound_player.as_ref().as_ref() {
+            player.finish_capture(settings.sounds_enabled, false);
+        }
         let resolved_model_name = resolve_model_name(self.engine.as_ref(), &settings)?;
         let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&self.db_path)?;
         if let Some(prompt) = &vocabulary_prompt {
@@ -374,19 +402,20 @@ impl QuickDictationController {
         ) {
             Ok(result) => result,
             Err(error) => {
-                self.set_error(error.to_string())?;
-                return Ok(());
+                return Err(error);
             }
         };
 
         let corrected = match vocabulary::correct_transcript_result(&self.db_path, transcript) {
             Ok(result) => result,
             Err(error) => {
-                self.set_error(error.to_string())?;
-                return Ok(());
+                return Err(error);
             }
         };
 
+        if self.poller_generation.load(Ordering::SeqCst) != generation {
+            return Ok(());
+        }
         let mut saved_transcript = if settings.save_history {
             storage::save_quick_dictation_transcript(
                 &self.db_path,
@@ -405,11 +434,16 @@ impl QuickDictationController {
             settings.insert_behavior
         };
 
-        let insert_outcome = match self
-            .perform_insertion_on_main_thread(corrected.plain_text.clone(), effective_behavior)
-        {
+        let insert_outcome = match self.perform_insertion_on_main_thread(
+            corrected.plain_text.clone(),
+            effective_behavior,
+            generation,
+        ) {
             Ok(outcome) => outcome,
             Err(error) => {
+                if self.poller_generation.load(Ordering::SeqCst) != generation {
+                    return Ok(());
+                }
                 if saved_transcript.is_none() {
                     saved_transcript = storage::save_quick_dictation_transcript(
                         &self.db_path,
@@ -426,11 +460,13 @@ impl QuickDictationController {
                     status.last_model_name = resolved_model_name.clone();
                     status.last_duration_ms = Some(recording.duration_ms);
                 })?;
-                self.set_error(error.to_string())?;
-                return Ok(());
+                return Err(error);
             }
         };
 
+        if self.poller_generation.load(Ordering::SeqCst) != generation {
+            return Ok(());
+        }
         if saved_transcript.is_none() && matches!(insert_outcome, InsertionOutcome::ClipboardOnly) {
             saved_transcript = storage::save_quick_dictation_transcript(
                 &self.db_path,
@@ -466,6 +502,11 @@ impl QuickDictationController {
                 phase: result_phase,
                 audio_level: 0.0,
             })?;
+        crate::sound::notify(
+            &self.app,
+            crate::sound::FeedbackCue::Complete,
+            &format!("dictation:{}", recording.file_path),
+        );
         self.schedule_idle_reset();
         Ok(())
     }
@@ -474,6 +515,7 @@ impl QuickDictationController {
         &self,
         text: String,
         behavior: crate::settings::InsertBehavior,
+        generation: u64,
     ) -> Result<InsertionOutcome> {
         let app = self.app.clone();
         let desktop_shell = self.desktop_shell.clone();
@@ -483,7 +525,12 @@ impl QuickDictationController {
             .ok()
             .and_then(|target| target.clone());
         let (response_tx, response_rx) = mpsc::channel();
+        let active_generation = self.poller_generation.clone();
         self.app.run_on_main_thread(move || {
+            if active_generation.load(Ordering::SeqCst) != generation {
+                let _ = response_tx.send(Err("Dictation was reset.".to_string()));
+                return;
+            }
             let _ = desktop_shell.set_overlay_payload(DictationOverlayPayload::default());
             let result = insert_text(&app, &text, behavior, paste_target.as_ref())
                 .map_err(|error| error.to_string());
@@ -519,10 +566,17 @@ impl QuickDictationController {
 
     fn schedule_idle_reset(&self) {
         let controller = self.clone();
+        let generation = self.poller_generation.load(Ordering::SeqCst);
+        let transition = self.state_since_ms.load(Ordering::SeqCst);
         thread::spawn(move || {
             // Long enough to read the result chip; short enough to feel snappy
             // and not block subsequent dictations.
             thread::sleep(Duration::from_millis(1800));
+            if controller.poller_generation.load(Ordering::SeqCst) != generation
+                || controller.state_since_ms.load(Ordering::SeqCst) != transition
+            {
+                return;
+            }
             let current = controller.status();
             if matches!(
                 current.state,
@@ -544,6 +598,17 @@ impl QuickDictationController {
 
     fn set_error(&self, message: String) -> Result<()> {
         self.restore_system_volume();
+        if let Some(player) = self.sound_player.as_ref().as_ref() {
+            player.finish_capture(false, true);
+        }
+        crate::sound::notify(
+            &self.app,
+            crate::sound::FeedbackCue::Error,
+            &format!(
+                "dictation-error:{}",
+                self.state_since_ms.load(Ordering::SeqCst)
+            ),
+        );
         self.desktop_shell
             .set_overlay_payload(DictationOverlayPayload {
                 phase: OverlayPhase::Failed,
@@ -627,6 +692,9 @@ impl QuickDictationController {
         self.poller_generation.fetch_add(1, Ordering::SeqCst);
         let _ = self.recording_controller.cancel();
         self.recording_controller.recover();
+        if let Some(player) = self.sound_player.as_ref().as_ref() {
+            player.finish_capture(false, true);
+        }
         self.restore_system_volume();
         self.force_clipboard_only.store(false, Ordering::SeqCst);
         let _ = self
@@ -668,17 +736,6 @@ impl QuickDictationController {
                 }
             }
         });
-    }
-
-    fn play_listen_stop_feedback(&self) {
-        let sounds_enabled = storage::get_settings_from_db_path(&self.db_path)
-            .map(|settings| settings.sounds_enabled)
-            .unwrap_or(true);
-        if sounds_enabled {
-            if let Some(player) = (*self.sound_player).as_ref() {
-                player.play_listen_stop();
-            }
-        }
     }
 }
 

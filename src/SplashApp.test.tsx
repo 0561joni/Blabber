@@ -15,12 +15,14 @@ vi.mock("./lib/api", () => ({
   completeStartupHandoff: apiMocks.completeStartupHandoff,
   quitApp: apiMocks.quitApp,
   restartApp: apiMocks.restartApp,
-  listenStartupStatus: vi.fn(async (listener: (status: StartupStatus) => void) => {
-    apiMocks.listener = listener;
-    return () => {
-      apiMocks.listener = null;
-    };
-  }),
+  listenStartupStatus: vi.fn(
+    async (listener: (status: StartupStatus) => void) => {
+      apiMocks.listener = listener;
+      return () => {
+        apiMocks.listener = null;
+      };
+    },
+  ),
 }));
 
 import { SplashApp } from "./SplashApp";
@@ -48,9 +50,13 @@ describe("SplashApp", () => {
     });
     render(<SplashApp />);
 
-    expect(await screen.findByText("Dusting off the word shelf")).toBeTruthy();
-    expect(screen.getByText("Updating settings, transcripts, and vocabulary")).toBeTruthy();
-    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("4");
+    expect(await screen.findByText("Opening your library")).toBeTruthy();
+    expect(
+      screen.getByText("Loading transcripts, settings, and vocabulary"),
+    ).toBeTruthy();
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+      "4",
+    );
     expect(screen.getByText("4 of 6")).toBeTruthy();
   });
 
@@ -81,7 +87,7 @@ describe("SplashApp", () => {
     await act(async () => {
       vi.advanceTimersByTime(15_000);
     });
-    expect(screen.getByText(/Still warming up the local engine/)).toBeTruthy();
+    expect(screen.getByText(/Still preparing your local engine/)).toBeTruthy();
 
     await act(async () => {
       vi.advanceTimersByTime(15_000);
@@ -97,7 +103,7 @@ describe("SplashApp", () => {
         errorMessage: "Audio initialization failed.",
       });
     });
-    expect(screen.getByText("That wasn’t in the script")).toBeTruthy();
+    expect(screen.getByText("Blabber couldn’t start")).toBeTruthy();
     fireEvent.click(screen.getByText("Technical details"));
     expect(screen.getByText("Audio initialization failed.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Quit" }));
