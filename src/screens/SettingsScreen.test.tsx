@@ -23,6 +23,8 @@ const apiMocks = vi.hoisted(() => ({
   listInputDevices: vi.fn(),
   listenModelDownloadStatus: vi.fn(),
   startModelDownload: vi.fn(),
+  suspendShortcutCapture: vi.fn(),
+  resumeShortcutCapture: vi.fn(),
 }));
 
 vi.mock("../lib/api", async (importOriginal) => ({
@@ -33,6 +35,8 @@ vi.mock("../lib/api", async (importOriginal) => ({
   listInputDevices: apiMocks.listInputDevices,
   listenModelDownloadStatus: apiMocks.listenModelDownloadStatus,
   startModelDownload: apiMocks.startModelDownload,
+  suspendShortcutCapture: apiMocks.suspendShortcutCapture,
+  resumeShortcutCapture: apiMocks.resumeShortcutCapture,
 }));
 
 import { SettingsScreen } from "./SettingsScreen";
@@ -40,6 +44,9 @@ import { SettingsScreen } from "./SettingsScreen";
 const initialSettings: AppSettings = {
   defaultMode: "file_transcribe",
   shortcut: "CmdOrCtrl+Shift+Space",
+  translationEnabled: false,
+  translationCycleShortcut: "CmdOrCtrl+Shift+Right",
+  translationModelId: "translategemma-12b-q6-k",
   shortcutMode: "push_to_talk",
   languageMode: "auto",
   fixedLanguage: null,
@@ -166,6 +173,21 @@ describe("Settings speaker identification", () => {
     apiMocks.startModelDownload
       .mockReset()
       .mockResolvedValue(status("downloading", 0));
+    apiMocks.suspendShortcutCapture.mockReset().mockResolvedValue(undefined);
+    apiMocks.resumeShortcutCapture.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("captures the language shortcut separately and restores registration before saving", async () => {
+    const save = vi.fn();
+    render(<Harness onSave={save} onReload={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Models$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Set language shortcut" }));
+    await screen.findByText("Press a shortcut… Esc to cancel");
+    expect(apiMocks.suspendShortcutCapture).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(window, { key: "ArrowLeft", code: "ArrowLeft", metaKey: true, shiftKey: true });
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ translationCycleShortcut: "CmdOrCtrl+Shift+Left" }));
+    expect(apiMocks.resumeShortcutCapture.mock.invocationCallOrder[0]).toBeLessThan(save.mock.invocationCallOrder[0]);
+    expect(save).not.toHaveBeenCalledWith(expect.objectContaining({ shortcut: expect.anything() }));
   });
 
   it("does not confirm a failed appearance save and retains the saved preference", async () => {

@@ -15,6 +15,7 @@ mod file_jobs;
 mod insertion;
 #[cfg(target_os = "linux")]
 mod ipc;
+mod managed_process;
 mod model_downloads;
 mod model_metadata;
 mod native_asr;
@@ -25,6 +26,7 @@ mod review_jobs;
 mod review_media;
 mod settings;
 mod shutdown;
+mod single_instance;
 mod sound;
 mod speaker_reconciliation;
 mod startup;
@@ -35,6 +37,7 @@ mod transcript_stitching;
 mod transcription_policy;
 mod transcription_quality;
 mod transcription_worker;
+mod translation;
 mod vocabulary;
 
 use app_state::AppState;
@@ -192,6 +195,51 @@ fn finish_startup_handoff(
 }
 
 #[tauri::command]
+fn get_dictation_output_state(state: tauri::State<'_, AppState>) -> translation::OutputState {
+    state.translation.snapshot()
+}
+#[tauri::command]
+fn set_dictation_output_mode(
+    state: tauri::State<'_, AppState>,
+    mode: translation::OutputMode,
+) -> Result<translation::OutputState, String> {
+    state.translation.set_mode(mode).map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn cycle_dictation_output_mode(
+    state: tauri::State<'_, AppState>,
+) -> Result<translation::OutputState, String> {
+    state.translation.cycle().map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn retry_dictation_translation(
+    state: tauri::State<'_, AppState>,
+    transcript_id: Option<String>,
+) -> Result<translation::DictationOutput, String> {
+    let work = shutdown::begin_work(true).map_err(|e| e.to_string())?;
+    let service = state.translation.clone();
+    let store = state.review_store.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _work = work;
+        let saved = transcript_id
+            .map(|id| {
+                store
+                    .get(&review::ReviewRef::Saved { id })
+                    .and_then(|document| {
+                        document.detail.translation.ok_or_else(|| {
+                            anyhow::anyhow!("No translation is available for this transcript.")
+                        })
+                    })
+            })
+            .transpose()
+            .map_err(|e| e.to_string())?;
+        service.retry(saved).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn get_settings(state: tauri::State<'_, AppState>) -> Result<AppSettings, String> {
     storage::get_settings(state.inner()).map_err(|error| error.to_string())
 }
@@ -204,8 +252,26 @@ fn update_settings(
 ) -> Result<AppSettings, String> {
     let previous = storage::get_settings(state.inner()).map_err(|error| error.to_string())?;
     let sync_autostart = patch.launch_at_login_enabled.is_some();
-    let sync_shortcut = patch.shortcut.is_some() || patch.shortcut_mode.is_some();
+    let sync_shortcut = patch.shortcut.is_some()
+        || patch.shortcut_mode.is_some()
+        || patch.translation_enabled.is_some()
+        || patch.translation_cycle_shortcut.is_some();
+    if state.translation.snapshot().busy && (sync_shortcut || patch.translation_model_id.is_some())
+    {
+        return Err(
+            "Finish or cancel dictation before changing its shortcut or translation settings."
+                .into(),
+        );
+    }
+    if patch
+        .translation_model_id
+        .as_deref()
+        .is_some_and(|id| id != translation::MODEL_ID)
+    {
+        return Err("Unsupported translation model.".into());
+    }
     let diarization_change = patch.file_diarization_enabled;
+    let translation_change = patch.translation_enabled;
     let settings =
         storage::update_settings(state.inner(), patch).map_err(|error| error.to_string())?;
     let integration_result = (|| -> Result<(), String> {
@@ -233,6 +299,9 @@ fn update_settings(
             SettingsPatch {
                 default_mode: Some(previous.default_mode.clone()),
                 shortcut: Some(previous.shortcut.clone()),
+                translation_enabled: Some(previous.translation_enabled),
+                translation_cycle_shortcut: Some(previous.translation_cycle_shortcut.clone()),
+                translation_model_id: Some(previous.translation_model_id.clone()),
                 shortcut_mode: Some(previous.shortcut_mode.clone()),
                 language_mode: Some(previous.language_mode.clone()),
                 fixed_language: Some(previous.fixed_language.clone()),
@@ -270,6 +339,13 @@ fn update_settings(
             let _ = state.dictation_controller.sync_shortcut_registration();
         }
         return Err(error);
+    }
+    if translation_change == Some(false)
+        && state.translation.snapshot().output_mode != translation::OutputMode::Original
+    {
+        let _ = state
+            .translation
+            .set_mode(translation::OutputMode::Original);
     }
     match diarization_change {
         Some(true)
@@ -496,12 +572,19 @@ async fn export_review(
     state: tauri::State<'_, AppState>,
     reference: review::ReviewRef,
     format: TranscriptExportFormat,
+    variant: Option<TranscriptCopyVariant>,
 ) -> Result<TranscriptExportResult, review::ReviewError> {
     let store = state.review_store.clone();
     let work = shutdown::begin_work(false).map_err(review::ReviewError::from)?;
     tauri::async_runtime::spawn_blocking(move || {
         let _work = work;
-        transcript_commands::export_blocking(&app, &window, &store.get(&reference)?.detail, format)
+        transcript_commands::export_variant_blocking(
+            &app,
+            &window,
+            &store.get(&reference)?.detail,
+            format,
+            variant,
+        )
     })
     .await
     .map_err(|e| review::ReviewError::from(anyhow::anyhow!(e)))?
@@ -598,6 +681,7 @@ async fn export_transcript(
     state: tauri::State<'_, AppState>,
     transcript_id: String,
     format: TranscriptExportFormat,
+    variant: Option<TranscriptCopyVariant>,
 ) -> Result<TranscriptExportResult, String> {
     let app_state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -606,7 +690,7 @@ async fn export_transcript(
             .get(&review::ReviewRef::Saved { id: transcript_id })
             .map(|document| document.detail)
             .map_err(|error| error.to_string())?;
-        transcript_commands::export_blocking(&app, &window, &detail, format)
+        transcript_commands::export_variant_blocking(&app, &window, &detail, format, variant)
             .map_err(|error| error.to_string())
     })
     .await
@@ -715,6 +799,7 @@ async fn preview_transcription(
 
         let Some(file_path) = request.file_path.clone() else {
             return Ok(TranscriptionPreviewResponse {
+                dictation_output: None,
                 source_kind: request.source_kind,
                 resolved_model,
                 result: None,
@@ -726,47 +811,99 @@ async fn preview_transcription(
             });
         };
 
+        let session = if request.source_kind == asr::PreviewSourceKind::QuickDictate {
+            Some(
+                app_state
+                    .translation
+                    .manual_session(request.session_id.as_deref(), &file_path)
+                    .map_err(|e| e.to_string())?,
+            )
+        } else {
+            None
+        };
+        let _session_guard = session.as_ref().map(|s| app_state.translation.guard(s));
+        let _permit = match &session {
+            Some(session) => app_state.translation.acquire(session),
+            None => app_state.translation.acquire_background(
+                &uuid::Uuid::new_v4().to_string(),
+                &std::sync::atomic::AtomicBool::new(false),
+            ),
+        }
+        .map_err(|e| e.to_string())?;
         let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&app_state.db_path)
             .map_err(|error| error.to_string())?;
 
-        let result = app_state.engine.transcribe_file(
-            FileTranscriptionRequest {
-                use_context: Some(match request.source_kind {
-                    asr::PreviewSourceKind::QuickDictate => {
-                        model_metadata::ModelUseContext::QuickDictate
-                    }
-                    asr::PreviewSourceKind::FileUpload => {
-                        model_metadata::ModelUseContext::FileTranscription
-                    }
-                }),
-                profile: request.profile,
-                selected_model_id: request.selected_model_id.clone(),
-                language_mode: request.language_mode,
-                fixed_language: request.fixed_language.clone(),
-                timestamps: request.timestamps,
-                prefer_gpu: request.prefer_gpu,
-                file_path: file_path.clone(),
-                context_prompt: vocabulary_prompt.as_ref().map(|prompt| prompt.text.clone()),
-                context_terms: vocabulary_prompt
-                    .as_ref()
-                    .map(|prompt| prompt.terms.clone())
-                    .unwrap_or_default(),
-            },
-            None,
-        );
+        let engine_request = FileTranscriptionRequest {
+            use_context: Some(match request.source_kind {
+                asr::PreviewSourceKind::QuickDictate => {
+                    model_metadata::ModelUseContext::QuickDictate
+                }
+                asr::PreviewSourceKind::FileUpload => {
+                    model_metadata::ModelUseContext::FileTranscription
+                }
+            }),
+            profile: request.profile,
+            selected_model_id: request.selected_model_id.clone(),
+            language_mode: request.language_mode,
+            fixed_language: request.fixed_language.clone(),
+            timestamps: request.timestamps,
+            prefer_gpu: request.prefer_gpu,
+            file_path: file_path.clone(),
+            context_prompt: vocabulary_prompt.as_ref().map(|prompt| prompt.text.clone()),
+            context_terms: vocabulary_prompt
+                .as_ref()
+                .map(|prompt| prompt.terms.clone())
+                .unwrap_or_default(),
+        };
+        let result = if let Some(session) = &session {
+            app_state.translation.transcribe(session, engine_request)
+        } else {
+            app_state.engine.transcribe_file(engine_request, None)
+        };
 
         Ok(match result {
             Ok(result) => {
                 let corrected = vocabulary::correct_transcript_result(&app_state.db_path, result)
                     .map_err(|error| error.to_string())?;
+                let dictation_output = session
+                    .as_ref()
+                    .map(|session| {
+                        let duration = app_state
+                            .recording_controller
+                            .status()
+                            .ok()
+                            .and_then(|s| s.duration_ms)
+                            .unwrap_or(0);
+                        app_state.translation.process(session, &corrected, duration)
+                    })
+                    .transpose()
+                    .map_err(|e| e.to_string())?;
+                if let Some(session) = &session {
+                    app_state
+                        .translation
+                        .ensure_active(session)
+                        .map_err(|e| e.to_string())?;
+                }
+                let error = dictation_output
+                    .as_ref()
+                    .and_then(|o| o.error_message.as_ref())
+                    .map(|message| asr::EngineErrorPayload {
+                        code: "translation_failed".into(),
+                        message: message.clone(),
+                    });
+                let _ = app_state
+                    .desktop_shell
+                    .set_overlay_payload(Default::default());
                 TranscriptionPreviewResponse {
+                    dictation_output,
                     source_kind: request.source_kind,
                     resolved_model,
                     result: Some(corrected),
-                    error: None,
+                    error,
                 }
             }
             Err(error) => TranscriptionPreviewResponse {
+                dictation_output: None,
                 source_kind: request.source_kind,
                 resolved_model,
                 result: None,
@@ -840,6 +977,7 @@ fn get_recording_input_level(state: tauri::State<'_, AppState>) -> Result<f32, S
 async fn start_recording_session(
     state: tauri::State<'_, AppState>,
     feedback: Option<bool>,
+    purpose: Option<String>,
 ) -> Result<RecordingStatusResponse, String> {
     let work = shutdown::begin_work(true).map_err(|e| e.to_string())?;
     let state = state.inner().clone();
@@ -860,6 +998,23 @@ async fn start_recording_session(
         {
             return Err("A recording is already active.".to_string());
         }
+        let microphone_test = purpose.as_deref() == Some("microphone_test")
+            || (purpose.is_none() && feedback == Some(false));
+        if purpose
+            .as_deref()
+            .is_some_and(|p| p != "dictation" && p != "microphone_test")
+        {
+            return Err("Unknown recording purpose.".into());
+        }
+        if microphone_test && state.translation.snapshot().busy {
+            return Err("Finish the current dictation first.".into());
+        }
+        let session = if microphone_test {
+            None
+        } else {
+            Some(state.translation.begin().map_err(|e| e.to_string())?)
+        };
+        let reservation = session.as_ref().map(|s| state.translation.guard(s));
         let enabled = storage::get_settings(&state)
             .map(|settings| settings.sounds_enabled)
             .unwrap_or(false)
@@ -881,6 +1036,22 @@ async fn start_recording_session(
         if shutdown::is_shutting_down() {
             let _ = state.recording_controller.cancel();
             return Err("APP_SHUTTING_DOWN: Blabber wird beendet.".into());
+        }
+        if let Ok(status) = &result {
+            if session.is_some() {
+                if let Some(id) = status.current_session_id.clone() {
+                    state.translation.bind_recording(id, None);
+                }
+                let _ = state.desktop_shell.set_overlay_payload(
+                    desktop_shell::DictationOverlayPayload {
+                        phase: desktop_shell::OverlayPhase::Listening,
+                        ..Default::default()
+                    },
+                );
+                if let Some(reservation) = reservation {
+                    reservation.disarm();
+                }
+            }
         }
         result
     })
@@ -923,6 +1094,19 @@ async fn stop_recording_session(
             .stop()
             .map_err(|error| error.to_string());
         shutdown::set_manual_handoff(result.is_ok());
+        if let Ok(recording) = &result {
+            state.translation.bind_recording(
+                recording.session_id.clone(),
+                Some(recording.file_path.clone()),
+            );
+            if let Ok(session) = state.translation.current() {
+                let _ = state
+                    .translation
+                    .phase(&session, "handoff", "Preparing transcription…");
+            }
+        } else {
+            state.translation.cancel();
+        }
         let enabled = storage::get_settings(&state)
             .map(|settings| settings.sounds_enabled)
             .unwrap_or(false);
@@ -939,6 +1123,9 @@ async fn stop_recording_session(
 fn cancel_recording_session(
     state: tauri::State<'_, AppState>,
 ) -> Result<RecordingStatusResponse, String> {
+    state.translation.cancel();
+    shutdown::set_manual_handoff(false);
+    let _ = state.desktop_shell.set_overlay_payload(Default::default());
     let result = state
         .recording_controller
         .cancel()
@@ -1008,6 +1195,7 @@ fn reset_quick_dictation(
 #[serde(rename_all = "camelCase")]
 struct DictationReadiness {
     has_model: bool,
+    translation_ready: bool,
     shortcut_registered: bool,
     auto_paste_enabled: bool,
     // True only when auto-paste is on AND the platform gates keystroke
@@ -1028,6 +1216,9 @@ fn get_dictation_readiness(
     let status = state.dictation_controller.status();
     let auto_paste = matches!(settings.insert_behavior, InsertBehavior::Paste);
     Ok(DictationReadiness {
+        translation_ready: state.translation.snapshot().output_mode
+            == translation::OutputMode::Original
+            || state.translation.ready().is_ok(),
         has_model: !models.is_empty(),
         shortcut_registered: status.is_registered,
         auto_paste_enabled: auto_paste,
@@ -1128,6 +1319,8 @@ fn main() {
 
     tauri::Builder::default()
         .manage(StartupCoordinator::new())
+        // Keep this first: duplicate launches must exit before any app services start.
+        .plugin(single_instance::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -1145,7 +1338,7 @@ fn main() {
                     progress_startup.advance(&progress_app, phase);
                 }) {
                     Ok(app_state) => {
-                        // Start the single-instance IPC listener on Linux so that
+                        // Start the dictation IPC listener on Linux so that
                         // subsequent `blabber --dictate-toggle` invocations can reach us.
                         #[cfg(target_os = "linux")]
                         ipc::start_ipc_listener(app_state.dictation_controller.clone());
@@ -1223,6 +1416,10 @@ fn main() {
             dictate_press,
             dictate_release,
             dictate_toggle,
+            get_dictation_output_state,
+            set_dictation_output_mode,
+            cycle_dictation_output_mode,
+            retry_dictation_translation,
             get_settings,
             update_settings,
             list_transcripts,

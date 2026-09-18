@@ -11,7 +11,7 @@ use crate::startup::{StartupCoordinator, StartupPhase};
 
 const OVERLAY_LABEL: &str = "dictation-overlay";
 const OVERLAY_EVENT: &str = "quick-dictation-overlay";
-const OVERLAY_WIDTH: f64 = 220.0;
+const OVERLAY_WIDTH: f64 = 350.0;
 const OVERLAY_HEIGHT: f64 = 64.0;
 const OVERLAY_MARGIN_TOP: f64 = 32.0;
 const TRAY_UNAVAILABLE_CLOSE_EVENT: &str = "app://tray-unavailable-close-requested";
@@ -20,6 +20,7 @@ const TRAY_UNAVAILABLE_CLOSE_EVENT: &str = "app://tray-unavailable-close-request
 #[serde(rename_all = "snake_case")]
 pub enum OverlayPhase {
     Hidden,
+    Mode,
     Listening,
     Processing,
     Inserted,
@@ -32,6 +33,9 @@ pub enum OverlayPhase {
 pub struct DictationOverlayPayload {
     pub phase: OverlayPhase,
     pub audio_level: f32,
+    pub output_mode: crate::translation::OutputMode,
+    pub status_text: Option<String>,
+    pub revision: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +57,9 @@ impl Default for DictationOverlayPayload {
         Self {
             phase: OverlayPhase::Hidden,
             audio_level: 0.0,
+            output_mode: Default::default(),
+            status_text: None,
+            revision: 0,
         }
     }
 }
@@ -84,23 +91,98 @@ impl DesktopShellController {
             .unwrap_or_default()
     }
 
+    pub fn set_output_mode(&self, mode: crate::translation::OutputMode) {
+        if let Ok(mut current) = self.overlay_payload.lock() {
+            current.output_mode = mode;
+        }
+    }
+    pub fn overlay_revision(&self) -> u64 {
+        self.overlay_payload().revision
+    }
+    pub fn flash_mode(&self) -> Result<()> {
+        self.set_overlay_payload(DictationOverlayPayload {
+            phase: OverlayPhase::Mode,
+            ..Default::default()
+        })?;
+        let revision = self.overlay_revision();
+        let shell = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let _ = shell.set_overlay_if_revision(revision, DictationOverlayPayload::default());
+        });
+        Ok(())
+    }
+    pub fn update_level(&self, revision: u64, audio_level: f32) -> Result<()> {
+        let mut current = self
+            .overlay_payload
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
+        if current.revision != revision || current.phase != OverlayPhase::Listening {
+            return Ok(());
+        }
+        current.audio_level = audio_level;
+        let payload = current.clone();
+        drop(current);
+        self.dispatch_overlay(payload)
+    }
+    pub fn set_overlay_if_revision(
+        &self,
+        revision: u64,
+        payload: DictationOverlayPayload,
+    ) -> Result<()> {
+        self.replace_overlay(Some(revision), payload)
+    }
     pub fn set_overlay_payload(&self, payload: DictationOverlayPayload) -> Result<()> {
+        self.replace_overlay(None, payload)
+    }
+    fn replace_overlay(
+        &self,
+        expected: Option<u64>,
+        mut payload: DictationOverlayPayload,
+    ) -> Result<()> {
+        let mut current = self
+            .overlay_payload
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
+        if expected.is_some_and(|revision| revision != current.revision) {
+            return Ok(());
+        }
+        payload.output_mode = current.output_mode;
+        payload.revision = current.revision.wrapping_add(1);
+        *current = payload.clone();
+        drop(current);
+        self.dispatch_overlay(payload)
+    }
+    fn dispatch_overlay(&self, payload: DictationOverlayPayload) -> Result<()> {
+        let shell = self.clone();
+        self.app.run_on_main_thread(move || {
+            let _ = shell.apply_overlay(payload);
+        })?;
+        Ok(())
+    }
+    fn apply_overlay(&self, payload: DictationOverlayPayload) -> Result<()> {
+        // Serialize window effects and recheck ownership on the main thread.
+        let current = self
+            .overlay_payload
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
+        if current.revision != payload.revision {
+            return Ok(());
+        }
+
         let payload = if crate::shutdown::is_shutting_down() {
             DictationOverlayPayload::default()
         } else {
             payload
         };
-        if let Ok(mut current) = self.overlay_payload.lock() {
-            *current = payload.clone();
-        }
-
         if let Some(window) = self.app.get_webview_window(OVERLAY_LABEL) {
             position_overlay_window(&window)?;
             match payload.phase {
                 OverlayPhase::Hidden => {
                     let _ = window.hide();
                 }
-                OverlayPhase::Listening
+                OverlayPhase::Mode
+                | OverlayPhase::Listening
                 | OverlayPhase::Processing
                 | OverlayPhase::Inserted
                 | OverlayPhase::ClipboardOnly
@@ -184,7 +266,9 @@ fn ensure_overlay_window(app: &AppHandle) -> Result<()> {
             .always_on_top(true)
             .skip_taskbar(true)
             .focused(false)
+            .focusable(false)
             .build()?;
+    window.set_ignore_cursor_events(true)?;
     position_overlay_window(&window)?;
     Ok(())
 }

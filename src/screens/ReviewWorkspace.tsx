@@ -1,3 +1,5 @@
+import { TranslationResult } from "../components/TranslationResult";
+import { retryDictationTranslation } from "../lib/translationApi";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../components/Feedback";
 import {
@@ -80,6 +82,7 @@ export function ReviewWorkspace(props: Props) {
   const [reset, setReset] = useState(false);
   const [exportFormat, setExportFormat] =
     useState<TranscriptExportFormat>("txt");
+  const [exportVariant, setExportVariant] = useState<"plain" | "translation">("translation");
   const player = useRef<ReviewPlayerHandle>(null);
   const list = useRef<PassageListHandle>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -91,7 +94,9 @@ export function ReviewWorkspace(props: Props) {
   const accept = useCallback((next: ReviewDocument) => {
     if (
       !alive.current ||
-      (documentRef.current && documentRef.current.revision >= next.revision)
+      (documentRef.current && (documentRef.current.revision > next.revision ||
+        (documentRef.current.revision === next.revision &&
+          JSON.stringify(documentRef.current.detail.translation) === JSON.stringify(next.detail.translation))))
     )
       return;
     const changed = documentRef.current?.revision !== next.revision;
@@ -452,8 +457,9 @@ export function ReviewWorkspace(props: Props) {
                 })
               }
             >
-              Copy text
+              {document?.detail.translation ? "Copy original text" : "Copy text"}
             </Button>
+            {document?.detail.translation ? <label className="review-export-label"><span className="sr-only">Export text version</span><select aria-label="Export text version" value={document.detail.translation.status === "completed" ? exportVariant : "plain"} onChange={(event) => setExportVariant(event.target.value as "plain" | "translation")} disabled={!["txt", "md"].includes(exportFormat)}><option value="translation" disabled={document.detail.translation.status !== "completed"}>Translation</option><option value="plain">Original</option></select></label> : null}
             <label className="review-export-label">
               <span className="sr-only">Export format</span>
               <select
@@ -477,6 +483,7 @@ export function ReviewWorkspace(props: Props) {
                   const result = await exportReview(
                     props.reference,
                     exportFormat,
+                    document?.detail.translation?.status === "completed" && ["txt", "md"].includes(exportFormat) ? exportVariant : undefined,
                   );
                   if (result.path) setNotice("Transcript exported.");
                 })
@@ -725,7 +732,12 @@ export function ReviewWorkspace(props: Props) {
                 </Button>
               </div>
             ) : null}
-            {segments.length ? (
+            {document.detail.translation ? <TranslationResult output={document.detail.translation}
+              onRetry={props.reference.kind === "saved" ? async () => {
+                const output = await retryDictationTranslation(props.reference.id);
+                await refresh();
+                if (output.status !== "completed") throw new Error(output.errorMessage ?? "Translation failed.");
+              } : undefined} /> : segments.length ? (
               <VirtualPassages
                 ref={list}
                 segments={visibleSegments}

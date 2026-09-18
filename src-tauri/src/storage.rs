@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -62,6 +62,8 @@ pub struct TranscriptSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptDetail {
+    #[serde(default)]
+    pub translation: Option<crate::translation::DictationOutput>,
     #[serde(flatten)]
     pub summary: TranscriptSummary,
     pub full_text: String,
@@ -95,6 +97,7 @@ pub fn initialize_database(state: &AppState) -> Result<()> {
         .execute_batch(INIT_MIGRATION)
         .context("failed to run initial migration")?;
     ensure_settings_columns(&connection)?;
+    ensure_translation_schema(&connection)?;
     ensure_transcript_quality_columns(&connection)?;
     ensure_diarization_schema(&connection)?;
     crate::review::ensure_schema(&connection)?;
@@ -339,6 +342,15 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
     let next = AppSettings {
         default_mode: patch.default_mode.unwrap_or(current.default_mode),
         shortcut: patch.shortcut.unwrap_or(current.shortcut),
+        translation_enabled: patch
+            .translation_enabled
+            .unwrap_or(current.translation_enabled),
+        translation_cycle_shortcut: patch
+            .translation_cycle_shortcut
+            .unwrap_or(current.translation_cycle_shortcut),
+        translation_model_id: patch
+            .translation_model_id
+            .unwrap_or(current.translation_model_id),
         shortcut_mode: patch.shortcut_mode.unwrap_or(current.shortcut_mode),
         language_mode: patch.language_mode.unwrap_or(current.language_mode),
         fixed_language: patch.fixed_language.unwrap_or(current.fixed_language),
@@ -381,7 +393,7 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
     };
     let connection = open_connection_by_path(db_path)?;
     connection.execute(
-        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19, appearance = ?20, motion_preference = ?21 WHERE id = 1",
+        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19, appearance = ?20, motion_preference = ?21, translation_enabled = ?22, translation_cycle_shortcut = ?23, translation_model_id = ?24 WHERE id = 1",
         params![
             to_default_mode(next.default_mode),
             next.shortcut,
@@ -404,6 +416,7 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
             next.file_diarization_enabled,
             match next.appearance { Appearance::System => "system", Appearance::Light => "light", Appearance::Dark => "dark" },
             match next.motion_preference { MotionPreference::System => "system", MotionPreference::Reduced => "reduced" },
+            next.translation_enabled, next.translation_cycle_shortcut, next.translation_model_id,
         ],
     )?;
     get_settings_from_db_path(db_path)
@@ -450,6 +463,33 @@ pub fn save_quick_dictation_transcript(
     )?;
     transaction.commit()?;
     fetch_transcript_summary(&connection, &transcript_id)
+}
+
+/// Commit the source and its pending translation together, before inference.
+pub fn save_translated_dictation_source(
+    db_path: &Path,
+    result: &TranscriptResult,
+    duration_ms: i64,
+    output: &mut crate::translation::DictationOutput,
+) -> Result<()> {
+    let connection = open_connection_by_path(db_path)?;
+    let transaction = connection.unchecked_transaction()?;
+    let id = Uuid::new_v4().to_string();
+    insert_transcript(
+        &transaction,
+        &id,
+        SourceType::QuickDictate,
+        build_transcript_title(&result.plain_text),
+        result,
+        Some(duration_ms),
+    )?;
+    let mut saved = output.clone();
+    saved.transcript_id = Some(id.clone());
+    transaction.execute("INSERT INTO transcript_translations (transcript_id, output_text, payload) VALUES (?1, NULL, ?2)",
+        params![id, serde_json::to_string(&saved)?])?;
+    transaction.commit()?;
+    *output = saved;
+    Ok(())
 }
 
 pub fn save_file_transcription(
@@ -552,7 +592,7 @@ pub fn list_transcripts(state: &AppState, query: Option<String>) -> Result<Vec<T
         .map(|value| format!("%{}%", value.trim().to_lowercase()));
     let mut statement = if normalized_query.is_some() {
         connection.prepare(
-            "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count, diarization_status, speaker_count FROM transcripts WHERE lower(title) LIKE ?1 OR lower(plain_text) LIKE ?1 ORDER BY datetime(created_at) DESC",
+            "SELECT id, created_at, source_type, title, plain_text, status, detected_languages, duration_ms, model_name, quality_status, recovered_region_count, diarization_status, speaker_count FROM transcripts WHERE lower(title) LIKE ?1 OR lower(plain_text) LIKE ?1 OR id IN (SELECT transcript_id FROM transcript_translations WHERE lower(output_text) LIKE ?1) ORDER BY datetime(created_at) DESC",
         )?
     } else {
         connection.prepare(
@@ -656,11 +696,54 @@ pub(crate) fn open_connection_by_path(db_path: &Path) -> Result<Connection> {
 
 fn query_settings(connection: &Connection) -> Result<AppSettings> {
     let settings = connection.query_row(
-        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled, appearance, motion_preference FROM settings WHERE id = 1",
+        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled, appearance, motion_preference, translation_enabled, translation_cycle_shortcut, translation_model_id FROM settings WHERE id = 1",
         [],
         map_settings_row,
     )?;
     Ok(settings)
+}
+
+pub(crate) fn ensure_translation_schema(connection: &Connection) -> Result<()> {
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS transcript_translations (
+        transcript_id TEXT PRIMARY KEY REFERENCES transcripts(id) ON DELETE CASCADE,
+        output_text TEXT, payload TEXT NOT NULL
+    );",
+    )?;
+    // A process interrupted during translation must expose a recoverable original.
+    connection.execute("UPDATE transcript_translations SET payload = json_set(payload, '$.status', 'failed', '$.errorMessage', 'Translation was interrupted. The original text was preserved.', '$.errorCode', 'translation_interrupted') WHERE json_extract(payload, '$.status') = 'pending'", [])?;
+    Ok(())
+}
+
+pub fn save_translation(
+    db_path: &Path,
+    output: &crate::translation::DictationOutput,
+) -> Result<()> {
+    let Some(id) = output.transcript_id.as_deref() else {
+        return Ok(());
+    };
+    let connection = open_connection_by_path(db_path)?;
+    // Deleting history while a translation runs must not recreate that entry.
+    connection.execute("INSERT INTO transcript_translations (transcript_id, output_text, payload)
+        SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM transcripts WHERE id=?1)
+        ON CONFLICT(transcript_id) DO UPDATE SET output_text=excluded.output_text, payload=excluded.payload",
+        params![id, output.output_text, serde_json::to_string(output)?])?;
+    Ok(())
+}
+
+fn load_translation(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<crate::translation::DictationOutput>> {
+    let raw: Option<String> = connection
+        .query_row(
+            "SELECT payload FROM transcript_translations WHERE transcript_id=?1",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    raw.map(|s| serde_json::from_str(&s).map_err(anyhow::Error::from))
+        .transpose()
 }
 
 fn ensure_settings_columns(connection: &Connection) -> Result<()> {
@@ -669,6 +752,24 @@ fn ensure_settings_columns(connection: &Connection) -> Result<()> {
         .query_map([], |row| row.get::<_, String>("name"))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
+    for (name, declaration) in [
+        ("translation_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        (
+            "translation_cycle_shortcut",
+            "TEXT NOT NULL DEFAULT 'CmdOrCtrl+Shift+Right'",
+        ),
+        (
+            "translation_model_id",
+            "TEXT NOT NULL DEFAULT 'translategemma-12b-q6-k'",
+        ),
+    ] {
+        if !columns.iter().any(|column| column == name) {
+            connection.execute(
+                &format!("ALTER TABLE settings ADD COLUMN {name} {declaration}"),
+                [],
+            )?;
+        }
+    }
     for column in ["appearance", "motion_preference"] {
         if !columns.iter().any(|name| name == column) {
             connection.execute(
@@ -1135,6 +1236,7 @@ pub(crate) fn fetch_transcript_detail(
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
     Ok(TranscriptDetail {
+        translation: load_translation(connection, transcript_id)?,
         manual_segment_ids: Vec::new(),
         summary,
         full_text,
@@ -1270,6 +1372,9 @@ fn map_settings_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AppSettings> {
     Ok(AppSettings {
         default_mode: parse_default_mode(row.get("default_mode")?)?,
         shortcut: row.get("shortcut")?,
+        translation_enabled: row.get("translation_enabled")?,
+        translation_cycle_shortcut: row.get("translation_cycle_shortcut")?,
+        translation_model_id: row.get("translation_model_id")?,
         shortcut_mode: parse_shortcut_mode(row.get("shortcut_mode")?)?,
         language_mode: parse_language_mode(row.get("language_mode")?)?,
         fixed_language: row.get("fixed_language")?,
@@ -1593,6 +1698,95 @@ fn to_source_type(value: SourceType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn translation_settings_migrate_without_changing_existing_preferences() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INIT_MIGRATION).unwrap();
+        ensure_settings_columns(&connection).unwrap();
+        seed_default_settings(&connection).unwrap();
+        connection
+            .execute(
+                "UPDATE settings SET shortcut='Alt+Space', save_history=0",
+                [],
+            )
+            .unwrap();
+        // Recreate a database from before this feature, retaining user settings.
+        connection
+            .execute_batch(
+                "ALTER TABLE settings DROP COLUMN translation_enabled;
+            ALTER TABLE settings DROP COLUMN translation_cycle_shortcut;
+            ALTER TABLE settings DROP COLUMN translation_model_id;",
+            )
+            .unwrap();
+        ensure_settings_columns(&connection).unwrap();
+        let settings = query_settings(&connection).unwrap();
+        assert!(!settings.translation_enabled);
+        assert_eq!(
+            settings.translation_cycle_shortcut,
+            crate::translation::DEFAULT_SHORTCUT
+        );
+        assert_eq!(settings.translation_model_id, crate::translation::MODEL_ID);
+        assert_eq!(settings.shortcut, "Alt+Space");
+        assert!(!settings.save_history);
+    }
+
+    #[test]
+    fn translated_history_preserves_original_recovers_interruption_and_cascades() {
+        let path =
+            std::env::temp_dir().join(format!("blabber-translation-{}.sqlite", Uuid::new_v4()));
+        let connection = open_connection_by_path(&path).unwrap();
+        connection.execute_batch(INIT_MIGRATION).unwrap();
+        ensure_translation_schema(&connection).unwrap();
+        let original = crate::review::fixture_result();
+        let mut output = crate::translation::DictationOutput {
+            session_id: "session".into(),
+            source_text: original.plain_text.clone(),
+            output_text: None,
+            target_language: crate::translation::OutputMode::SpanishArgentina,
+            status: "pending".into(),
+            model_id: Some(crate::translation::MODEL_ID.into()),
+            model_revision: Some(crate::translation::MODEL_REVISION.into()),
+            prompt_version: Some(1),
+            transcript_id: None,
+            error_message: None,
+            error_code: None,
+            source_languages: vec!["de".into()],
+        };
+        save_translated_dictation_source(&path, &original, 20000, &mut output).unwrap();
+        let saved = fetch_transcript_summary(&connection, output.transcript_id.as_deref().unwrap())
+            .unwrap();
+        ensure_translation_schema(&connection).unwrap();
+        assert_eq!(
+            load_translation(&connection, &saved.id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "failed"
+        );
+        output.status = "completed".into();
+        output.output_text = Some("¿Podés venir mañana?".into());
+        save_translation(&path, &output).unwrap();
+        save_translation(&path, &output).unwrap();
+        let detail = fetch_transcript_detail(&connection, &saved.id).unwrap();
+        assert_eq!(detail.summary.plain_text, original.plain_text);
+        assert_eq!(detail.segments[0].text, original.segments[0].text);
+        assert_eq!(
+            detail.translation.unwrap().output_text.as_deref(),
+            Some("¿Podés venir mañana?")
+        );
+        let count: i64 = connection.query_row("SELECT count(*) FROM transcript_translations WHERE lower(output_text) LIKE '%podés%'", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1);
+        connection
+            .execute("DELETE FROM transcripts WHERE id=?1", [&saved.id])
+            .unwrap();
+        save_translation(&path, &output).unwrap();
+        assert!(load_translation(&connection, &saved.id).unwrap().is_none());
+        output.transcript_id = None;
+        save_translation(&path, &output).unwrap();
+        drop(connection);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn appearance_migration_preserves_settings_and_is_idempotent() {

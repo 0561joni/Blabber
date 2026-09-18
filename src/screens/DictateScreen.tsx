@@ -1,3 +1,5 @@
+import { TranslationResult } from "../components/TranslationResult";
+import { OUTPUT_MODES } from "../lib/translationApi";
 import { useEffect, useRef, useState } from "react";
 import {
   ActionButton,
@@ -17,6 +19,8 @@ import {
 } from "../lib/formatting";
 import type {
   AppSettings,
+  DictationOutputState,
+  OutputMode,
   DictationReadiness,
   ManualTranscriptionUiState,
   QuickDictationStatusResponse,
@@ -25,6 +29,9 @@ import type {
 } from "../types/domain";
 
 interface Props {
+  outputState?: DictationOutputState | null;
+  onOutputModeChange?: (mode: OutputMode) => Promise<void>;
+  onRetryTranslation?: () => Promise<void>;
   dictationError?: string | null;
   settings: AppSettings | null;
   platform: string | null;
@@ -62,7 +69,7 @@ export function DictateScreen(props: Props) {
     ? quick?.state === "listening"
     : recording?.state === "listening";
   const processing =
-    manual.stage === "processing" || quick?.state === "processing";
+    manual.stage === "processing" || quick?.state === "processing" || (props.outputState?.busy === true && props.outputState.stage !== "recording");
   const canStop =
     !quickActive &&
     (recording?.state === "listening" || recording?.state === "paused");
@@ -77,6 +84,8 @@ export function DictateScreen(props: Props) {
     props.platform,
   );
   const result = preview?.result;
+  const output = preview?.dictationOutput ?? props.outputState?.lastOutput;
+  const translatedOutput = output?.targetLanguage !== "original" ? output : null;
   const quickText =
     !result && !listening && !processing ? quick?.lastTranscriptText : null;
   const outcome = result
@@ -91,7 +100,7 @@ export function DictateScreen(props: Props) {
   const stateLabel = listening
     ? "Listening"
     : processing
-      ? "Transcribing"
+      ? props.outputState?.statusText || "Transcribing"
       : error
         ? "Needs attention"
         : manual.statusText || "Ready to dictate";
@@ -167,6 +176,19 @@ export function DictateScreen(props: Props) {
           <span /> On-device transcription
         </span>
       </PageHeader>
+      {props.outputState ? <div className="surface translation-controls">
+        <label htmlFor="dictation-output-language">Output language</label>
+        <select id="dictation-output-language" value={props.outputState.outputMode}
+          disabled={props.outputState.busy || pending}
+          onChange={(event) => void act(() => props.onOutputModeChange?.(event.target.value as OutputMode) ?? Promise.resolve())}>
+          {OUTPUT_MODES.map((item) => <option key={item.value} value={item.value} disabled={item.value !== "original" && !props.outputState?.ready}>{item.label}</option>)}
+        </select>
+        <span className="muted">{formatShortcutForDisplay(settings?.translationCycleShortcut ?? "CmdOrCtrl+Shift+Right", props.platform)} · Change language</span>
+        {!props.outputState.ready ? <>
+          <button className="secondary-inline-button" onClick={() => props.onResolveReadiness("model")}>Set up local translation</button>
+          {settings?.translationEnabled && props.outputState.errorMessage ? <span className="muted" role="status">{props.outputState.errorMessage}</span> : null}
+        </> : null}
+      </div> : null}
       {readiness &&
       (!readiness.hasModel ||
         !readiness.shortcutRegistered ||
@@ -271,7 +293,7 @@ export function DictateScreen(props: Props) {
                 ? "Input meter unavailable. Recording is still active."
                 : "Speak naturally. Stop when you’re finished."
               : processing
-                ? manual.statusText ||
+                ? props.outputState?.statusText || manual.statusText ||
                   "Your audio is being transcribed on this device."
                 : "Start recording and let your words take shape."}
           </p>
@@ -318,7 +340,7 @@ export function DictateScreen(props: Props) {
             )}
           </div>
         </div>
-        {processing ? <Progress label="Transcribing recording" /> : null}
+        {processing ? <Progress label={props.outputState?.statusText || "Transcribing recording"} /> : null}
         <footer className="studio-footer">
           <span>
             <AppIcon name="window" /> Your audio stays on your device
@@ -347,14 +369,14 @@ export function DictateScreen(props: Props) {
           Reset stuck dictation
         </ActionButton>
       ) : null}
-      {(result || quickText) && !listening && !processing ? (
+      {(result || quickText || translatedOutput) && !listening && !processing ? (
         <article className="surface result-panel">
           <div className="section-header">
             <div>
               <p className="eyebrow">YOUR WORDS</p>
               <h2 role="status">{outcome}</h2>
             </div>
-            <ActionButton
+            {!translatedOutput ? <ActionButton
               icon="copy"
               disabled={!String(result?.plainText ?? quickText ?? "").trim()}
               action={() =>
@@ -363,7 +385,7 @@ export function DictateScreen(props: Props) {
               success="Copied"
             >
               Copy text
-            </ActionButton>
+            </ActionButton> : null}
           </div>
           {quick?.state === "clipboard_only" && !result ? (
             <p className="muted">
@@ -375,7 +397,7 @@ export function DictateScreen(props: Props) {
               Try speaking closer to the microphone, then record again.
             </p>
           ) : null}
-          {result ? (
+          {translatedOutput ? <TranslationResult output={translatedOutput} onRetry={props.onRetryTranslation} /> : result ? (
             <TranscriptReader result={result} />
           ) : (
             <p className="transcript-body">{quickText}</p>

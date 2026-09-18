@@ -74,6 +74,7 @@ export function SettingsScreen({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [platformInfo, setPlatformInfo] = useState<PlatformInfo | null>(null);
   const [isCapturingShortcut, setIsCapturingShortcut] = useState(false);
+  const [capturingField, setCapturingField] = useState<"shortcut" | "translationCycleShortcut">("shortcut");
   const [isTestingMicrophone, setIsTestingMicrophone] = useState(false);
   const [microphoneTestLevel, setMicrophoneTestLevel] = useState(0);
   const [microphoneTestMessage, setMicrophoneTestMessage] = useState<
@@ -220,7 +221,7 @@ export function SettingsScreen({
     window.addEventListener("keydown", handleShortcutCapture, true);
     return () =>
       window.removeEventListener("keydown", handleShortcutCapture, true);
-  }, [isCapturingShortcut, settings?.shortcut]);
+  }, [isCapturingShortcut, settings?.shortcut, capturingField]);
 
   useEffect(() => {
     if (!isTestingMicrophone) {
@@ -317,6 +318,8 @@ export function SettingsScreen({
   const speechModels = downloadableModels.filter(
     (model) => model.capability === "asr",
   );
+  const translationModel = downloadableModels.find((model) => model.capability === "translation");
+  const translationDownload = translationModel ? modelDownloadStatuses[translationModel.id] : undefined;
   const diarizationReady = diarizationModel?.installed === true;
   const diarizationStatus = diarizationModel
     ? modelDownloadStatuses[diarizationModel.id]
@@ -331,7 +334,8 @@ export function SettingsScreen({
       ? null
       : Math.round(diarizationStatus?.progressPercent ?? 0);
 
-  async function beginShortcutCapture() {
+  async function beginShortcutCapture(field: "shortcut" | "translationCycleShortcut" = "shortcut") {
+    setCapturingField(field);
     setErrorMessage(null);
     try {
       await suspendShortcutCapture();
@@ -362,7 +366,8 @@ export function SettingsScreen({
     setIsSaving(true);
     setErrorMessage(null);
     try {
-      await persist({ shortcut }, "shortcut");
+      await resumeShortcutCapture();
+      await persist({ [capturingField]: shortcut }, capturingField);
     } catch (error) {
       try {
         await resumeShortcutCapture();
@@ -948,6 +953,39 @@ export function SettingsScreen({
           </p>
         </div>
         <div className="settings-grid">
+          <article className="glass-subtle settings-card settings-card-wide" aria-label="Local translation">
+            <h3>Local translation <span className="muted">· Preview</span></h3>
+            <p>Dictate in German or English. Paste in French or Argentinian Spanish.</p>
+            <p className="muted">TranslateGemma 12B Q6_K · 9.66 GB download · Apple Silicon · 18 GB RAM recommended. Models load one at a time to conserve memory.</p>
+            <label className="field-stack">
+              <span><input type="checkbox" checked={settings.translationEnabled ?? false}
+                disabled={isSaving || !translationModel?.installed || translationModel.availability !== "available"}
+                onChange={(event) => void handleChange("translationEnabled", event.target.checked)} /> Enable local translation</span>
+            </label>
+            {fieldFeedback("translationEnabled")}
+            <div className="translation-download-actions">
+              {translationDownload?.state === "downloading" ? <>
+                <p role="status">Downloading translation model · {Math.round(translationDownload.progressPercent ?? 0)}%</p>
+                <ActionButton action={() => cancelModelDownload(translationModel!.id).then(() => undefined)}>Cancel download</ActionButton>
+              </> : <ActionButton disabled={!translationModel || translationModel.availability !== "available" || Object.values(modelDownloadStatuses).some((status) => status.state === "downloading")}
+                action={() => startModelDownload(translationModel!.id).then(() => undefined)}>
+                {translationModel?.installed ? "Verify / repair model" : "Download translation model"}
+              </ActionButton>}
+            </div>
+            {translationDownload?.errorMessage ? <p role="alert" className="warning-text">{translationDownload.errorMessage}</p> : null}
+            {translationModel?.availabilityReason ? <p className="muted">{translationModel.availabilityReason}</p> : null}
+            <div className="field-stack">
+              <span>Change output language</span>
+              <div className="shortcut-field">
+                <span className="shortcut-display">{isCapturingShortcut && capturingField === "translationCycleShortcut" ? "Press a shortcut… Esc to cancel" : formatShortcutForDisplay(settings.translationCycleShortcut ?? "CmdOrCtrl+Shift+Right", platform)}</span>
+                <ActionButton disabled={isCapturingShortcut || isSaving} action={() => beginShortcutCapture("translationCycleShortcut")}>Set language shortcut</ActionButton>
+                {isCapturingShortcut && capturingField === "translationCycleShortcut" ? <ActionButton action={cancelShortcutCapture}>Cancel capture</ActionButton> : null}
+              </div>
+              <p className="muted">Original → Français → Español (AR). Starts in Original. The shortcut is reserved globally, including in text fields, while translation is enabled.</p>
+            </div>
+            {fieldFeedback("translationCycleShortcut")}
+            <p className="muted">Model by Google, Q6_K conversion by mradermacher. Downloading and using this model is subject to the <a href="https://ai.google.dev/gemma/terms" target="_blank" rel="noreferrer">Gemma terms</a> and <a href="https://ai.google.dev/gemma/prohibited_use_policy" target="_blank" rel="noreferrer">use restrictions</a>. <a href="https://huggingface.co/google/translategemma-12b-it" target="_blank" rel="noreferrer">Model information</a></p>
+          </article>
           <article className="glass-subtle settings-card">
             <div className="field-stack">
               <ModelPicker

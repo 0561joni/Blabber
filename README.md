@@ -9,6 +9,29 @@ Current scope:
 - SQLite-backed settings and transcript history
 - Minimal Home, Settings, and History screens
 - Phase 4 whisper.cpp integration through `whisper-rs`
+- Offline dictation translation to French and Argentinian Spanish on Apple Silicon
+
+## Dictation translation
+
+In **Settings → Models → Local translation**, download TranslateGemma 12B Q6_K
+(9.66 GB). The verified download enables the language shortcut. Dictate in German
+or English and press **⌘⇧→** between dictations to cycle through **Original →
+Français → Español (AR)**. The shortcut is configurable and reserved globally.
+Each app start resets to Original; switching is locked while a dictation is active.
+
+Global dictation pastes the finished translation; the Dictate workspace offers
+separate original/translation views and copy actions. Failed translations preserve
+the source and never paste. History follows the existing preference, and retrying
+a failed translation never pastes into a potentially different application.
+Imported audio remains unchanged. Inference works offline after model setup.
+
+The native helper is built automatically for Apple Silicon by `npm run tauri dev`
+and `npm run tauri -- build`. Use `npm run build:translation` to build it separately.
+It requires CMake and a working Apple developer toolchain at build time; the packaged
+application needs no separately installed translation runtime.
+
+See [translation architecture and acceptance](docs/translation.md) for pinned
+versions, error handling, reproducible benchmarks, and remaining release checks.
 
 ## Local development
 
@@ -36,6 +59,8 @@ npm run tauri dev
 ```
 
 ### Closing and quitting
+
+Blabber runs one desktop instance per user. Opening it again restores the existing window (or the splash screen while starting), including when it is hidden or minimized. Simultaneous launches share an OS lock that is automatically released after a crash; transcription workers and Linux `--dictate-toggle` commands continue to run separately.
 
 On macOS, the red close button hides the workspace. Clicking the Dock icon or the menu-bar icon restores it. Cmd-Q, Dock Quit, the application menu, and the tray's Quit entry share one shutdown path.
 

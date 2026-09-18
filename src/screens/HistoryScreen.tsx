@@ -1,3 +1,4 @@
+import { TranslationResult } from "../components/TranslationResult";
 import { useEffect, useRef, useState } from "react";
 import {
   listTranscripts,
@@ -128,7 +129,7 @@ export function HistoryScreen({
   const visibleTranscripts = (searchResults ?? transcripts).filter(
     (item) =>
       (sourceFilter === "all" || item.sourceType === sourceFilter) &&
-      (!query.trim() ||
+      (searchResults !== null || !query.trim() ||
         (item.title + " " + item.plainText)
           .toLowerCase()
           .includes(query.trim().toLowerCase())),
@@ -714,7 +715,7 @@ export function HistoryScreen({
                       >
                         {busy[transcript.id] ? (
                           <p className="muted">Loading speaker transcript...</p>
-                        ) : detail ? (
+                        ) : detail?.translation ? <TranslationResult output={detail.translation} /> : detail ? (
                           <>
                             {detail.diarizationWarning ? (
                               <p className="warning-text">

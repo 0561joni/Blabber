@@ -6,8 +6,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::asr::{FileTranscriptionRequest, TranscriptionEngine};
 use crate::audio_capture::RecordingController;
@@ -20,6 +21,30 @@ use crate::system_volume::{self, VolumeSnapshot};
 use crate::vocabulary;
 
 const QUICK_DICTATE_STATUS_EVENT: &str = "quick-dictate-status";
+
+fn shortcut_pair(primary: &str, secondary: Option<&str>) -> Result<Vec<String>> {
+    let first = Shortcut::from_str(primary)?;
+    let mut pair = vec![primary.to_owned()];
+    if let Some(value) = secondary {
+        if first.id() == Shortcut::from_str(value)?.id() {
+            return Err(anyhow!(
+                "Dictation and language switching need different shortcuts."
+            ));
+        }
+        pair.push(value.to_owned());
+    }
+    Ok(pair)
+}
+
+fn cycle_key_transition(pressed: &AtomicBool, event: ShortcutState) -> bool {
+    match event {
+        ShortcutState::Released => {
+            pressed.store(false, Ordering::SeqCst);
+            false
+        }
+        ShortcutState::Pressed => !pressed.swap(true, Ordering::SeqCst),
+    }
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -90,6 +115,9 @@ pub struct QuickDictationController {
     // Unix-millis timestamp of the last state transition, used by the watchdog
     // to detect a dictation that has been stuck in Listening/Processing.
     state_since_ms: Arc<AtomicI64>,
+    translation: crate::translation::TranslationService,
+    shortcut_pair: Arc<Mutex<Vec<String>>>,
+    cycle_pressed: Arc<AtomicBool>,
 }
 
 impl QuickDictationController {
@@ -100,9 +128,13 @@ impl QuickDictationController {
         db_path: std::path::PathBuf,
         desktop_shell: DesktopShellController,
         sound_player: Arc<Option<SoundPlayer>>,
+        translation: crate::translation::TranslationService,
     ) -> Self {
         Self {
             app,
+            translation,
+            shortcut_pair: Default::default(),
+            cycle_pressed: Default::default(),
             engine,
             recording_controller,
             db_path,
@@ -126,36 +158,76 @@ impl QuickDictationController {
             .unwrap_or_default()
     }
 
+    fn register_pair(&self, pair: &[String]) -> Result<()> {
+        for (index, shortcut) in pair.iter().enumerate() {
+            let controller = self.clone();
+            self.app.global_shortcut().on_shortcut(
+                shortcut.as_str(),
+                move |_app, _shortcut, event| {
+                    if controller
+                        .is_suspended
+                        .lock()
+                        .map(|value| *value)
+                        .unwrap_or(true)
+                    {
+                        return;
+                    }
+                    if index == 1 {
+                        if cycle_key_transition(&controller.cycle_pressed, event.state()) {
+                            if let Err(error) = controller.translation.cycle() {
+                                let _ = controller
+                                    .app
+                                    .emit("dictation-mode-error", error.to_string());
+                            }
+                        }
+                    } else if let Err(error) =
+                        controller.handle_shortcut_event(event.state(), event.id)
+                    {
+                        eprintln!("[dictation] shortcut failed: {error}");
+                    }
+                },
+            )?;
+        }
+        Ok(())
+    }
     pub fn sync_shortcut_registration(&self) -> Result<QuickDictationStatusResponse> {
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
-        self.app.global_shortcut().unregister_all()?;
-
-        let is_suspended = *self
+        let mut registered = self
+            .shortcut_pair
+            .lock()
+            .map_err(|_| anyhow!("Shortcut state unavailable"))?;
+        let next = shortcut_pair(
+            &settings.shortcut,
+            (settings.translation_enabled && crate::translation::platform_supported())
+                .then_some(settings.translation_cycle_shortcut.as_str()),
+        )?;
+        if *self
             .is_suspended
             .lock()
-            .map_err(|_| anyhow!("shortcut state unavailable"))?;
-        if is_suspended {
-            self.update_status(|status| {
-                status.registered_shortcut = Some(settings.shortcut.clone());
-                status.shortcut_mode = settings.shortcut_mode;
-                status.is_registered = false;
-            })?;
+            .map_err(|_| anyhow!("Shortcut state unavailable"))?
+        {
             return Ok(self.status());
         }
-
-        let controller = self.clone();
-        self.app.global_shortcut().on_shortcut(
-            settings.shortcut.as_str(),
-            move |_app, _shortcut, event| {
-                if let Err(error) = controller.handle_shortcut_event(event.state(), event.id) {
-                    eprintln!("[dictation] shortcut handler failed: {error:?}");
-                }
-            },
-        )?;
-
-        if let Ok(mut registered) = self.registered_shortcut.lock() {
-            *registered = Some(settings.shortcut.clone());
+        let previous = registered.clone();
+        self.app.global_shortcut().unregister_all()?;
+        if let Err(error) = self.register_pair(&next) {
+            let _ = self.app.global_shortcut().unregister_all();
+            if let Err(restore) = self.register_pair(&previous) {
+                let _ = self.app.global_shortcut().unregister_all();
+                registered.clear();
+                self.update_status(|status| status.is_registered = false)?;
+                return Err(anyhow!(
+                    "{error}; could not restore previous shortcuts: {restore}"
+                ));
+            }
+            return Err(error);
         }
+        *registered = next;
+        self.cycle_pressed.store(false, Ordering::SeqCst);
+        *self
+            .registered_shortcut
+            .lock()
+            .map_err(|_| anyhow!("Shortcut state unavailable"))? = Some(settings.shortcut.clone());
         self.update_status(|status| {
             status.registered_shortcut = Some(settings.shortcut.clone());
             status.shortcut_mode = settings.shortcut_mode;
@@ -182,10 +254,30 @@ impl QuickDictationController {
     }
 
     pub fn suspend_shortcut_registration(&self) -> Result<QuickDictationStatusResponse> {
+        if self.translation.snapshot().busy {
+            return Err(anyhow!(
+                "Finish or cancel dictation before changing shortcuts."
+            ));
+        }
+        let registration = self
+            .shortcut_pair
+            .lock()
+            .map_err(|_| anyhow!("Shortcut state unavailable"))?;
+        self.cycle_pressed.store(false, Ordering::SeqCst);
         if let Ok(mut suspended) = self.is_suspended.lock() {
             *suspended = true;
         }
-        self.app.global_shortcut().unregister_all()?;
+        if let Err(error) = self.app.global_shortcut().unregister_all() {
+            if let Ok(mut suspended) = self.is_suspended.lock() {
+                *suspended = false;
+            }
+            let _ = self.app.global_shortcut().unregister_all();
+            if let Err(restore) = self.register_pair(&registration) {
+                self.update_status(|status| status.is_registered = false)?;
+                return Err(anyhow!("{error}; restoring shortcuts failed: {restore}"));
+            }
+            return Err(error.into());
+        }
         self.update_status(|status| {
             status.is_registered = false;
         })?;
@@ -278,6 +370,8 @@ impl QuickDictationController {
             return Err(anyhow!("Another recording is already active."));
         }
 
+        let session = self.translation.begin()?;
+        let reservation = self.translation.guard(&session);
         let settings = storage::get_settings_from_db_path(&self.db_path).ok();
         if let Some(player) = self.sound_player.as_ref().as_ref() {
             player.prepare_capture(
@@ -316,6 +410,7 @@ impl QuickDictationController {
             .set_overlay_payload(DictationOverlayPayload {
                 phase: OverlayPhase::Listening,
                 audio_level: 0.0,
+                ..Default::default()
             })?;
         self.update_status(|status| {
             status.state = QuickDictationState::Listening;
@@ -328,6 +423,7 @@ impl QuickDictationController {
         // poller that belongs to this listening session.
         let generation = self.poller_generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.spawn_overlay_level_poller(generation);
+        reservation.disarm();
         Ok(())
     }
 
@@ -342,6 +438,7 @@ impl QuickDictationController {
             .set_overlay_payload(DictationOverlayPayload {
                 phase: OverlayPhase::Processing,
                 audio_level: 0.0,
+                ..Default::default()
             })?;
         self.update_status(|status| {
             status.state = QuickDictationState::Processing;
@@ -349,11 +446,12 @@ impl QuickDictationController {
         })?;
 
         let work = crate::shutdown::begin_work(true)?;
+        let session = self.translation.current()?;
         let controller = self.clone();
         let generation = self.poller_generation.load(Ordering::SeqCst);
         thread::spawn(move || {
             let _work = work;
-            if let Err(error) = controller.finish_dictation_worker(generation) {
+            if let Err(error) = controller.finish_dictation_worker(generation, session) {
                 if controller.poller_generation.load(Ordering::SeqCst) != generation {
                     return;
                 }
@@ -364,7 +462,12 @@ impl QuickDictationController {
         Ok(())
     }
 
-    fn finish_dictation_worker(&self, generation: u64) -> Result<()> {
+    fn finish_dictation_worker(
+        &self,
+        generation: u64,
+        session: crate::translation::DictationSession,
+    ) -> Result<()> {
+        let _session_guard = self.translation.guard(&session);
         if self.poller_generation.load(Ordering::SeqCst) != generation {
             return Ok(());
         }
@@ -382,6 +485,7 @@ impl QuickDictationController {
         if let Some(player) = self.sound_player.as_ref().as_ref() {
             player.finish_capture(settings.sounds_enabled, false);
         }
+        let _permit = self.translation.acquire(&session)?;
         let resolved_model_name = resolve_model_name(self.engine.as_ref(), &settings)?;
         let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&self.db_path)?;
         if let Some(prompt) = &vocabulary_prompt {
@@ -390,7 +494,8 @@ impl QuickDictationController {
                 prompt.included_count, prompt.truncated_count
             );
         }
-        let transcript = match self.engine.transcribe_file(
+        let transcript = match self.translation.transcribe(
+            &session,
             FileTranscriptionRequest {
                 use_context: Some(crate::model_metadata::ModelUseContext::ShortcutDictation),
                 profile: settings.shortcut_dictation_model_profile,
@@ -406,7 +511,6 @@ impl QuickDictationController {
                     .map(|prompt| prompt.terms.clone())
                     .unwrap_or_default(),
             },
-            None,
         ) {
             Ok(result) => result,
             Err(error) => {
@@ -424,16 +528,36 @@ impl QuickDictationController {
         if self.poller_generation.load(Ordering::SeqCst) != generation {
             return Ok(());
         }
-        let mut saved_transcript = if settings.save_history {
-            storage::save_quick_dictation_transcript(
+        let output = self
+            .translation
+            .process(&session, &corrected, recording.duration_ms)?;
+        self.translation.ensure_active(&session)?;
+        let translated = session.mode != crate::translation::OutputMode::Original;
+        let mut saved_transcript_id = output.transcript_id.clone();
+        if output.status != "completed" {
+            self.update_status(|status| {
+                status.last_transcript_text = Some(corrected.plain_text.clone());
+                status.last_transcript_id = saved_transcript_id.clone();
+            })?;
+            return Err(anyhow!(output
+                .error_message
+                .unwrap_or_else(|| "Translation failed.".into())));
+        }
+        let output_text = output.output_text.unwrap_or_default();
+        if output_text.trim().is_empty() {
+            self.update_status(|status| status.state = QuickDictationState::Idle)?;
+            self.desktop_shell.set_overlay_payload(Default::default())?;
+            return Ok(());
+        }
+        if !translated && settings.save_history {
+            saved_transcript_id = storage::save_quick_dictation_transcript(
                 &self.db_path,
                 &corrected,
                 recording.duration_ms,
             )
             .ok()
-        } else {
-            None
-        };
+            .map(|s| s.id);
+        }
 
         let force_clipboard = self.force_clipboard_only.swap(false, Ordering::SeqCst);
         let effective_behavior = if force_clipboard {
@@ -443,27 +567,28 @@ impl QuickDictationController {
         };
 
         let insert_outcome = match self.perform_insertion_on_main_thread(
-            corrected.plain_text.clone(),
+            output_text.clone(),
             effective_behavior,
             generation,
+            &session,
         ) {
             Ok(outcome) => outcome,
             Err(error) => {
                 if self.poller_generation.load(Ordering::SeqCst) != generation {
                     return Ok(());
                 }
-                if saved_transcript.is_none() {
-                    saved_transcript = storage::save_quick_dictation_transcript(
+                if saved_transcript_id.is_none() && !translated {
+                    saved_transcript_id = storage::save_quick_dictation_transcript(
                         &self.db_path,
                         &corrected,
                         recording.duration_ms,
                     )
-                    .ok();
+                    .ok()
+                    .map(|s| s.id);
                 }
                 self.update_status(|status| {
-                    status.last_transcript_text = Some(corrected.plain_text.clone());
-                    status.last_transcript_id =
-                        saved_transcript.as_ref().map(|item| item.id.clone());
+                    status.last_transcript_text = Some(output_text.clone());
+                    status.last_transcript_id = saved_transcript_id.clone();
                     status.last_recording_path = Some(recording.file_path.clone());
                     status.last_model_name = resolved_model_name.clone();
                     status.last_duration_ms = Some(recording.duration_ms);
@@ -475,13 +600,17 @@ impl QuickDictationController {
         if self.poller_generation.load(Ordering::SeqCst) != generation {
             return Ok(());
         }
-        if saved_transcript.is_none() && matches!(insert_outcome, InsertionOutcome::ClipboardOnly) {
-            saved_transcript = storage::save_quick_dictation_transcript(
+        if saved_transcript_id.is_none()
+            && !translated
+            && matches!(insert_outcome, InsertionOutcome::ClipboardOnly)
+        {
+            saved_transcript_id = storage::save_quick_dictation_transcript(
                 &self.db_path,
                 &corrected,
                 recording.duration_ms,
             )
-            .ok();
+            .ok()
+            .map(|s| s.id);
         }
 
         let next_state = match insert_outcome {
@@ -494,8 +623,8 @@ impl QuickDictationController {
         };
         self.update_status(|status| {
             status.state = next_state;
-            status.last_transcript_text = Some(corrected.plain_text.clone());
-            status.last_transcript_id = saved_transcript.as_ref().map(|item| item.id.clone());
+            status.last_transcript_text = Some(output_text.clone());
+            status.last_transcript_id = saved_transcript_id.clone();
             status.last_recording_path = Some(recording.file_path.clone());
             status.last_error_message = None;
             status.last_model_name = resolved_model_name.clone();
@@ -509,6 +638,7 @@ impl QuickDictationController {
             .set_overlay_payload(DictationOverlayPayload {
                 phase: result_phase,
                 audio_level: 0.0,
+                ..Default::default()
             })?;
         crate::sound::notify(
             &self.app,
@@ -524,6 +654,7 @@ impl QuickDictationController {
         text: String,
         behavior: crate::settings::InsertBehavior,
         generation: u64,
+        session: &crate::translation::DictationSession,
     ) -> Result<InsertionOutcome> {
         let app = self.app.clone();
         let desktop_shell = self.desktop_shell.clone();
@@ -534,9 +665,13 @@ impl QuickDictationController {
             .and_then(|target| target.clone());
         let (response_tx, response_rx) = mpsc::channel();
         let active_generation = self.poller_generation.clone();
+        let service = self.translation.clone();
+        let session = session.clone();
+        let canceled = session.cancelled.clone();
         self.app.run_on_main_thread(move || {
             if crate::shutdown::is_shutting_down()
                 || active_generation.load(Ordering::SeqCst) != generation
+                || service.ensure_active(&session).is_err()
             {
                 let _ = response_tx.send(Err("Dictation was reset.".to_string()));
                 return;
@@ -549,11 +684,13 @@ impl QuickDictationController {
 
         response_rx
             .recv_timeout(Duration::from_secs(5))
+            .inspect_err(|_| canceled.store(true, Ordering::SeqCst))
             .map_err(|_| anyhow!("timed out while inserting shortcut dictation"))?
             .map_err(anyhow::Error::msg)
     }
 
     fn spawn_overlay_level_poller(&self, generation: u64) {
+        let revision = self.desktop_shell.overlay_revision();
         let controller = self.clone();
         thread::spawn(move || {
             // Exit as soon as this poller is superseded by a newer listening
@@ -563,18 +700,14 @@ impl QuickDictationController {
                 && controller.status().state == QuickDictationState::Listening
             {
                 let level = controller.recording_controller.input_level().unwrap_or(0.0);
-                let _ = controller
-                    .desktop_shell
-                    .set_overlay_payload(DictationOverlayPayload {
-                        phase: OverlayPhase::Listening,
-                        audio_level: level,
-                    });
+                let _ = controller.desktop_shell.update_level(revision, level);
                 thread::sleep(Duration::from_millis(50));
             }
         });
     }
 
     fn schedule_idle_reset(&self) {
+        let revision = self.desktop_shell.overlay_revision();
         let controller = self.clone();
         let generation = self.poller_generation.load(Ordering::SeqCst);
         let transition = self.state_since_ms.load(Ordering::SeqCst);
@@ -596,7 +729,7 @@ impl QuickDictationController {
             ) {
                 let _ = controller
                     .desktop_shell
-                    .set_overlay_payload(DictationOverlayPayload::default());
+                    .set_overlay_if_revision(revision, DictationOverlayPayload::default());
                 if let Err(error) = controller.update_status(|status| {
                     status.state = QuickDictationState::Idle;
                 }) {
@@ -623,6 +756,7 @@ impl QuickDictationController {
             .set_overlay_payload(DictationOverlayPayload {
                 phase: OverlayPhase::Failed,
                 audio_level: 0.0,
+                ..Default::default()
             })?;
         self.update_status(|status| {
             status.state = QuickDictationState::Error;
@@ -696,6 +830,7 @@ impl QuickDictationController {
 
     /// Stop capture and insertion without re-registering shortcuts.
     pub fn prepare_shutdown(&self) {
+        self.translation.cancel();
         self.poller_generation.fetch_add(1, Ordering::SeqCst);
         let _ = self.suspend_shortcut_registration();
         let _ = self.recording_controller.cancel();
@@ -713,6 +848,7 @@ impl QuickDictationController {
     /// recording worker and tearing down overlay/volume side effects. Used by
     /// both the manual reset command and the watchdog.
     pub fn force_reset(&self) -> Result<QuickDictationStatusResponse> {
+        self.translation.cancel();
         if crate::shutdown::is_shutting_down() {
             return Ok(self.status());
         }
@@ -746,6 +882,13 @@ impl QuickDictationController {
         thread::spawn(move || loop {
             thread::sleep(POLL_INTERVAL);
             let state = controller.status().state;
+            let phase = controller.translation.snapshot().stage;
+            if matches!(
+                phase.as_str(),
+                "waiting" | "transcribing" | "loading" | "translating"
+            ) {
+                continue;
+            }
             let is_active = matches!(
                 state,
                 QuickDictationState::Listening | QuickDictationState::Processing
@@ -799,4 +942,34 @@ fn resolve_model_name(
                 .map(|model| model.model_name.clone())
         },
     )
+}
+
+#[cfg(test)]
+mod translation_shortcut_tests {
+    use super::*;
+    #[test]
+    fn parsed_shortcut_conflicts_ignore_modifier_order() {
+        assert!(shortcut_pair("CmdOrCtrl+Shift+Right", Some("Shift+CmdOrCtrl+Right")).is_err());
+        assert_eq!(
+            shortcut_pair(
+                "CmdOrCtrl+Shift+Space",
+                Some(crate::translation::DEFAULT_SHORTCUT)
+            )
+            .unwrap()
+            .len(),
+            2
+        );
+        assert_eq!(
+            shortcut_pair("CmdOrCtrl+Shift+Space", None).unwrap().len(),
+            1
+        );
+    }
+    #[test]
+    fn holding_the_language_key_cycles_only_once() {
+        let pressed = AtomicBool::new(false);
+        assert!(cycle_key_transition(&pressed, ShortcutState::Pressed));
+        assert!(!cycle_key_transition(&pressed, ShortcutState::Pressed));
+        assert!(!cycle_key_transition(&pressed, ShortcutState::Released));
+        assert!(cycle_key_transition(&pressed, ShortcutState::Pressed));
+    }
 }

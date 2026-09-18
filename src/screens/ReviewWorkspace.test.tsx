@@ -67,6 +67,22 @@ beforeEach(() => {
   mocks.seek.mockReset();
 });
 describe("Shared transcript review", () => {
+  it("exports the retained original after failure and accepts a translation update at the same review revision", async () => {
+    document.detail.translation = {
+      sessionId: "translation", sourceText: document.detail.plainText, outputText: null,
+      targetLanguage: "fr", status: "failed", modelId: "translategemma-12b-q6-k",
+      modelRevision: "pinned", promptVersion: 4, transcriptId: document.detail.id, errorMessage: "Runtime stopped",
+    };
+    render(<ReviewWorkspace {...props()} />);
+    await screen.findByRole("heading", { name: "Weekly planning" });
+    expect(screen.getByRole("combobox", { name: "Export text version" })).toHaveProperty("value", "plain");
+    fireEvent.click(screen.getByRole("button", { name: /^Export$/ }));
+    await waitFor(() => expect(mocks.export).toHaveBeenCalledWith(document.reference, "txt", undefined));
+    document.detail.translation = { ...document.detail.translation, status: "completed", outputText: "Bonjour, voici la traduction.", errorMessage: null };
+    act(() => mocks.listener?.(document.reference));
+    await screen.findByText("Bonjour, voici la traduction.");
+    expect(screen.getByRole("combobox", { name: "Export text version" })).toHaveProperty("value", "translation");
+  });
   it("reuses the latest failed retry's speaker-count selection", async () => {
     const failed = {
       jobId: "last-retry",

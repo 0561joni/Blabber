@@ -96,7 +96,10 @@ pub fn capabilities_for_model(model_id: &str, engine: &str) -> ModelCapabilities
     match model_id {
         MOSS_MODEL_ID => ModelCapabilities::moss(),
         VIBEVOICE_MODEL_ID => ModelCapabilities::vibevoice(),
-        _ if engine == "sherpa-onnx" || engine == "whisper.cpp-vad" => {
+        _ if engine == "sherpa-onnx"
+            || engine == "whisper.cpp-vad"
+            || engine == "llama.cpp-translation" =>
+        {
             ModelCapabilities::package_only()
         }
         _ => ModelCapabilities::standard_asr(),

@@ -12,7 +12,7 @@ use reqwest::header::RANGE;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::asr::{
     discover_installed_models, InstalledModel, LocalTranscriptionEngine, TranscriptionEngine,
@@ -54,6 +54,7 @@ pub enum ModelCapability {
     Asr,
     Vad,
     Diarization,
+    Translation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,17 +218,43 @@ impl ModelDownloadManager {
 
             let status = match result {
                 Ok(()) => {
-                    match engine.refresh_from_disk() {
-                        Ok(models) => {
-                            let _ = storage::sync_installed_models_for_db_path(&db_path, &models);
-                            let _ = storage::apply_preferred_model_defaults_for_db_path(
-                                &db_path, &models,
-                            );
-                        }
-                        Err(_) => {
-                            if let Ok(models) = discover_installed_models(&models_dir) {
+                    if spec.capability == ModelCapability::Asr {
+                        match engine.refresh_from_disk() {
+                            Ok(models) => {
                                 let _ =
                                     storage::sync_installed_models_for_db_path(&db_path, &models);
+                                let _ = storage::apply_preferred_model_defaults_for_db_path(
+                                    &db_path, &models,
+                                );
+                            }
+                            Err(_) => {
+                                if let Ok(models) = discover_installed_models(&models_dir) {
+                                    let _ = storage::sync_installed_models_for_db_path(
+                                        &db_path, &models,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    if spec.capability == ModelCapability::Translation {
+                        if let Some(state) = app.try_state::<crate::app_state::AppState>() {
+                            let activation = storage::update_settings_for_db_path(
+                                &db_path,
+                                crate::settings::SettingsPatch {
+                                    translation_enabled: Some(true),
+                                    ..Default::default()
+                                },
+                            )
+                            .and_then(|_| state.dictation_controller.sync_shortcut_registration());
+                            if let Err(error) = activation {
+                                let _ = storage::update_settings_for_db_path(
+                                    &db_path,
+                                    crate::settings::SettingsPatch {
+                                        translation_enabled: Some(false),
+                                        ..Default::default()
+                                    },
+                                );
+                                let _ = app.emit("translation-setup-error", error.to_string());
                             }
                         }
                     }
@@ -403,7 +430,16 @@ fn download_model(
             fs::rename(temp_path, final_path)?;
         }
         InstallLayout::Directory { directory_name } => {
-            if model_is_installed(spec, models_dir) {
+            let installed_valid = model_is_installed(spec, models_dir)
+                && (spec.capability != ModelCapability::Translation
+                    || spec.artifacts.iter().all(|artifact| {
+                        verify_file(
+                            &models_dir.join(directory_name).join(artifact.path),
+                            artifact,
+                        )
+                        .unwrap_or(false)
+                    }));
+            if installed_valid {
                 return Ok(());
             }
             let final_dir = models_dir.join(directory_name);
@@ -666,7 +702,11 @@ struct DownloadableModelSpec {
 
 impl DownloadableModelSpec {
     fn availability(&self) -> ModelAvailability {
-        if self.qwen_platform_limited && !qwen_asr::platform_supported() {
+        if self.capability == ModelCapability::Translation
+            && !crate::translation::platform_supported()
+        {
+            ModelAvailability::UnsupportedPlatform
+        } else if self.qwen_platform_limited && !qwen_asr::platform_supported() {
             ModelAvailability::UnsupportedPlatform
         } else if self.vibevoice_platform_limited
             && (!vibevoice_platform_supported()
@@ -731,6 +771,24 @@ const VIBEVOICE_ARTIFACTS: &[ModelArtifactSpec] = &[
 
 fn downloadable_specs() -> Vec<DownloadableModelSpec> {
     vec![
+        DownloadableModelSpec {
+            id: crate::translation::MODEL_ID,
+            engine: "llama.cpp-translation",
+            model_name: "TranslateGemma 12B Q6_K",
+            description: "Offline French and Argentinian Spanish translation for German and English dictation.",
+            requirements: Some("Apple Silicon · 18 GB RAM recommended · 9.66 GB download · quality-first, sequential model loading"),
+            size_bytes: crate::translation::MODEL_SIZE,
+            profile: ModelProfile::Accurate,
+            layout: InstallLayout::Directory { directory_name: crate::translation::MODEL_ID },
+            revision: Some(crate::translation::MODEL_REVISION),
+            artifacts: &[ModelArtifactSpec {
+                path: crate::translation::MODEL_FILE, size_bytes: crate::translation::MODEL_SIZE,
+                url: "https://huggingface.co/mradermacher/translategemma-12b-it-GGUF/resolve/1076826a801dbc6cc8ad4ff4689a3272dcb8a378/translategemma-12b-it.Q6_K.gguf",
+                sha256: crate::translation::MODEL_SHA256,
+            }],
+            qwen_platform_limited: false, vibevoice_platform_limited: false,
+            capability: ModelCapability::Translation,
+        },
         whisper_spec("ggml-small-bin", "ggml-small.bin", "Good balance when you want lower memory use and reliable everyday quality.", 487_601_967, ModelProfile::Balanced, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin?download=true", "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"),
         whisper_spec("ggml-medium-bin", "ggml-medium.bin", "Strong default for shortcut dictation when you want better accuracy.", 1_533_763_059, ModelProfile::Balanced, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin?download=true", "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208"),
         whisper_spec("ggml-large-v3-turbo-bin", "ggml-large-v3-turbo.bin", "Best full-size turbo model when you want top quality and speed.", 1_624_555_275, ModelProfile::Accurate, "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin?download=true", "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"),
@@ -918,6 +976,17 @@ fn model_is_installed(spec: &DownloadableModelSpec, models_dir: &Path) -> bool {
                 })
         }
     }
+}
+
+pub fn installed_translation_model_path(models_dir: &Path) -> Option<PathBuf> {
+    let spec = downloadable_specs()
+        .into_iter()
+        .find(|s| s.id == crate::translation::MODEL_ID)?;
+    model_is_installed(&spec, models_dir).then(|| {
+        models_dir
+            .join(crate::translation::MODEL_ID)
+            .join(crate::translation::MODEL_FILE)
+    })
 }
 
 pub fn installed_diarization_package_path(models_dir: &Path) -> Option<PathBuf> {

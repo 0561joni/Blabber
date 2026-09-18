@@ -7,11 +7,16 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
+#[derive(Default)]
+struct QueueState {
+    active: Option<String>,
+    pending: VecDeque<(String, bool)>,
+}
 #[derive(Clone, Default)]
 pub struct ProcessingQueue {
-    inner: Arc<(Mutex<VecDeque<String>>, Condvar)>,
+    inner: Arc<(Mutex<QueueState>, Condvar)>,
 }
 pub struct ProcessingPermit {
     queue: ProcessingQueue,
@@ -19,51 +24,77 @@ pub struct ProcessingPermit {
 }
 impl Drop for ProcessingPermit {
     fn drop(&mut self) {
-        self.queue.remove(&self.key);
+        let mut state = self.queue.inner.0.lock().unwrap_or_else(|e| e.into_inner());
+        if state.active.as_deref() == Some(&self.key) {
+            state.active = None;
+        }
+        self.queue.inner.1.notify_all();
     }
 }
 impl ProcessingQueue {
     pub fn enqueue(&self, key: &str) {
-        self.inner
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push_back(key.into());
+        self.enqueue_with_priority(key, false);
+    }
+    pub fn enqueue_priority(&self, key: &str) {
+        self.enqueue_with_priority(key, true);
+    }
+    fn enqueue_with_priority(&self, key: &str, priority: bool) {
+        let mut state = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
+        if state.active.as_deref() == Some(key) || state.pending.iter().any(|(id, _)| id == key) {
+            return;
+        }
+        let index = if priority {
+            state
+                .pending
+                .iter()
+                .position(|(_, p)| !p)
+                .unwrap_or(state.pending.len())
+        } else {
+            state.pending.len()
+        };
+        state.pending.insert(index, (key.into(), priority));
         self.inner.1.notify_all();
     }
     pub fn remove(&self, key: &str) {
+        // Cancellation removes only pending admission. Active ownership ends with its permit.
         self.inner
             .0
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .retain(|v| v != key);
+            .pending
+            .retain(|(id, _)| id != key);
         self.inner.1.notify_all();
     }
     pub fn acquire(&self, key: &str, cancelled: &AtomicBool) -> Result<ProcessingPermit> {
-        let mut queue = self
+        let mut state = self
             .inner
             .0
             .lock()
             .map_err(|_| anyhow!("Processing queue unavailable"))?;
         loop {
             if cancelled.load(Ordering::SeqCst) || crate::shutdown::is_shutting_down() {
-                queue.retain(|v| v != key);
+                state.pending.retain(|(id, _)| id != key);
                 self.inner.1.notify_all();
-                bail!("JOB_CANCELED: Speaker processing stopped.");
+                bail!("JOB_CANCELED: Local processing stopped.");
             }
-            if queue.front().is_some_and(|v| v == key) {
+            if state.active.as_deref() == Some(key) {
+                bail!("JOB_ALREADY_RUNNING: Duplicate inference admission.");
+            }
+            if state.active.is_none() && state.pending.front().is_some_and(|(id, _)| id == key) {
+                state.pending.pop_front();
+                state.active = Some(key.into());
                 return Ok(ProcessingPermit {
                     queue: self.clone(),
                     key: key.into(),
                 });
             }
-            if !queue.iter().any(|v| v == key) {
+            if !state.pending.iter().any(|(id, _)| id == key) {
                 bail!("JOB_CANCELED: This queued job was removed.");
             }
-            queue = self
+            state = self
                 .inner
                 .1
-                .wait_timeout(queue, Duration::from_millis(100))
+                .wait_timeout(state, Duration::from_millis(100))
                 .map_err(|_| anyhow!("Processing queue unavailable"))?
                 .0;
         }
@@ -190,6 +221,9 @@ impl ReviewJobController {
             let _work = work;
             let result = (|| -> Result<u64> {
                 let _permit = controller.queue.acquire(&id, &cancelled)?;
+                if let Some(state) = controller.app.try_state::<crate::app_state::AppState>() {
+                    state.engine.release_resources();
+                }
                 controller.update(
                     &id,
                     "validating",
@@ -396,6 +430,36 @@ impl ReviewJobController {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dictation_priority_never_preempts_an_active_owner() {
+        let queue = ProcessingQueue::default();
+        let flag = AtomicBool::new(false);
+        queue.enqueue("file-running");
+        let active = queue.acquire("file-running", &flag).unwrap();
+        queue.enqueue("file-waiting");
+        queue.enqueue_priority("dictation-1");
+        queue.enqueue_priority("dictation-2");
+        queue.remove("file-running");
+        {
+            let state = queue.inner.0.lock().unwrap();
+            assert_eq!(state.active.as_deref(), Some("file-running"));
+            assert_eq!(
+                state
+                    .pending
+                    .iter()
+                    .map(|(id, _)| id.as_str())
+                    .collect::<Vec<_>>(),
+                ["dictation-1", "dictation-2", "file-waiting"]
+            );
+        }
+        assert!(queue.acquire("file-running", &flag).is_err());
+        drop(active);
+        drop(queue.acquire("dictation-1", &flag).unwrap());
+        drop(queue.acquire("dictation-2", &flag).unwrap());
+        drop(queue.acquire("file-waiting", &flag).unwrap());
+        assert!(queue.inner.0.lock().unwrap().active.is_none());
+    }
     #[test]
     fn shared_queue_is_fifo_and_canceled_waiters_do_not_block_later_work() {
         let queue = ProcessingQueue::default();
@@ -413,7 +477,7 @@ mod tests {
         drop(first);
         let third = queue.acquire("file-2", &flag).unwrap();
         drop(third);
-        assert!(queue.inner.0.lock().unwrap().is_empty());
+        assert!(queue.inner.0.lock().unwrap().pending.is_empty());
     }
     #[test]
     fn waiting_retry_cancellation_finishes_while_heavy_work_keeps_its_permit() {
@@ -429,7 +493,10 @@ mod tests {
         canceled.store(true, Ordering::SeqCst);
         assert!(worker.join().unwrap());
         assert!(start.elapsed() < Duration::from_secs(1));
-        assert_eq!(queue.inner.0.lock().unwrap().front().unwrap(), "running");
+        assert_eq!(
+            queue.inner.0.lock().unwrap().active.as_deref().unwrap(),
+            "running"
+        );
         drop(permit);
     }
 }

@@ -13,7 +13,7 @@ export type TranscriptQualityStatus = "clean" | "recovered" | "partial";
 export type LanguageMode = "auto" | "fixed";
 export type InsertBehavior = "paste" | "clipboard_only";
 export type ModelProfile = "fast" | "balanced" | "accurate";
-export type ModelCapability = "asr" | "vad" | "diarization";
+export type ModelCapability = "asr" | "vad" | "diarization" | "translation";
 export type ModelUseContext =
   | "shortcut_dictation"
   | "quick_dictate"
@@ -99,6 +99,9 @@ export interface TranscriptSummary {
 export interface AppSettings {
   defaultMode: "quick_dictate" | "file_transcribe";
   shortcut: string;
+  translationEnabled: boolean;
+  translationCycleShortcut: string;
+  translationModelId: string;
   shortcutMode: ShortcutMode;
   languageMode: LanguageMode;
   fixedLanguage: string | null;
@@ -123,6 +126,9 @@ export interface AppSettings {
 export interface SettingsPatch {
   defaultMode?: "quick_dictate" | "file_transcribe";
   shortcut?: string;
+  translationEnabled?: boolean;
+  translationCycleShortcut?: string;
+  translationModelId?: string;
   shortcutMode?: ShortcutMode;
   languageMode?: LanguageMode;
   fixedLanguage?: string | null;
@@ -256,6 +262,7 @@ export interface TranscriptResult {
 }
 
 export interface TranscriptDetail extends TranscriptSummary {
+  translation?: DictationOutput | null;
   manualSegmentIds?: string[];
   fullText: string;
   timestampedText: string;
@@ -272,7 +279,7 @@ export interface TranscriptDetail extends TranscriptSummary {
 }
 
 export type TranscriptExportFormat = "txt" | "md" | "srt" | "vtt" | "json";
-export type TranscriptCopyVariant = "speaker_aware" | "plain";
+export type TranscriptCopyVariant = "speaker_aware" | "plain" | "translation";
 export interface TranscriptExportResult {
   path: string | null;
 }
@@ -291,6 +298,7 @@ export interface EngineErrorPayload {
 }
 
 export interface TranscriptionPreviewRequest {
+  sessionId?: string;
   sourceKind: PreviewSourceKind;
   profile: ModelProfile;
   selectedModelId?: string | null;
@@ -302,6 +310,7 @@ export interface TranscriptionPreviewRequest {
 }
 
 export interface TranscriptionPreviewResponse {
+  dictationOutput?: DictationOutput | null;
   sourceKind: PreviewSourceKind;
   resolvedModel: InstalledModel | null;
   result: TranscriptResult | null;
@@ -474,6 +483,7 @@ export interface QuickDictationStatusResponse {
 
 export interface DictationReadiness {
   hasModel: boolean;
+  translationReady?: boolean;
   shortcutRegistered: boolean;
   autoPasteEnabled: boolean;
   accessibilityRequired: boolean;
@@ -554,4 +564,29 @@ export interface ReviewAudio {
   url: string;
   token: string;
   durationMs: number | null;
+}
+
+export type OutputMode = "original" | "fr" | "es-AR";
+export interface DictationOutput {
+  sourceLanguages?: string[];
+  sessionId: string;
+  sourceText: string;
+  outputText: string | null;
+  targetLanguage: OutputMode;
+  errorCode?: string | null;
+  status: "pending" | "completed" | "failed" | "canceled";
+  modelId: string | null;
+  modelRevision: string | null;
+  promptVersion: number | null;
+  transcriptId: string | null;
+  errorMessage: string | null;
+}
+export interface DictationOutputState {
+  outputMode: OutputMode;
+  busy: boolean;
+  stage: string;
+  statusText: string;
+  ready: boolean;
+  errorMessage: string | null;
+  lastOutput: DictationOutput | null;
 }

@@ -26,6 +26,7 @@ pub struct AppState {
     pub models_dir: PathBuf,
     pub db_path: PathBuf,
     pub engine: Arc<LocalTranscriptionEngine>,
+    pub translation: crate::translation::TranslationService,
     pub sound_player: Arc<Option<SoundPlayer>>,
     pub recording_controller: RecordingController,
     pub dictation_controller: QuickDictationController,
@@ -73,6 +74,16 @@ impl AppState {
                 None
             }
         });
+        let processing_queue = crate::review_jobs::ProcessingQueue::default();
+        let translation = crate::translation::TranslationService::new(
+            app.clone(),
+            db_path.clone(),
+            models_dir.clone(),
+            engine.clone(),
+            recording_controller.clone(),
+            desktop_shell.clone(),
+            processing_queue.clone(),
+        );
         let dictation_controller = QuickDictationController::new(
             app.clone(),
             Arc::clone(&transcription_engine),
@@ -80,10 +91,10 @@ impl AppState {
             db_path.clone(),
             desktop_shell.clone(),
             Arc::clone(&sound_player),
+            translation.clone(),
         );
         crate::review_media::cleanup_stale_audio(&temp_dir);
         let review_store = crate::review::ReviewStore::new(db_path.clone());
-        let processing_queue = crate::review_jobs::ProcessingQueue::default();
         let review_jobs = crate::review_jobs::ReviewJobController::new(
             app.clone(),
             review_store.clone(),
@@ -114,6 +125,7 @@ impl AppState {
             models_dir,
             db_path,
             engine,
+            translation,
             sound_player,
             recording_controller,
             dictation_controller,
@@ -161,7 +173,22 @@ impl AppState {
             .set_preferred_input_device(settings.preferred_input_device.clone());
         autostart::sync_launch_at_login(app, settings.launch_at_login_enabled)?;
         if crate::platform::global_shortcut_supported() {
-            state.dictation_controller.sync_shortcut_registration()?;
+            if let Err(error) = state.dictation_controller.sync_shortcut_registration() {
+                if !settings.translation_enabled {
+                    return Err(error);
+                }
+                storage::update_settings(
+                    &state,
+                    crate::settings::SettingsPatch {
+                        translation_enabled: Some(false),
+                        ..Default::default()
+                    },
+                )?;
+                state.dictation_controller.sync_shortcut_registration()?;
+                if let Ok(mut notices) = state.startup_notices.lock() {
+                    notices.push(format!("Translation shortcut could not be registered. Original dictation remains available. Choose another language shortcut in Settings: {error}"));
+                }
+            }
         } else {
             state
                 .dictation_controller

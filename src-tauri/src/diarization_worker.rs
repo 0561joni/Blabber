@@ -245,13 +245,16 @@ where
     F: FnMut(),
 {
     let executable = std::env::current_exe().context("failed to locate app executable")?;
-    let mut child = Command::new(executable)
+    let mut command = Command::new(executable);
+    crate::managed_process::isolate(&mut command);
+    let child = command
         .arg(WORKER_ARG)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .context("failed to start isolated diarization worker")?;
+    let mut child = crate::managed_process::ManagedChild::new(child);
     if let Some(mut stdin) = child.stdin.take() {
         serde_json::to_writer(&mut stdin, request)?;
         stdin.write_all(b"\n")?;

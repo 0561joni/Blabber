@@ -1,3 +1,5 @@
+import { outputLanguageLabel } from "./lib/translationApi";
+import type { OutputMode } from "./types/domain";
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
@@ -6,6 +8,7 @@ import { formatPasteShortcutForDisplay } from "./lib/formatting";
 import { AppIcon } from "./components/IconButton";
 
 type OverlayPhase =
+  | "mode"
   | "hidden"
   | "listening"
   | "processing"
@@ -15,6 +18,9 @@ type OverlayPhase =
 interface OverlayPayload {
   phase: OverlayPhase;
   audioLevel: number;
+  outputMode?: OutputMode;
+  statusText?: string | null;
+  revision?: number;
 }
 
 export function OverlayApp() {
@@ -35,7 +41,7 @@ export function OverlayApp() {
       .catch(() => undefined);
     void listen<OverlayPayload>("quick-dictation-overlay", ({ payload }) => {
       receivedEvent = true;
-      if (!disposed) setStatus(payload);
+      if (!disposed) setStatus((current) => (payload.revision ?? 0) >= (current.revision ?? 0) ? payload : current);
     })
       .then(async (cleanup) => {
         if (disposed) {
@@ -57,10 +63,10 @@ export function OverlayApp() {
 
   const { phase } = status;
   const label =
-    phase === "listening"
+    phase === "mode" ? "Output language" : phase === "listening"
       ? "Listening"
       : phase === "processing"
-        ? "Transcribing"
+        ? status.statusText || "Transcribing"
         : phase === "inserted"
           ? "Pasted"
           : phase === "clipboard_only"
@@ -76,11 +82,12 @@ export function OverlayApp() {
       className={"overlay-root" + (phase === "hidden" ? " is-hidden" : "")}
       aria-hidden={phase === "hidden"}
     >
-      <div className="overlay-capsule" role="status" aria-label={label}>
-        {phase === "processing" ? (
+      <div className="overlay-capsule" role="status" aria-label={`${label} · ${outputLanguageLabel(status.outputMode ?? "original")}`}>
+        <span className="overlay-language">{outputLanguageLabel(status.outputMode ?? "original")}</span>
+        {phase === "mode" ? <span className="overlay-mode-hint">Output language</span> : phase === "processing" ? (
           <>
             <span className="overlay-spinner" aria-hidden="true" />
-            <span className="sr-only">{label}</span>
+            <span className="overlay-phase-label">{label}</span>
           </>
         ) : result ? (
           <span

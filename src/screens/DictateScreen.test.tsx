@@ -47,6 +47,15 @@ describe("Dictation workspace", () => {
     mocks.level.mockReset().mockResolvedValue(0.6);
     mocks.copy.mockReset().mockResolvedValue(undefined);
   });
+  it("locks the output language while a manual recording waits for inference", () => {
+    const change = vi.fn();
+    render(<DictateScreen {...props()} onOutputModeChange={change}
+      outputState={{ outputMode: "fr", ready: true, busy: true, stage: "waiting", statusText: "Waiting for local processing…", errorMessage: null, lastOutput: null }} />);
+    expect(screen.getByRole("combobox", { name: "Output language" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Transcribing…" })).toHaveProperty("disabled", true);
+    expect(screen.getAllByText("Waiting for local processing…").length).toBeGreaterThan(0);
+    expect(change).not.toHaveBeenCalled();
+  });
   it("starts once, shows a pending control, and keeps a failed start actionable", async () => {
     const current = props();
     let reject!: (error: Error) => void;

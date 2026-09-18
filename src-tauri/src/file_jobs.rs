@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::asr::{
     FileTranscriptionRequest as EngineFileTranscriptionRequest, InstalledModel, PreviewSourceKind,
@@ -422,6 +422,9 @@ impl FileTranscriptionController {
             return;
         }
         let _processing_guard = permit.ok();
+        if let Some(state) = self.app.try_state::<crate::app_state::AppState>() {
+            state.engine.release_resources();
+        }
         let (watchdog_finished, watchdog_wait) = mpsc::channel();
         let watchdog =
             self.spawn_watchdog(request.job_id.clone(), Arc::clone(&control), watchdog_wait);
@@ -902,7 +905,9 @@ impl FileTranscriptionController {
         };
         let request_json = serde_json::to_vec(&worker_request)?;
 
-        let mut child = Command::new(executable)
+        let mut command = Command::new(executable);
+        crate::managed_process::isolate(&mut command);
+        let child = command
             .arg(transcription_worker::WORKER_ARG)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -910,6 +915,7 @@ impl FileTranscriptionController {
             .spawn()
             .map_err(|error| anyhow!("failed to start transcription worker: {error}"))?;
 
+        let mut child = crate::managed_process::ManagedChild::new(child);
         if let Some(mut stdin) = child.stdin.take() {
             stdin.write_all(&request_json)?;
         }

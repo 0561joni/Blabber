@@ -166,6 +166,7 @@ fn run_worker_process(
     } else {
         Command::new(&worker_path)
     };
+    crate::managed_process::isolate(&mut command);
     let child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -179,7 +180,7 @@ fn run_worker_process(
                 worker_path.display()
             )
         })?;
-    let mut child = NativeChild(child);
+    let mut child = crate::managed_process::ManagedChild::new(child);
     // Drain diagnostics to avoid blocking a verbose model process on stderr.
     if let Some(stderr) = child.stderr.take() {
         std::thread::spawn(move || {
@@ -249,26 +250,6 @@ fn run_worker_process(
             model.model_name
         )
     })
-}
-
-// Reap the worker on every return path, including cancellation and malformed output.
-struct NativeChild(std::process::Child);
-impl std::ops::Deref for NativeChild {
-    type Target = std::process::Child;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl std::ops::DerefMut for NativeChild {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-impl Drop for NativeChild {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
 }
 
 fn resolve_worker_path(model_id: &str) -> Option<PathBuf> {

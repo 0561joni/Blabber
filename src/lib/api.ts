@@ -35,6 +35,9 @@ import type {
 const mockSettings: AppSettings = {
   defaultMode: "quick_dictate",
   shortcut: "CmdOrCtrl+Shift+Space",
+  translationEnabled: false,
+  translationCycleShortcut: "CmdOrCtrl+Shift+Right",
+  translationModelId: "translategemma-12b-q6-k",
   shortcutMode: "push_to_talk",
   languageMode: "auto",
   fixedLanguage: null,
@@ -100,6 +103,10 @@ const mockModels: InstalledModel[] = [
   },
 ];
 const mockDownloadableModels: DownloadableModel[] = [
+  { id: "translategemma-12b-q6-k", engine: "llama.cpp-translation", modelName: "TranslateGemma 12B Q6_K",
+    description: "Local French and Argentinian Spanish translation", sizeBytes: 9660827392, profile: "accurate",
+    availability: "unsupported_platform", availabilityReason: "Use the Apple Silicon desktop app for local translation.",
+    installed: false, requirements: "Apple Silicon · 18 GB RAM recommended", artifactCount: 1, capability: "translation" },
   {
     id: "ggml-small-bin",
     engine: "whisper.cpp",
@@ -850,7 +857,9 @@ export async function copyTranscript(
 ): Promise<void> {
   if (!isTauriRuntime()) {
     const transcript = await getTranscript(transcriptId);
-    await navigator.clipboard.writeText(transcript.plainText);
+    const text = variant === "translation" ? transcript.translation?.outputText : transcript.plainText;
+    if (text == null) throw new Error("No completed translation is available.");
+    await navigator.clipboard.writeText(text);
     return;
   }
   return invoke("copy_transcript", { transcriptId, variant });
@@ -859,11 +868,13 @@ export async function copyTranscript(
 export async function exportTranscript(
   transcriptId: string,
   format: TranscriptExportFormat,
+  variant?: TranscriptCopyVariant,
 ): Promise<TranscriptExportResult> {
   if (!isTauriRuntime()) return { path: null };
   return invoke<TranscriptExportResult>("export_transcript", {
     transcriptId,
     format,
+    variant,
   });
 }
 
@@ -1212,6 +1223,7 @@ export async function startRecordingSession(
   }
   return invoke<RecordingStatusResponse>("start_recording_session", {
     feedback,
+    purpose: feedback ? "dictation" : "microphone_test",
   });
 }
 

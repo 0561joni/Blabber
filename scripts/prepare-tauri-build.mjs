@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
@@ -155,3 +156,8 @@ function stageWindowsCudaRuntime() {
 }
 
 stageWindowsCudaRuntime();
+
+if (process.platform === "darwin" && process.arch === "arm64") {
+  const worker = spawnSync(process.execPath, ["scripts/build-translation-worker.mjs"], { stdio: "inherit" });
+  if (worker.status !== 0) throw new Error("Translation runtime build failed.");
+}

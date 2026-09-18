@@ -99,6 +99,11 @@ function inferCudaVersionKey(cudaRoot) {
 function withNativeBuildEnv() {
   const nextEnv = { ...process.env };
 
+  if (process.platform === "darwin" && !nextEnv.DEVELOPER_DIR &&
+      existsSync("/Library/Developer/CommandLineTools/usr/bin/clang")) {
+    nextEnv.DEVELOPER_DIR = "/Library/Developer/CommandLineTools";
+  }
+
   if (process.platform === "win32") {
     const installedCudaRoot = listInstalledCudaRoots()[0] ?? null;
     const envCudaRoot = resolveCudaRootFromEnv(nextEnv);
@@ -152,6 +157,10 @@ function run(command, commandArgs) {
 
 const isBuildCommand = args[0] === "build";
 const hasBundleOverride = args.includes("--bundles");
+
+if (process.platform === "darwin" && process.arch === "arm64" && args[0] === "dev") {
+  run(process.execPath, [join(rootDir, "scripts", "build-translation-worker.mjs")]);
+}
 
 if (process.platform === "darwin" && isBuildCommand && !hasBundleOverride) {
   run(tauriBinary, ["build", "--bundles", "app", ...args.slice(1)]);

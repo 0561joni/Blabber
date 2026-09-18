@@ -6,6 +6,9 @@ import type {
 export const settingsFixture: AppSettings = {
   defaultMode: "quick_dictate",
   shortcut: "CmdOrCtrl+Shift+Space",
+  translationEnabled: false,
+  translationCycleShortcut: "CmdOrCtrl+Shift+Right",
+  translationModelId: "translategemma-12b-q6-k",
   shortcutMode: "push_to_talk",
   languageMode: "auto",
   fixedLanguage: null,

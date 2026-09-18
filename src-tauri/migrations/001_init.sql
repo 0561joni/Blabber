@@ -131,3 +131,8 @@ CREATE TABLE IF NOT EXISTS file_transcription_model_performance (
   sample_count INTEGER NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS transcript_translations (
+  transcript_id TEXT PRIMARY KEY REFERENCES transcripts(id) ON DELETE CASCADE,
+  output_text TEXT, payload TEXT NOT NULL
+);

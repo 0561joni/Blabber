@@ -15,6 +15,7 @@ use crate::storage::TranscriptDetail;
 pub enum TranscriptCopyVariant {
     SpeakerAware,
     Plain,
+    Translation,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -41,6 +42,7 @@ pub fn copy(
     let text = match variant {
         TranscriptCopyVariant::SpeakerAware => format_speaker_text(detail, false),
         TranscriptCopyVariant::Plain => detail.summary.plain_text.clone(),
+        TranscriptCopyVariant::Translation => translation_text(detail)?.to_owned(),
     };
     app.clipboard().write_text(text).map_err(anyhow::Error::msg)
 }
@@ -54,6 +56,16 @@ pub fn export_blocking(
     window: &WebviewWindow,
     detail: &TranscriptDetail,
     format: TranscriptExportFormat,
+) -> Result<TranscriptExportResult> {
+    export_variant_blocking(app, window, detail, format, None)
+}
+
+pub fn export_variant_blocking(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    detail: &TranscriptDetail,
+    format: TranscriptExportFormat,
+    variant: Option<TranscriptCopyVariant>,
 ) -> Result<TranscriptExportResult> {
     #[cfg(target_os = "macos")]
     if unsafe { libc::pthread_main_np() } != 0 {
@@ -83,12 +95,31 @@ pub fn export_blocking(
         }
         None => return Ok(TranscriptExportResult { path: None }),
     };
-    let contents = format_transcript(detail, format)?;
+    let contents = if matches!(variant, Some(TranscriptCopyVariant::Translation)) {
+        match format {
+            TranscriptExportFormat::Txt | TranscriptExportFormat::Md => {
+                translation_text(detail)?.to_owned()
+            }
+            TranscriptExportFormat::Json => format_transcript(detail, format)?,
+            _ => anyhow::bail!("Subtitles use the timed original transcript."),
+        }
+    } else {
+        format_transcript(detail, format)?
+    };
     fs::write(&path, contents)
         .with_context(|| format!("failed to export transcript to {}", path.display()))?;
     Ok(TranscriptExportResult {
         path: Some(path.to_string_lossy().into_owned()),
     })
+}
+
+fn translation_text(detail: &TranscriptDetail) -> Result<&str> {
+    detail
+        .translation
+        .as_ref()
+        .filter(|t| t.status == "completed")
+        .and_then(|t| t.output_text.as_deref())
+        .ok_or_else(|| anyhow::anyhow!("No completed translation is available."))
 }
 
 fn format_transcript(detail: &TranscriptDetail, format: TranscriptExportFormat) -> Result<String> {

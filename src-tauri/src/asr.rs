@@ -145,6 +145,8 @@ pub enum PreviewSourceKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptionPreviewRequest {
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub source_kind: PreviewSourceKind,
     pub profile: ModelProfile,
     pub selected_model_id: Option<String>,
@@ -158,6 +160,8 @@ pub struct TranscriptionPreviewRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptionPreviewResponse {
+    #[serde(default)]
+    pub dictation_output: Option<crate::translation::DictationOutput>,
     pub source_kind: PreviewSourceKind,
     pub resolved_model: Option<InstalledModel>,
     pub result: Option<TranscriptResult>,

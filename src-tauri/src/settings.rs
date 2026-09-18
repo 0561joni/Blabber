@@ -70,6 +70,9 @@ pub enum MotionPreference {
 pub struct AppSettings {
     pub default_mode: DefaultMode,
     pub shortcut: String,
+    pub translation_enabled: bool,
+    pub translation_cycle_shortcut: String,
+    pub translation_model_id: String,
     pub shortcut_mode: ShortcutMode,
     pub language_mode: LanguageMode,
     pub fixed_language: Option<String>,
@@ -98,6 +101,9 @@ pub struct AppSettings {
 pub struct SettingsPatch {
     pub default_mode: Option<DefaultMode>,
     pub shortcut: Option<String>,
+    pub translation_enabled: Option<bool>,
+    pub translation_cycle_shortcut: Option<String>,
+    pub translation_model_id: Option<String>,
     pub shortcut_mode: Option<ShortcutMode>,
     pub language_mode: Option<LanguageMode>,
     pub fixed_language: Option<Option<String>>,

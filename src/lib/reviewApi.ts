@@ -225,6 +225,11 @@ export async function copyReview(
 ): Promise<void> {
   if (native()) return command("copy_review", { reference, variant });
   const { detail, manualSegmentIds } = await getReview(reference);
+  if (variant === "translation") {
+    if (detail.translation?.status !== "completed" || detail.translation.outputText == null)
+      throw new Error("No completed translation is available.");
+    return copyTextToClipboard(detail.translation.outputText);
+  }
   const manual = new Set(manualSegmentIds);
   const names = speakerMap(detail.speakers);
   await copyTextToClipboard(
@@ -244,9 +249,10 @@ export async function copyReview(
 export async function exportReview(
   reference: ReviewRef,
   format: TranscriptExportFormat,
+  variant?: TranscriptCopyVariant,
 ): Promise<TranscriptExportResult> {
   if (!native()) throw new Error("Export is available in the desktop app.");
-  return command("export_review", { reference, format });
+  return command("export_review", { reference, format, variant });
 }
 export async function listenReviewUpdates(
   handler: (reference: ReviewRef) => void,

@@ -1,3 +1,5 @@
+import { useDictationTranslation } from "./hooks/useDictationTranslation";
+import { setDictationOutputMode, retryDictationTranslation, listenTranslationErrors } from "./lib/translationApi";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   reportManualFeedback,
@@ -112,6 +114,7 @@ export function App() {
   const [libraryVisited, setLibraryVisited] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [outputState, setOutputState] = useDictationTranslation(settings?.translationEnabled);
   const [health, setHealth] = useState<HealthCheckResponse | null>(null);
   const { jobs: reviewJobs, accept: acceptReviewJob } = useReviewJobs(
     Boolean(health),
@@ -207,6 +210,23 @@ export function App() {
     },
     [pushToast],
   );
+
+  useEffect(() => {
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+    void listenTranslationErrors((message) => {
+      if (!disposed) pushToast({ kind: "error", message: "Translation needs attention", hint: message, durationMs: 6000 });
+    }).then((unlisten) => {
+      if (disposed) unlisten(); else cleanup = unlisten;
+    }).catch(() => undefined);
+    return () => { disposed = true; cleanup?.(); };
+  }, [pushToast]);
+
+  useEffect(() => {
+    if (outputState?.lastOutput?.transcriptId) {
+      void listTranscripts("").then(setTranscripts).catch(() => undefined);
+    }
+  }, [outputState?.lastOutput?.transcriptId, outputState?.lastOutput?.status]);
 
   const refreshReadiness =
     useCallback(async (): Promise<DictationReadiness | null> => {
@@ -328,7 +348,7 @@ export function App() {
         .catch(() => undefined);
       if (nextStatus.state === "error")
         setDictationError(nextStatus.lastErrorMessage ?? "Dictation failed.");
-      else if (nextStatus.state === "listening") setDictationError(null);
+      else if (nextStatus.state === "listening") { setDictationError(null); setPreview(null); }
 
       const previousState = lastDictationStateRef.current;
       lastDictationStateRef.current = nextStatus.state;
@@ -804,6 +824,7 @@ export function App() {
 
       const nextPreview = await previewTranscription({
         sourceKind: "quick_dictate",
+        sessionId: result.sessionId,
         profile: settings.quickDictateModelProfile,
         selectedModelId: settings.quickDictateSelectedModelId,
         languageMode: settings.languageMode,
@@ -814,6 +835,7 @@ export function App() {
       });
       if (generation !== manualGeneration.current) return;
       setPreview(nextPreview);
+      if (nextPreview.dictationOutput?.transcriptId) setTranscripts(await listTranscripts(""));
       void reportManualFeedback(
         result.sessionId,
         Boolean(nextPreview.error),
@@ -1226,6 +1248,18 @@ export function App() {
             <div hidden={Boolean(reviewTarget)}>
               {screen === "dictate" ? (
                 <DictateScreen
+                  outputState={outputState}
+                  onOutputModeChange={async (mode) => { setOutputState(await setDictationOutputMode(mode)); }}
+                  onRetryTranslation={async () => {
+                    const output = await retryDictationTranslation();
+                    setOutputState((current) => current ? { ...current, busy: false, lastOutput: output } : current);
+                    setPreview((current) => current ? { ...current, dictationOutput: output, error: null } : current);
+                    if (output.transcriptId) setTranscripts(await listTranscripts(""));
+                    if (output.status !== "completed") throw new Error(output.errorMessage ?? "Translation failed.");
+                    setDictationError(null);
+                    setQuickDictationStatus((current) => current?.state === "error" ? { ...current, state: "idle", lastErrorMessage: null } : current);
+                    setManualTranscriptionState((current) => ({ ...current, stage: "idle", statusText: "Translation ready", errorMessage: null }));
+                  }}
                   settings={settings}
                   platform={health?.platform ?? null}
                   preview={preview}

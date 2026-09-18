@@ -1,5 +1,29 @@
 # Third-party notices
 
+## TranslateGemma and llama.cpp
+
+The translation helper statically embeds llama.cpp at commit
+`972d2313bc0bf0a45f634f77d95c9fb03aeab12c` (MIT), including its Metal backend.
+The full license is bundled at `src-tauri/licenses/llama.cpp-MIT.txt`.
+Upstream: https://github.com/ggml-org/llama.cpp
+
+TranslateGemma 12B is downloaded separately. Original model:
+https://huggingface.co/google/translategemma-12b-it
+
+The Q6_K GGUF is an upstream quantization by mradermacher, downloaded unchanged
+from `mradermacher/translategemma-12b-it-GGUF`, revision
+`1076826a801dbc6cc8ad4ff4689a3272dcb8a378`.
+SHA-256: `c30995b3c145e6ef3b3a6fda63749186d83d9c8f16725ff1403c904b5e0ead8c`.
+Blabber adds its own text prompt for mixed German/English and Argentinian usage;
+these adaptations are not Google's official quality claims.
+
+Gemma is provided under and subject to the Gemma Terms of Use found at
+https://ai.google.dev/gemma/terms. Downloading and using these model weights is
+subject to those terms and their incorporated use restrictions at
+https://ai.google.dev/gemma/prohibited_use_policy.
+Copies are included in `src-tauri/licenses/Gemma-Terms-of-Use.txt`,
+`Gemma-Prohibited-Use-Policy.txt`, and `Notice.txt`, and in the app resources.
+
 ## qwen-asr
 
 Blabber vendors a modified snapshot of `antirez/qwen-asr` at commit

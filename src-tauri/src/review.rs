@@ -928,6 +928,7 @@ fn apply_result_to_detail(detail: &mut TranscriptDetail, r: &TranscriptResult) {
 fn session_detail(id: &str, session: &Session) -> TranscriptDetail {
     let r = effective_result(&session.state);
     let mut detail = TranscriptDetail {
+        translation: None,
         manual_segment_ids: session
             .state
             .corrections

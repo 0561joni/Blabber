@@ -11,3 +11,6 @@ src-tauri/gen
 workers/**/__pycache__/
 workers/**/build/
 workers/**/dist/
+
+src-tauri/bundle/translation/*
+!src-tauri/bundle/translation/.gitkeep

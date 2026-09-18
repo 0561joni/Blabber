@@ -1,0 +1,54 @@
+{
+  "audio": "9.108-second locally synthesized German sample; not microphone capture",
+  "asrModelId": "ggml-small-bin",
+  "workerSha256": "12e972687c35220e382c62e2948028a6a9da518f6742b3c2946ed6867ffab66c",
+  "modelSha256": "c30995b3c145e6ef3b3a6fda63749186d83d9c8f16725ff1403c904b5e0ead8c",
+  "note": "Three sequential packaged ASR/translation process pairs; ASR exits before translation starts. Does not exercise UI, capture or insertion. Native process RSS excludes other applications.",
+  "runs": [
+    {
+      "round": 1,
+      "target": "fr",
+      "sourceText": "Kannst du mir bitte morgen die Datei schicken? Ich brauche nicht die alte Version, sondern die neue, der Preis beträgt 125 Euro.",
+      "sourceLanguages": [
+        "de"
+      ],
+      "asrSeconds": 11.996,
+      "asrMaxRssBytes": 855490560,
+      "translationPromptVersion": 4,
+      "output": "Peux-tu me envoyer le fichier demain, s'il te plaît ? Je n'ai pas besoin de l'ancienne version, mais de la nouvelle. Le prix est de 125 euros.",
+      "translationSeconds": 25.987,
+      "asrAndTranslationSeconds": 37.983,
+      "translationMaxRssBytes": 11098669056
+    },
+    {
+      "round": 2,
+      "target": "es-AR",
+      "sourceText": "Kannst du mir bitte morgen die Datei schicken? Ich brauche nicht die alte Version, sondern die neue, der Preis beträgt 125 Euro.",
+      "sourceLanguages": [
+        "de"
+      ],
+      "asrSeconds": 11.486,
+      "asrMaxRssBytes": 863109120,
+      "translationPromptVersion": 4,
+      "output": "¿Podés enviarme el archivo mañana, por favor? No necesito la versión antigua, sino la nueva. El precio es de 125 euros.",
+      "translationSeconds": 7.896,
+      "asrAndTranslationSeconds": 19.382,
+      "translationMaxRssBytes": 8491089920
+    },
+    {
+      "round": 3,
+      "target": "fr",
+      "sourceText": "Kannst du mir bitte morgen die Datei schicken? Ich brauche nicht die alte Version, sondern die neue, der Preis beträgt 125 Euro.",
+      "sourceLanguages": [
+        "de"
+      ],
+      "asrSeconds": 11.605,
+      "asrMaxRssBytes": 855867392,
+      "translationPromptVersion": 4,
+      "output": "Peux-tu me envoyer le fichier demain, s'il te plaît ? Je n'ai pas besoin de l'ancienne version, mais de la nouvelle. Le prix est de 125 euros.",
+      "translationSeconds": 9.678,
+      "asrAndTranslationSeconds": 21.283,
+      "translationMaxRssBytes": 8776253440
+    }
+  ]
+}
