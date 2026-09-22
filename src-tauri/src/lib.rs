@@ -19,6 +19,7 @@ pub mod model_metadata;
 pub mod native_asr;
 pub mod platform;
 pub mod qwen_asr;
+pub mod r2t2;
 pub mod review;
 pub mod review_jobs;
 pub mod review_media;

@@ -46,6 +46,7 @@ pub const DIARIZATION_REVISION: &str = "segmentation@340b52f1f5cd12d45a30fa28469
 pub enum ModelAvailability {
     Available,
     UnsupportedPlatform,
+    ValidationPending,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -73,6 +74,7 @@ pub struct DownloadableModel {
     pub artifact_count: u32,
     pub capability: ModelCapability,
     pub capabilities: crate::model_metadata::ModelCapabilities,
+    pub license_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -159,6 +161,7 @@ impl ModelDownloadManager {
             .ok_or_else(|| anyhow!("Unknown model download: {model_id}"))?;
         match spec.availability() {
             ModelAvailability::Available => {}
+            ModelAvailability::ValidationPending => return Err(anyhow!("R2T2_VALIDATION_PENDING: R2T2 is unavailable until accuracy, continuity and packaged-app acceptance pass.")),
             ModelAvailability::UnsupportedPlatform => {
                 return Err(anyhow!(
                     "MODEL_UNSUPPORTED_PLATFORM: {} is not available on this platform",
@@ -702,6 +705,15 @@ struct DownloadableModelSpec {
 
 impl DownloadableModelSpec {
     fn availability(&self) -> ModelAvailability {
+        if self.id == crate::r2t2::MODEL_ID {
+            return if !crate::r2t2::platform_supported() {
+                ModelAvailability::UnsupportedPlatform
+            } else if !crate::r2t2::release_enabled() {
+                ModelAvailability::ValidationPending
+            } else {
+                ModelAvailability::Available
+            };
+        }
         if self.capability == ModelCapability::Translation
             && !crate::translation::platform_supported()
         {
@@ -771,6 +783,18 @@ const VIBEVOICE_ARTIFACTS: &[ModelArtifactSpec] = &[
 
 fn downloadable_specs() -> Vec<DownloadableModelSpec> {
     vec![
+        DownloadableModelSpec {
+            id: crate::r2t2::MODEL_ID, engine:"audio.cpp-r2t2", model_name:crate::r2t2::MODEL_NAME,
+            description:"Experimental local live preview for shortcut dictation in German and English. Paste once after stopping; up to five minutes. Separate NetEase model terms apply.",
+            requirements:Some("Apple Silicon · macOS 14+ · Metal · approximately 5.2 GB inference memory. Live output may lag behind speech."),
+            size_bytes:crate::r2t2::MODEL_BYTES, profile:ModelProfile::Accurate,
+            layout:InstallLayout::Directory { directory_name:crate::r2t2::MODEL_ID },
+            revision:Some(crate::r2t2::MODEL_REVISION),
+            artifacts:single_file_artifact!("r2t2-q8_0.gguf", 2_477_512_064,
+                "https://huggingface.co/davidxifeng/Confucius4-R2T2-gguf/resolve/a8e6b385d7df7eae9519363e07034a209004797a/r2t2-q8_0.gguf?download=true",
+                "19f5ccd624484bcb5d44301437de41560b0ecc40c430e8850dfeefefbe82ccf5"),
+            qwen_platform_limited:false, vibevoice_platform_limited:false, capability:ModelCapability::Asr,
+        },
         DownloadableModelSpec {
             id: crate::translation::MODEL_ID,
             engine: "llama.cpp-translation",
@@ -929,6 +953,7 @@ pub fn list_downloadable_models(models_dir: Option<&Path>) -> Vec<DownloadableMo
             availability: spec.availability(),
             requirements: spec.requirements.map(ToString::to_string),
             availability_reason: match spec.availability() {
+                ModelAvailability::ValidationPending => Some("Unavailable while R2T2 accuracy, continuity and packaged-app acceptance are being validated.".into()),
                 ModelAvailability::UnsupportedPlatform => Some(
                     if spec.id == VIBEVOICE_MODEL_ID {
                         "Requires Apple Silicon and macOS 14 or newer with the bundled MLX worker."
@@ -943,6 +968,7 @@ pub fn list_downloadable_models(models_dir: Option<&Path>) -> Vec<DownloadableMo
             artifact_count: spec.artifacts.len() as u32,
             capability: spec.capability,
             capabilities: capabilities_for_model(spec.id, spec.engine),
+            license_url: (spec.id == crate::r2t2::MODEL_ID).then(|| "https://github.com/netease-youdao/Confucius4-R2T2/blob/c4611929bc3592b38dab34e96a8c9940d6da3755/MODEL_LICENSE".into()),
         })
         .collect()
 }
@@ -1002,7 +1028,12 @@ pub fn installed_diarization_package_path(models_dir: &Path) -> Option<PathBuf> 
 pub fn discover_native_asr_models(models_dir: &Path) -> Vec<InstalledModel> {
     downloadable_specs()
         .into_iter()
-        .filter(|spec| matches!(spec.id, MOSS_MODEL_ID | VIBEVOICE_MODEL_ID))
+        .filter(|spec| {
+            matches!(
+                spec.id,
+                MOSS_MODEL_ID | VIBEVOICE_MODEL_ID | crate::r2t2::MODEL_ID
+            )
+        })
         .filter(|spec| spec.availability() == ModelAvailability::Available)
         .filter(|spec| model_is_installed(spec, models_dir))
         .filter_map(|spec| {
@@ -1013,7 +1044,9 @@ pub fn discover_native_asr_models(models_dir: &Path) -> Vec<InstalledModel> {
                 id: spec.id.to_string(),
                 engine: spec.engine.to_string(),
                 model_name: spec.model_name.to_string(),
-                variant: if spec.id == MOSS_MODEL_ID {
+                variant: if spec.id == crate::r2t2::MODEL_ID {
+                    "Q8_0 · streaming"
+                } else if spec.id == MOSS_MODEL_ID {
                     "0.9B F16"
                 } else {
                     "8-bit MLX"

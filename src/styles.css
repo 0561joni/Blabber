@@ -1911,6 +1911,16 @@ html.overlay-window body {
 }
 .overlay-language { font-size: 13px; font-weight: 650; white-space: nowrap; }
 .overlay-phase-label, .overlay-mode-hint { font-size: 11px; line-height: 1.3; }
+.overlay-capsule.is-streaming { width: 468px; max-width: calc(100vw - 12px); box-sizing: border-box; min-height: 52px; padding: 8px 14px; gap: 9px; }
+.overlay-live-indicator { display: inline-flex; flex: 0 0 auto; }
+.overlay-live-indicator svg { width: 14px; height: 14px; }
+.overlay-live-text { flex: 1 1 auto; min-width: 0; overflow-x: hidden; white-space: nowrap; font-size: 14px; line-height: 24px; color: var(--text-primary); }
+.overlay-live-text.has-overflow { mask-image: linear-gradient(to right, transparent, black 14px); }
+.overlay-live-placeholder { color: var(--text-muted); font-size: 12px; }
+/* Fixed status width keeps the newest words visible when the phase changes,
+   without scrolling the transcript again for a status-only update. */
+.overlay-live-state { flex: 0 0 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; text-align: right; }
+@media (prefers-reduced-motion: reduce) { .overlay-live-text { scroll-behavior: auto; } .overlay-bar { transition: none; } }
 .translation-controls, .translation-result-heading, .translation-download-actions {
   display: flex;
   align-items: center;

@@ -12,6 +12,7 @@ use crate::startup::{StartupCoordinator, StartupPhase};
 const OVERLAY_LABEL: &str = "dictation-overlay";
 const OVERLAY_EVENT: &str = "quick-dictation-overlay";
 const OVERLAY_WIDTH: f64 = 350.0;
+const STREAMING_OVERLAY_WIDTH: f64 = 480.0;
 const OVERLAY_HEIGHT: f64 = 64.0;
 const OVERLAY_MARGIN_TOP: f64 = 32.0;
 const TRAY_UNAVAILABLE_CLOSE_EVENT: &str = "app://tray-unavailable-close-requested";
@@ -28,6 +29,31 @@ pub enum OverlayPhase {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamingState {
+    Preparing,
+    Waiting,
+    Listening,
+    CatchingUp,
+    Finishing,
+    Translating,
+    Failed,
+}
+impl StreamingState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Preparing => "Preparing R2T2",
+            Self::Waiting => "Waiting for local processing",
+            Self::Listening => "Listening",
+            Self::CatchingUp => "Catching up",
+            Self::Finishing => "Finishing",
+            Self::Translating => "Translating",
+            Self::Failed => "Needs attention",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DictationOverlayPayload {
@@ -36,6 +62,11 @@ pub struct DictationOverlayPayload {
     pub output_mode: crate::translation::OutputMode,
     pub status_text: Option<String>,
     pub revision: u64,
+    pub session_id: Option<String>,
+    pub live_text: String,
+    pub streaming_state: Option<StreamingState>,
+    pub lag_ms: u64,
+    pub duration_limit_reached: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +91,11 @@ impl Default for DictationOverlayPayload {
             output_mode: Default::default(),
             status_text: None,
             revision: 0,
+            session_id: None,
+            live_text: String::new(),
+            streaming_state: None,
+            lag_ms: 0,
+            duration_limit_reached: false,
         }
     }
 }
@@ -70,6 +106,7 @@ pub struct DesktopShellController {
     overlay_payload: Arc<Mutex<DictationOverlayPayload>>,
     tray_close_explained: Arc<AtomicBool>,
     _tray: Arc<TrayIcon>,
+    overlay_dispatch_pending: Arc<AtomicBool>,
 }
 
 impl DesktopShellController {
@@ -81,6 +118,7 @@ impl DesktopShellController {
             overlay_payload: Arc::new(Mutex::new(DictationOverlayPayload::default())),
             tray_close_explained: Arc::new(AtomicBool::new(false)),
             _tray: tray,
+            overlay_dispatch_pending: Default::default(),
         })
     }
 
@@ -112,15 +150,134 @@ impl DesktopShellController {
         });
         Ok(())
     }
-    pub fn update_level(&self, revision: u64, audio_level: f32) -> Result<()> {
+    pub fn update_level(&self, session_id: &str, audio_level: f32) -> Result<()> {
         let mut current = self
             .overlay_payload
             .lock()
             .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
-        if current.revision != revision || current.phase != OverlayPhase::Listening {
+        if current.session_id.as_deref() != Some(session_id)
+            || current.phase != OverlayPhase::Listening
+        {
             return Ok(());
         }
         current.audio_level = audio_level;
+        current.revision = current.revision.wrapping_add(1);
+        let payload = current.clone();
+        drop(current);
+        self.dispatch_overlay(payload)
+    }
+    pub fn update_stream(
+        &self,
+        session_id: &str,
+        state: StreamingState,
+        text: Option<String>,
+        lag_ms: u64,
+    ) -> Result<()> {
+        let mut current = self
+            .overlay_payload
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
+        if current.session_id.as_deref() != Some(session_id)
+            || !matches!(
+                current.phase,
+                OverlayPhase::Listening | OverlayPhase::Processing
+            )
+        {
+            return Ok(());
+        }
+        if let Some(text) = text {
+            current.live_text = text;
+        }
+        current.streaming_state = Some(state);
+        current.status_text = Some(
+            if current.duration_limit_reached && state == StreamingState::Finishing {
+                "5-minute limit · Finishing"
+            } else {
+                state.label()
+            }
+            .into(),
+        );
+        current.lag_ms = lag_ms;
+        current.revision = current.revision.wrapping_add(1);
+        let payload = current.clone();
+        drop(current);
+        self.dispatch_overlay(payload)
+    }
+    pub fn update_stream_lag(&self, session_id: &str, lag_ms: u64) -> Result<()> {
+        let mut current = self
+            .overlay_payload
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
+        if current.session_id.as_deref() != Some(session_id)
+            || current.streaming_state.is_none()
+            || !matches!(
+                current.phase,
+                OverlayPhase::Listening | OverlayPhase::Processing
+            )
+        {
+            return Ok(());
+        }
+        current.lag_ms = lag_ms;
+        if matches!(
+            current.streaming_state,
+            Some(StreamingState::Listening | StreamingState::CatchingUp)
+        ) {
+            let state = if lag_ms > 2000 {
+                StreamingState::CatchingUp
+            } else {
+                StreamingState::Listening
+            };
+            current.streaming_state = Some(state);
+            current.status_text = Some(state.label().into());
+        }
+        current.revision = current.revision.wrapping_add(1);
+        let payload = current.clone();
+        drop(current);
+        self.dispatch_overlay(payload)
+    }
+    pub fn stream_duration_limit(&self, session_id: &str) {
+        if let Ok(mut current) = self.overlay_payload.lock() {
+            if current.session_id.as_deref() == Some(session_id) {
+                current.duration_limit_reached = true;
+            }
+        }
+    }
+    pub fn processing_for_session(
+        &self,
+        session_id: &str,
+        text: &str,
+        translating: bool,
+    ) -> Result<()> {
+        let mut current = self
+            .overlay_payload
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
+        if current
+            .session_id
+            .as_deref()
+            .is_some_and(|id| id != session_id)
+        {
+            return Ok(());
+        }
+        current.session_id = Some(session_id.into());
+        current.phase = OverlayPhase::Processing;
+        current.audio_level = 0.0;
+        current.status_text = Some(
+            if current.duration_limit_reached && !translating {
+                "5-minute limit · Finishing"
+            } else {
+                text
+            }
+            .into(),
+        );
+        if current.streaming_state.is_some() {
+            current.streaming_state = Some(if translating {
+                StreamingState::Translating
+            } else {
+                StreamingState::Finishing
+            });
+        }
+        current.revision = current.revision.wrapping_add(1);
         let payload = current.clone();
         drop(current);
         self.dispatch_overlay(payload)
@@ -148,16 +305,41 @@ impl DesktopShellController {
             return Ok(());
         }
         payload.output_mode = current.output_mode;
+        if matches!(
+            payload.phase,
+            OverlayPhase::Inserted | OverlayPhase::ClipboardOnly
+        ) {
+            payload.duration_limit_reached |= current.duration_limit_reached;
+        }
         payload.revision = current.revision.wrapping_add(1);
         *current = payload.clone();
         drop(current);
         self.dispatch_overlay(payload)
     }
-    fn dispatch_overlay(&self, payload: DictationOverlayPayload) -> Result<()> {
+    fn dispatch_overlay(&self, _payload: DictationOverlayPayload) -> Result<()> {
+        if self.overlay_dispatch_pending.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
         let shell = self.clone();
-        self.app.run_on_main_thread(move || {
-            let _ = shell.apply_overlay(payload);
-        })?;
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let apply = shell.clone();
+            if shell
+                .app
+                .run_on_main_thread(move || {
+                    apply
+                        .overlay_dispatch_pending
+                        .store(false, Ordering::SeqCst);
+                    let payload = apply.overlay_payload();
+                    let _ = apply.apply_overlay(payload);
+                })
+                .is_err()
+            {
+                shell
+                    .overlay_dispatch_pending
+                    .store(false, Ordering::SeqCst);
+            }
+        });
         Ok(())
     }
     fn apply_overlay(&self, payload: DictationOverlayPayload) -> Result<()> {
@@ -176,7 +358,13 @@ impl DesktopShellController {
             payload
         };
         if let Some(window) = self.app.get_webview_window(OVERLAY_LABEL) {
-            position_overlay_window(&window)?;
+            let width = if payload.streaming_state.is_some() {
+                STREAMING_OVERLAY_WIDTH
+            } else {
+                OVERLAY_WIDTH
+            };
+            window.set_size(tauri::LogicalSize::new(width, OVERLAY_HEIGHT))?;
+            position_overlay_window_with_width(&window, width)?;
             match payload.phase {
                 OverlayPhase::Hidden => {
                     let _ = window.hide();
@@ -274,11 +462,15 @@ fn ensure_overlay_window(app: &AppHandle) -> Result<()> {
 }
 
 fn position_overlay_window(window: &tauri::WebviewWindow) -> Result<()> {
+    position_overlay_window_with_width(window, OVERLAY_WIDTH)
+}
+fn position_overlay_window_with_width(window: &tauri::WebviewWindow, width: f64) -> Result<()> {
     if let Some(monitor) = window.current_monitor()?.or(window.primary_monitor()?) {
         let size = monitor.size();
         let position = monitor.position();
-        let x = position.x as f64 + ((size.width as f64 - OVERLAY_WIDTH) / 2.0).max(0.0);
-        let y = position.y as f64 + OVERLAY_MARGIN_TOP;
+        let scale = monitor.scale_factor();
+        let x = position.x as f64 + ((size.width as f64 - width * scale) / 2.0).max(0.0);
+        let y = position.y as f64 + OVERLAY_MARGIN_TOP * scale;
         window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
             x.round() as i32,
             y.round() as i32,

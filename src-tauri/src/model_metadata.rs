@@ -36,6 +36,8 @@ pub struct ModelCapabilities {
     pub context_support: bool,
     pub language_control: ModelLanguageControl,
     pub maximum_audio_duration_ms: Option<i64>,
+    #[serde(default)]
+    pub streaming_transcription: bool,
 }
 
 impl ModelCapabilities {
@@ -51,6 +53,7 @@ impl ModelCapabilities {
             context_support: true,
             language_control: ModelLanguageControl::AutomaticAndFixed,
             maximum_audio_duration_ms: None,
+            streaming_transcription: false,
         }
     }
 
@@ -71,6 +74,7 @@ impl ModelCapabilities {
             context_support: true,
             language_control: ModelLanguageControl::AutomaticOnly,
             maximum_audio_duration_ms: Some(60 * 60 * 1_000),
+            streaming_transcription: false,
         }
     }
 
@@ -82,6 +86,7 @@ impl ModelCapabilities {
             context_support: false,
             language_control: ModelLanguageControl::AutomaticOnly,
             maximum_audio_duration_ms: None,
+            streaming_transcription: false,
         }
     }
 }
@@ -94,6 +99,13 @@ impl Default for ModelCapabilities {
 
 pub fn capabilities_for_model(model_id: &str, engine: &str) -> ModelCapabilities {
     match model_id {
+        crate::r2t2::MODEL_ID => ModelCapabilities {
+            supported_contexts: vec![ModelUseContext::ShortcutDictation],
+            timestamped_segments: false,
+            streaming_transcription: true,
+            maximum_audio_duration_ms: Some(300_000),
+            ..ModelCapabilities::standard_asr()
+        },
         MOSS_MODEL_ID => ModelCapabilities::moss(),
         VIBEVOICE_MODEL_ID => ModelCapabilities::vibevoice(),
         _ if engine == "sherpa-onnx"
@@ -143,5 +155,28 @@ mod tests {
             [ModelUseContext::FileTranscription]
         );
         assert_eq!(vibe.maximum_audio_duration_ms, Some(3_600_000));
+    }
+
+    #[test]
+    fn streaming_is_opt_in_and_r2t2_cannot_enter_other_contexts() {
+        let mut legacy = serde_json::to_value(ModelCapabilities::standard_asr()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("streamingTranscription");
+        let legacy: ModelCapabilities = serde_json::from_value(legacy).unwrap();
+        assert!(!legacy.streaming_transcription);
+        let live = capabilities_for_model(crate::r2t2::MODEL_ID, "audio.cpp-r2t2");
+        assert_eq!(
+            live.supported_contexts,
+            [ModelUseContext::ShortcutDictation]
+        );
+        assert!(live.streaming_transcription && live.context_support);
+        assert!(!live.native_diarization && !live.timestamped_segments);
+        assert_eq!(
+            live.language_control,
+            ModelLanguageControl::AutomaticAndFixed
+        );
+        assert_eq!(live.maximum_audio_duration_ms, Some(300_000));
     }
 }

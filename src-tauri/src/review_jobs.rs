@@ -2,6 +2,7 @@
 use crate::review::{ReviewError, ReviewRef, ReviewStore};
 use anyhow::{anyhow, bail, Result};
 use serde::Serialize;
+use std::any::Any;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +14,13 @@ use tauri::{AppHandle, Emitter, Manager};
 struct QueueState {
     active: Option<String>,
     pending: VecDeque<(String, bool)>,
+    idle: Option<IdleResource>,
+    cache_epoch: u64,
+}
+struct IdleResource {
+    owner: &'static str,
+    expires: Instant,
+    value: Box<dyn Any + Send>,
 }
 #[derive(Clone, Default)]
 pub struct ProcessingQueue {
@@ -21,6 +29,7 @@ pub struct ProcessingQueue {
 pub struct ProcessingPermit {
     queue: ProcessingQueue,
     key: String,
+    cache_epoch: u64,
 }
 impl Drop for ProcessingPermit {
     fn drop(&mut self) {
@@ -66,6 +75,17 @@ impl ProcessingQueue {
         self.inner.1.notify_all();
     }
     pub fn acquire(&self, key: &str, cancelled: &AtomicBool) -> Result<ProcessingPermit> {
+        self.acquire_with_idle(key, cancelled, None)
+            .map(|(permit, _)| permit)
+    }
+    /// Reuse or destroy cached inference resources while admission is locked.
+    /// A new model cannot allocate until an evicted child's Drop has reaped it.
+    pub fn acquire_with_idle(
+        &self,
+        key: &str,
+        cancelled: &AtomicBool,
+        owner: Option<&'static str>,
+    ) -> Result<(ProcessingPermit, Option<Box<dyn Any + Send>>)> {
         let mut state = self
             .inner
             .0
@@ -81,12 +101,25 @@ impl ProcessingQueue {
                 bail!("JOB_ALREADY_RUNNING: Duplicate inference admission.");
             }
             if state.active.is_none() && state.pending.front().is_some_and(|(id, _)| id == key) {
+                let retained = match state.idle.take() {
+                    Some(idle) if Some(idle.owner) == owner && idle.expires > Instant::now() => {
+                        Some(idle.value)
+                    }
+                    other => {
+                        drop(other);
+                        None
+                    }
+                };
                 state.pending.pop_front();
                 state.active = Some(key.into());
-                return Ok(ProcessingPermit {
-                    queue: self.clone(),
-                    key: key.into(),
-                });
+                return Ok((
+                    ProcessingPermit {
+                        queue: self.clone(),
+                        key: key.into(),
+                        cache_epoch: state.cache_epoch,
+                    },
+                    retained,
+                ));
             }
             if !state.pending.iter().any(|(id, _)| id == key) {
                 bail!("JOB_CANCELED: This queued job was removed.");
@@ -98,6 +131,48 @@ impl ProcessingQueue {
                 .map_err(|_| anyhow!("Processing queue unavailable"))?
                 .0;
         }
+    }
+    pub fn evict_idle(&self) {
+        // Drop under the same lock used by admission and warm reuse.
+        let mut state = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
+        state.cache_epoch = state.cache_epoch.wrapping_add(1);
+        drop(state.idle.take());
+    }
+    pub fn cache_idle<T: Any + Send>(
+        &self,
+        permit: &ProcessingPermit,
+        owner: &'static str,
+        value: T,
+    ) {
+        let mut state = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
+        if !Arc::ptr_eq(&self.inner, &permit.queue.inner)
+            || state.cache_epoch != permit.cache_epoch
+            || state.active.as_deref() != Some(&permit.key)
+            || crate::shutdown::is_shutting_down()
+        {
+            drop(value);
+            return;
+        }
+        drop(state.idle.take());
+        state.idle = Some(IdleResource {
+            owner,
+            expires: Instant::now() + Duration::from_secs(60),
+            value: Box::new(value),
+        });
+        let weak = Arc::downgrade(&self.inner);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(60));
+            if let Some(inner) = weak.upgrade() {
+                let mut state = inner.0.lock().unwrap_or_else(|e| e.into_inner());
+                if state
+                    .idle
+                    .as_ref()
+                    .is_some_and(|idle| idle.expires <= Instant::now())
+                {
+                    drop(state.idle.take());
+                }
+            }
+        });
     }
 }
 
@@ -430,6 +505,51 @@ impl ReviewJobController {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cached_workers_are_reused_without_holding_admission_and_reaped_before_other_models() {
+        struct Resource(Arc<AtomicBool>);
+        impl Drop for Resource {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let queue = ProcessingQueue::default();
+        let flag = AtomicBool::new(false);
+        let reaped = Arc::new(AtomicBool::new(false));
+        queue.enqueue_priority("one");
+        let permit = queue.acquire("one", &flag).unwrap();
+        queue.cache_idle(&permit, "r2t2", Resource(reaped.clone()));
+        drop(permit);
+        assert!(queue.inner.0.lock().unwrap().active.is_none());
+        queue.enqueue_priority("two");
+        let (permit, cached) = queue.acquire_with_idle("two", &flag, Some("r2t2")).unwrap();
+        let resource = *cached.unwrap().downcast::<Resource>().ok().unwrap();
+        assert!(!reaped.load(Ordering::SeqCst));
+        queue.cache_idle(&permit, "r2t2", resource);
+        drop(permit);
+        queue.enqueue("file");
+        let permit = queue.acquire("file", &flag).unwrap();
+        assert!(reaped.load(Ordering::SeqCst));
+        drop(permit);
+    }
+
+    #[test]
+    fn expired_cache_and_explicit_eviction_cannot_be_reused() {
+        let queue = ProcessingQueue::default();
+        let flag = AtomicBool::new(false);
+        queue.enqueue("one");
+        let permit = queue.acquire("one", &flag).unwrap();
+        queue.cache_idle(&permit, "r2t2", 42_u32);
+        queue.inner.0.lock().unwrap().idle.as_mut().unwrap().expires = Instant::now();
+        drop(permit);
+        queue.enqueue("two");
+        let (permit, cached) = queue.acquire_with_idle("two", &flag, Some("r2t2")).unwrap();
+        assert!(cached.is_none());
+        queue.cache_idle(&permit, "r2t2", 42_u32);
+        queue.evict_idle();
+        queue.cache_idle(&permit, "r2t2", 43_u32);
+        assert!(queue.inner.0.lock().unwrap().idle.is_none());
+    }
 
     #[test]
     fn dictation_priority_never_preempts_an_active_owner() {

@@ -17,7 +17,8 @@
     "preview": "vite preview",
     "tauri": "node scripts/run-tauri.mjs",
     "deploy:mac": "node scripts/deploy-macos.mjs",
-    "build:translation": "node scripts/build-translation-worker.mjs"
+    "build:translation": "node scripts/build-translation-worker.mjs",
+    "build:r2t2": "node scripts/build-r2t2-worker.mjs"
   },
   "overrides": {
     "picomatch": "4.0.4"

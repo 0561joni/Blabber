@@ -1,0 +1,73 @@
+{
+  "manifest": {
+    "protocolVersion": 1,
+    "minimumMacOSVersion": 14,
+    "modelId": "confucius4-r2t2-q8-0",
+    "modelRepository": "davidxifeng/Confucius4-R2T2-gguf",
+    "modelRevision": "a8e6b385d7df7eae9519363e07034a209004797a",
+    "modelFile": "r2t2-q8_0.gguf",
+    "modelBytes": 2477512064,
+    "modelSha256": "19f5ccd624484bcb5d44301437de41560b0ecc40c430e8850dfeefefbe82ccf5",
+    "runtimeRevision": "eb8e21bd7b71dc104d6be7a88f5641bcd5373617",
+    "runtimeArchiveSha256": "212453797250cab2567393962a3e082ab94b6fe6c4b7cd57fc70eab6eafbb680",
+    "officialRevision": "c4611929bc3592b38dab34e96a8c9940d6da3755",
+    "licenseUrl": "https://github.com/netease-youdao/Confucius4-R2T2/blob/c4611929bc3592b38dab34e96a8c9940d6da3755/MODEL_LICENSE",
+    "releaseEnabled": false,
+    "releaseBlocker": "Native rolling continuity and German/English accuracy acceptance have not passed."
+  },
+  "workerSha256": "c8d96010dedf376b64153eb69f01072214141fc385ef80905eea9078ada6bbf0",
+  "audioSha256": "c337803b3f1d4933889fd05f5a9cccdf8e21f630006f1424da370c21887c7c53",
+  "repeat": 1,
+  "paced": false,
+  "results": [
+    {
+      "chunkMs": 640,
+      "rollbackTokens": 5,
+      "language": "English",
+      "audioSeconds": 3.1791875,
+      "mode": "rolling16s8s",
+      "events": [
+        {
+          "sample": 10240,
+          "elapsedSeconds": 0.15251533398986794,
+          "delta": ""
+        },
+        {
+          "sample": 20480,
+          "elapsedSeconds": 0.3457602499984205,
+          "delta": ""
+        },
+        {
+          "sample": 30720,
+          "elapsedSeconds": 0.5797800419968553,
+          "delta": "Please"
+        },
+        {
+          "sample": 40960,
+          "elapsedSeconds": 0.8494412919972092,
+          "delta": " send the updated"
+        },
+        {
+          "sample": 50867,
+          "elapsedSeconds": 0.8599491670029238,
+          "delta": ""
+        }
+      ],
+      "loadSeconds": 2.8420617090014275,
+      "status": "completed",
+      "text": "Please send the updated invoice to Dr. Miller tomorrow.",
+      "firstTextSeconds": 0.5797800419968553,
+      "finalizeSeconds": 0.23366587499913294,
+      "streamSeconds": 1.0936177919938928,
+      "realTimeFactor": 0.34399285729259216,
+      "exitCode": 0
+    }
+  ],
+  "limitations": "Fixture probe only; not German/English release acceptance or measured acoustic word latency.",
+  "childrenPeakRssBytes": 5132681216,
+  "referenceCli": {
+    "samePinnedPatchedRuntime": true,
+    "finalTextMatches": true,
+    "text": "Please send the updated invoice to Dr. Miller tomorrow."
+  }
+}

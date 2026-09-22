@@ -247,8 +247,8 @@ impl LocalTranscriptionEngine {
         }
         models
             .iter()
-            .find(|model| model.profile == profile && model.is_default)
-            .or_else(|| models.iter().find(|model| model.profile == profile))
+            .find(|model| model.profile == profile && model.is_default && !model.capabilities.streaming_transcription)
+            .or_else(|| models.iter().find(|model| model.profile == profile && !model.capabilities.streaming_transcription))
             .cloned()
             .ok_or_else(|| {
                 anyhow!(
@@ -285,7 +285,13 @@ impl TranscriptionEngine for LocalTranscriptionEngine {
         progress: Option<Arc<AtomicI32>>,
     ) -> Result<TranscriptResult> {
         let _work = crate::shutdown::begin_work(true)?;
+        if request.selected_model_id.as_deref() == Some(crate::r2t2::MODEL_ID) {
+            return Err(anyhow!("MODEL_CONTEXT_UNSUPPORTED: R2T2 requires live shortcut dictation. It cannot run as a batch transcription model."));
+        }
         let model = self.resolve_model(request.selected_model_id.as_deref(), request.profile)?;
+        if model.capabilities.streaming_transcription {
+            return Err(anyhow!("MODEL_CONTEXT_UNSUPPORTED: Choose a model that supports this transcription workflow."));
+        }
         if let Some(use_context) = request.use_context {
             if !model.capabilities.supported_contexts.contains(&use_context) {
                 return Err(anyhow!(

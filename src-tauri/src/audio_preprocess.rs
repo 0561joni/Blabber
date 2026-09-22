@@ -491,7 +491,7 @@ pub fn prepare_job_audio(source: &str, temp_dir: &Path) -> Result<PreparedJobAud
 
 // Normalize packet-by-packet: only the final 16 kHz mono buffer is retained.
 // A carried frame and sample keep interpolation identical across packet edges.
-struct StreamingNormalizer {
+pub(crate) struct StreamingNormalizer {
     rate: u32,
     channels: usize,
     ratio: f64,
@@ -503,7 +503,7 @@ struct StreamingNormalizer {
     tiny: Vec<f32>,
 }
 impl StreamingNormalizer {
-    fn new(rate: u32, channels: u16) -> Result<Self> {
+    pub(crate) fn new(rate: u32, channels: u16) -> Result<Self> {
         if rate == 0 || channels == 0 {
             return Err(anyhow!("Invalid audio sample rate or channel count."));
         }
@@ -519,7 +519,7 @@ impl StreamingNormalizer {
             tiny: Vec::new(),
         })
     }
-    fn push(&mut self, interleaved: &[f32]) -> Result<()> {
+    pub(crate) fn push(&mut self, interleaved: &[f32]) -> Result<()> {
         for sample in interleaved {
             self.sum += *sample;
             self.channel_count += 1;
@@ -559,7 +559,15 @@ impl StreamingNormalizer {
         self.frames += 1;
         Ok(())
     }
-    fn finish(mut self) -> Result<PreparedAudio> {
+    /// The final sample can still change when output length is rounded on
+    /// finish. Publish only this immutable prefix during microphone capture.
+    pub(crate) fn stable_samples(&self) -> &[f32] {
+        if (self.frames as f64 * self.ratio).round() <= 1.0 {
+            return &[];
+        }
+        &self.samples[..self.samples.len().saturating_sub(1)]
+    }
+    pub(crate) fn finish(mut self) -> Result<PreparedAudio> {
         if self.channel_count > 0 {
             self.frame()?;
         }
@@ -593,6 +601,12 @@ mod streaming_tests {
                         let mut streaming = StreamingNormalizer::new(rate, channels).unwrap();
                         for part in samples.chunks(chunk) {
                             streaming.push(part).unwrap();
+                            let stable = streaming.stable_samples();
+                            assert!(stable.len() <= expected.samples.len());
+                            assert!(stable
+                                .iter()
+                                .zip(&expected.samples)
+                                .all(|(a, b)| (a - b).abs() < 1e-6));
                         }
                         let actual = streaming.finish().unwrap();
                         assert_eq!(

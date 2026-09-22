@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { DictationOutput, DictationOutputState, OutputMode } from "../types/domain";
+import type { DictationOutput, DictationOutputState, OutputMode, QuickDictationStatusResponse } from "../types/domain";
 
 export const OUTPUT_MODES: { value: OutputMode; label: string }[] = [
   { value: "original", label: "Original" },
@@ -21,6 +21,9 @@ export async function setDictationOutputMode(mode: OutputMode): Promise<Dictatio
 }
 export async function retryDictationTranslation(transcriptId?: string): Promise<DictationOutput> {
   return invoke("retry_dictation_translation", { transcriptId });
+}
+export async function retryStreamingDictation(): Promise<QuickDictationStatusResponse> {
+  return invoke("retry_streaming_dictation");
 }
 export async function listenDictationOutput(callback: (state: DictationOutputState) => void) {
   if (!desktop()) return () => {};

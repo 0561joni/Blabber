@@ -169,6 +169,7 @@ export interface ModelCapabilities {
   contextSupport: boolean;
   languageControl: ModelLanguageControl;
   maximumAudioDurationMs: number | null;
+  streamingTranscription?: boolean;
 }
 
 export interface DownloadableModel {
@@ -178,13 +179,14 @@ export interface DownloadableModel {
   description: string;
   sizeBytes: number;
   profile: ModelProfile;
-  availability: "available" | "unsupported_platform";
+  availability: "available" | "unsupported_platform" | "validation_pending";
   availabilityReason: string | null;
   installed: boolean;
   requirements: string | null;
   artifactCount: number;
   capability: ModelCapability;
   capabilities?: ModelCapabilities;
+  licenseUrl?: string | null;
 }
 
 export type ModelDownloadState =
@@ -468,6 +470,7 @@ export type QuickDictationState =
 export type InsertionOutcome = "pasted" | "clipboard_only";
 
 export interface QuickDictationStatusResponse {
+  canRetryStreaming?: boolean;
   state: QuickDictationState;
   registeredShortcut: string | null;
   shortcutMode: ShortcutMode;

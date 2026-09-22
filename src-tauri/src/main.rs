@@ -21,6 +21,7 @@ mod model_metadata;
 mod native_asr;
 mod platform;
 mod qwen_asr;
+mod r2t2;
 mod review;
 mod review_jobs;
 mod review_media;
@@ -210,6 +211,12 @@ fn cycle_dictation_output_mode(
     state: tauri::State<'_, AppState>,
 ) -> Result<translation::OutputState, String> {
     state.translation.cycle().map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn retry_streaming_dictation(state: tauri::State<'_, AppState>) -> Result<QuickDictationStatusResponse, String> {
+    let controller = state.dictation_controller.clone();
+    tauri::async_runtime::spawn_blocking(move || controller.retry_streaming().map_err(|e| e.to_string()))
+        .await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
 async fn retry_dictation_translation(
@@ -1420,6 +1427,7 @@ fn main() {
             set_dictation_output_mode,
             cycle_dictation_output_mode,
             retry_dictation_translation,
+            retry_streaming_dictation,
             get_settings,
             update_settings,
             list_transcripts,

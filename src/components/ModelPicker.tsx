@@ -292,8 +292,8 @@ export function ModelInfoDialog({
         </div>
         <dl className="model-info-facts">
           <div><dt>Size</dt><dd>{formatModelSize(presentation.sizeBytes)}</dd></div>
-          <div><dt>Speed</dt><dd aria-label={`Speed ${presentation.speed} of 5`}>{formatRating(presentation.speed)}</dd></div>
-          <div><dt>Accuracy</dt><dd aria-label={`Accuracy ${presentation.accuracy} of 5`}>{formatRating(presentation.accuracy)}</dd></div>
+          <div><dt>Speed</dt><dd aria-label={presentation.speed ? `Speed ${presentation.speed} of 5` : "Speed not rated"}>{formatRating(presentation.speed)}</dd></div>
+          <div><dt>Accuracy</dt><dd aria-label={presentation.accuracy ? `Accuracy ${presentation.accuracy} of 5` : "Accuracy not rated"}>{formatRating(presentation.accuracy)}</dd></div>
         </dl>
         <p className="model-info-description">{presentation.description}</p>
         <div className="model-info-technical">
@@ -302,6 +302,8 @@ export function ModelInfoDialog({
           {presentation.requirements ? <p>{presentation.requirements}</p> : null}
           {model.capabilities?.nativeDiarization ? <p>Built-in speaker identification and timestamps · standalone speaker processing is skipped</p> : null}
           {model.capabilities?.contextSupport ? <p>Uses your Blabber vocabulary as model context or hotwords</p> : null}
+          {model.capabilities?.streamingTranscription ? <p>Live shortcut preview · paste once after stopping · five-minute limit</p> : null}
+          {"licenseUrl" in model && model.licenseUrl ? <p><a href={model.licenseUrl} target="_blank" rel="noreferrer">NetEase model terms</a></p> : null}
           {model.capabilities?.languageControl === "automatic_only" ? <p>Automatic language detection and code-switching · the global fixed-language choice is not applied</p> : null}
         </div>
         {presentation.recommendedFor.length > 0 ? (

@@ -14,3 +14,6 @@ workers/**/dist/
 
 src-tauri/bundle/translation/*
 !src-tauri/bundle/translation/.gitkeep
+
+src-tauri/bundle/r2t2/*
+!src-tauri/bundle/r2t2/.gitkeep

@@ -115,7 +115,9 @@ impl SessionState {
         if !self.active.as_ref().is_some_and(|s| s.id == id) {
             return false;
         }
-        self.active = None;
+        if let Some(session) = self.active.take() {
+            session.cancelled.store(true, Ordering::SeqCst);
+        }
         self.stage = "idle".into();
         self.status_text.clear();
         true
@@ -204,6 +206,7 @@ pub struct TranslationService {
     queue: ProcessingQueue,
     state: Arc<Mutex<SessionState>>,
     verified: Arc<Mutex<Verification>>,
+    _memory_pressure: Arc<crate::r2t2::MemoryPressureWatch>,
 }
 pub struct SessionGuard {
     service: TranslationService,
@@ -234,6 +237,7 @@ impl TranslationService {
         queue: ProcessingQueue,
     ) -> Self {
         Self {
+            _memory_pressure: Arc::new(crate::r2t2::MemoryPressureWatch::new(queue.clone())),
             app,
             db_path,
             models_dir,
@@ -385,6 +389,15 @@ impl TranslationService {
             .clone()
             .ok_or_else(|| anyhow!("Dictation was canceled."))
     }
+    pub(crate) fn r2t2_setup(&self) -> Result<(PathBuf, PathBuf)> {
+        crate::r2t2::check_setup(&self.app, &self.models_dir)
+    }
+    pub(crate) fn processing_queue(&self) -> ProcessingQueue {
+        self.queue.clone()
+    }
+    pub(crate) fn release_asr_resources(&self) {
+        self.engine.release_resources();
+    }
     pub fn bind_recording(&self, id: String, path: Option<String>) {
         if let Ok(mut state) = self.state.lock() {
             if let Some(session) = state.active.as_mut() {
@@ -432,6 +445,25 @@ impl TranslationService {
         }
         Ok(())
     }
+    pub(crate) fn with_active<T>(
+        &self,
+        session: &DictationSession,
+        action: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("Dictation state unavailable"))?;
+        if session.cancelled.load(Ordering::SeqCst)
+            || crate::shutdown::is_shutting_down()
+            || !state.active.as_ref().is_some_and(|s| s.id == session.id)
+        {
+            bail!("DICTATION_CANCELED: Dictation was canceled.");
+        }
+        // Cancellation/new-session admission use this same mutex, so a delayed
+        // write cannot cross into another session between its check and commit.
+        action()
+    }
     pub fn phase(&self, session: &DictationSession, stage: &str, text: &str) -> Result<()> {
         self.ensure_active(session)?;
         {
@@ -444,13 +476,12 @@ impl TranslationService {
             }
             state.stage = stage.into();
             state.status_text = text.into();
+            self.shell.processing_for_session(
+                &session.id,
+                text,
+                matches!(stage, "loading" | "translating"),
+            )?;
         }
-        self.shell.set_overlay_payload(DictationOverlayPayload {
-            phase: OverlayPhase::Processing,
-            audio_level: 0.0,
-            status_text: Some(text.into()),
-            ..Default::default()
-        })?;
         self.publish();
         Ok(())
     }
@@ -467,12 +498,30 @@ impl TranslationService {
     }
     pub fn cancel(&self) {
         let active = self.state.lock().ok().and_then(|mut s| {
+            let active = s.active.take();
+            if let Some(session) = &active {
+                session.cancelled.store(true, Ordering::SeqCst);
+            }
+            if let Some(mut output) = s.last_output.clone().filter(|output| {
+                output.status == "pending"
+                    && active
+                        .as_ref()
+                        .is_some_and(|active| active.id == output.session_id)
+            }) {
+                output.status = "canceled".into();
+                output.error_code = Some("dictation_canceled".into());
+                output.error_message =
+                    Some("Dictation was canceled. The original is available.".into());
+                if output.transcript_id.is_some() {
+                    let _ = storage::save_translation(&self.db_path, &output);
+                }
+                s.last_output = Some(output);
+            }
             s.stage = "idle".into();
             s.status_text.clear();
-            s.active.take()
+            active
         });
         if let Some(session) = active {
-            session.cancelled.store(true, Ordering::SeqCst);
             self.queue.remove(&session.id);
         }
         self.publish();
@@ -606,12 +655,14 @@ impl TranslationService {
         // Keep the source available even if the history disk/database fails.
         self.record_output(session, &output);
         if session.save_history {
-            let saved = storage::save_translated_dictation_source(
-                &self.db_path,
-                original,
-                duration_ms,
-                &mut output,
-            );
+            let saved = self.with_active(session, || {
+                storage::save_translated_dictation_source(
+                    &self.db_path,
+                    original,
+                    duration_ms,
+                    &mut output,
+                )
+            });
             if let Err(error) = saved {
                 output.status = "failed".into();
                 output.error_code = Some("history_save_failed".into());
@@ -650,7 +701,14 @@ impl TranslationService {
             }
         }
         if output.transcript_id.is_some() {
-            if let Err(error) = storage::save_translation(&self.db_path, &output) {
+            if let Err(error) = self.with_active(session, || {
+                storage::save_translation(&self.db_path, &output)
+            }) {
+                if self.ensure_active(session).is_err() {
+                    output.status = "canceled".into();
+                    output.output_text = None;
+                    return Ok(output);
+                }
                 output.status = "failed".into();
                 output.error_code = Some("history_save_failed".into());
                 output.error_message = Some(format!("Could not save translation history: {error}. The original is available to copy."));

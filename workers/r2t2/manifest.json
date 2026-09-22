@@ -1,0 +1,16 @@
+{
+  "protocolVersion": 1,
+  "minimumMacOSVersion": 14,
+  "modelId": "confucius4-r2t2-q8-0",
+  "modelRepository": "davidxifeng/Confucius4-R2T2-gguf",
+  "modelRevision": "a8e6b385d7df7eae9519363e07034a209004797a",
+  "modelFile": "r2t2-q8_0.gguf",
+  "modelBytes": 2477512064,
+  "modelSha256": "19f5ccd624484bcb5d44301437de41560b0ecc40c430e8850dfeefefbe82ccf5",
+  "runtimeRevision": "eb8e21bd7b71dc104d6be7a88f5641bcd5373617",
+  "runtimeArchiveSha256": "212453797250cab2567393962a3e082ab94b6fe6c4b7cd57fc70eab6eafbb680",
+  "officialRevision": "c4611929bc3592b38dab34e96a8c9940d6da3755",
+  "licenseUrl": "https://github.com/netease-youdao/Confucius4-R2T2/blob/c4611929bc3592b38dab34e96a8c9940d6da3755/MODEL_LICENSE",
+  "releaseEnabled": false,
+  "releaseBlocker": "Human-recording German/English accuracy, rolling continuity and interactive packaged-app acceptance remain unvalidated."
+}

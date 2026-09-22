@@ -15,6 +15,7 @@ export interface PresentableModel {
   requirements?: string | null;
   variant?: string;
   capabilities?: ModelCapabilities;
+  licenseUrl?: string | null;
 }
 
 export interface ModelPresentation {
@@ -41,6 +42,12 @@ interface CatalogEntry {
 }
 
 const MODEL_CATALOG: Record<string, CatalogEntry> = {
+  "confucius4-r2t2-q8-0": {
+    friendlyName: "R2T2 · Experimental", speed: 0, accuracy: 0,
+    description: "Local live preview for German and English shortcut dictation. Text is pasted once after you stop. Acceptance testing is still in progress.",
+    technicalDetails: "Confucius4-R2T2 · Q8_0 GGUF · Metal · five-minute limit · separate NetEase model license",
+    recommendedFor: [], technicalNames: ["R2T2 Q8 · Experimental"],
+  },
   "qwen3-asr-1.7b-bf16": {
     friendlyName: "Qwen ASR",
     speed: 2,
@@ -172,6 +179,7 @@ export function isModelRecommended(
 }
 
 export function formatRating(value: number): string {
+  if (value === 0) return "Not rated";
   const rating = Math.max(0, Math.min(5, Math.round(value)));
   return `${"●".repeat(rating)}${"○".repeat(5 - rating)}`;
 }

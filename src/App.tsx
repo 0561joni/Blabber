@@ -1,5 +1,5 @@
 import { useDictationTranslation } from "./hooks/useDictationTranslation";
-import { setDictationOutputMode, retryDictationTranslation, listenTranslationErrors } from "./lib/translationApi";
+import { setDictationOutputMode, retryDictationTranslation, retryStreamingDictation, listenTranslationErrors } from "./lib/translationApi";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   reportManualFeedback,
@@ -1249,6 +1249,11 @@ export function App() {
               {screen === "dictate" ? (
                 <DictateScreen
                   outputState={outputState}
+                  onRetryLive={async () => {
+                    const status = await retryStreamingDictation();
+                    setQuickDictationStatus(status); setDictationError(null); setPreview(null);
+                    if (status.lastTranscriptId) setTranscripts(await listTranscripts(""));
+                  }}
                   onOutputModeChange={async (mode) => { setOutputState(await setDictationOutputMode(mode)); }}
                   onRetryTranslation={async () => {
                     const output = await retryDictationTranslation();

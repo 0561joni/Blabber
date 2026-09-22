@@ -1,5 +1,30 @@
 # Third-party notices
 
+## R2T2 and audio.cpp
+
+The isolated R2T2 helper embeds audio.cpp (Apache-2.0) at
+`eb8e21bd7b71dc104d6be7a88f5641bcd5373617`. Blabber's separately tracked patch
+adds sample-indexed 16-second rolling windows, committed-prefix checks and
+complete final flushing. The rolling design derives from NetEase Youdao's
+Apache-2.0 source at `c4611929bc3592b38dab34e96a8c9940d6da3755`.
+Runtime and bundled dependency licenses accompany the helper under
+`workers/r2t2/` in the app's resources.
+
+Weights are downloaded separately from
+`davidxifeng/Confucius4-R2T2-gguf`, revision
+`a8e6b385d7df7eae9519363e07034a209004797a`, unchanged Q8_0 quantization.
+They use the **NetEase Youdao Model Use License Agreement**, not Apache-2.0.
+The complete terms are retained in `workers/r2t2/MODEL_LICENSE`, bundled with the
+helper, and linked in model download details.
+
+Any modifications made to the original model in this Derivative Work are not
+endorsed, warranted, or guaranteed by the original right-holder of the original
+model, and the original right-holder disclaims all liability related to this
+Derivative Work.
+
+Upstream: https://github.com/netease-youdao/Confucius4-R2T2
+Runtime: https://github.com/0xShug0/audio.cpp
+
 ## TranslateGemma and llama.cpp
 
 The translation helper statically embeds llama.cpp at commit

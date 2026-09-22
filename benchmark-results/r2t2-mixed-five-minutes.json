@@ -1,0 +1,2388 @@
+{
+  "manifest": {
+    "protocolVersion": 1,
+    "minimumMacOSVersion": 14,
+    "modelId": "confucius4-r2t2-q8-0",
+    "modelRepository": "davidxifeng/Confucius4-R2T2-gguf",
+    "modelRevision": "a8e6b385d7df7eae9519363e07034a209004797a",
+    "modelFile": "r2t2-q8_0.gguf",
+    "modelBytes": 2477512064,
+    "modelSha256": "19f5ccd624484bcb5d44301437de41560b0ecc40c430e8850dfeefefbe82ccf5",
+    "runtimeRevision": "eb8e21bd7b71dc104d6be7a88f5641bcd5373617",
+    "runtimeArchiveSha256": "212453797250cab2567393962a3e082ab94b6fe6c4b7cd57fc70eab6eafbb680",
+    "officialRevision": "c4611929bc3592b38dab34e96a8c9940d6da3755",
+    "licenseUrl": "https://github.com/netease-youdao/Confucius4-R2T2/blob/c4611929bc3592b38dab34e96a8c9940d6da3755/MODEL_LICENSE",
+    "releaseEnabled": false,
+    "releaseBlocker": "Native rolling continuity and German/English accuracy acceptance have not passed."
+  },
+  "workerSha256": "1fd30f567b87ac716e880339e3142543b007c4ee37a49a6cb7b374a232af2e7e",
+  "audioSha256": "457845e6bb28a19bd47c815e1395a99948d6b9e5a1f6a04cbec0d59d251ada29",
+  "repeat": 1,
+  "paced": false,
+  "results": [
+    {
+      "chunkMs": 640,
+      "rollbackTokens": 5,
+      "language": "",
+      "audioSeconds": 300.0,
+      "mode": "rolling16s8s",
+      "events": [
+        {
+          "sample": 10240,
+          "elapsedSeconds": 0.20673649999662302,
+          "delta": ""
+        },
+        {
+          "sample": 20480,
+          "elapsedSeconds": 0.47878058400237933,
+          "delta": ""
+        },
+        {
+          "sample": 30720,
+          "elapsedSeconds": 0.7567329589946894,
+          "delta": "Bitte schic"
+        },
+        {
+          "sample": 40960,
+          "elapsedSeconds": 1.0716590840020217,
+          "delta": "ke die aktualisierte"
+        },
+        {
+          "sample": 51200,
+          "elapsedSeconds": 1.4101413339958526,
+          "delta": " Rechn"
+        },
+        {
+          "sample": 61440,
+          "elapsedSeconds": 1.7322417919931468,
+          "delta": "ung m"
+        },
+        {
+          "sample": 71680,
+          "elapsedSeconds": 2.045104666991392,
+          "delta": "orgen"
+        },
+        {
+          "sample": 81920,
+          "elapsedSeconds": 2.451908208997338,
+          "delta": " an Frau Müller"
+        },
+        {
+          "sample": 92160,
+          "elapsedSeconds": 2.9111169169918867,
+          "delta": ". The appointment starts at "
+        },
+        {
+          "sample": 102400,
+          "elapsedSeconds": 3.313864875002764,
+          "delta": "9.30 and"
+        },
+        {
+          "sample": 112640,
+          "elapsedSeconds": 3.7162289999978384,
+          "delta": " ends at"
+        },
+        {
+          "sample": 122880,
+          "elapsedSeconds": 4.120693709002808,
+          "delta": " 1"
+        },
+        {
+          "sample": 133120,
+          "elapsedSeconds": 4.579716833992279,
+          "delta": "1. Ich"
+        },
+        {
+          "sample": 143360,
+          "elapsedSeconds": 5.042079833991011,
+          "delta": " möchte diese Änder"
+        },
+        {
+          "sample": 153600,
+          "elapsedSeconds": 5.462348583998391,
+          "delta": "ung aus"
+        },
+        {
+          "sample": 163840,
+          "elapsedSeconds": 5.8630202089989325,
+          "delta": "drück"
+        },
+        {
+          "sample": 174080,
+          "elapsedSeconds": 6.418731999990996,
+          "delta": "lich nicht veröffentlichen."
+        },
+        {
+          "sample": 184320,
+          "elapsedSeconds": 6.908083959002397,
+          "delta": " We have"
+        },
+        {
+          "sample": 194560,
+          "elapsedSeconds": 7.416995666993898,
+          "delta": " 1"
+        },
+        {
+          "sample": 204800,
+          "elapsedSeconds": 7.877014375000726,
+          "delta": "2"
+        },
+        {
+          "sample": 215040,
+          "elapsedSeconds": 8.381446291998145,
+          "delta": " orders and"
+        },
+        {
+          "sample": 225280,
+          "elapsedSeconds": 8.886351458990248,
+          "delta": " seven unanswered"
+        },
+        {
+          "sample": 235520,
+          "elapsedSeconds": 9.472458167001605,
+          "delta": " questions. Die Größe"
+        },
+        {
+          "sample": 245760,
+          "elapsedSeconds": 10.040912958997069,
+          "delta": " der Küche betr"
+        },
+        {
+          "sample": 256000,
+          "elapsedSeconds": 10.637334208993707,
+          "delta": "ägt unge"
+        },
+        {
+          "sample": 266240,
+          "elapsedSeconds": 11.083740499991109,
+          "delta": "fähr"
+        },
+        {
+          "sample": 276480,
+          "elapsedSeconds": 11.512317499989877,
+          "delta": " 1"
+        },
+        {
+          "sample": 286720,
+          "elapsedSeconds": 11.97924816700106,
+          "delta": "8 Quadrat"
+        },
+        {
+          "sample": 296960,
+          "elapsedSeconds": 12.43898774999252,
+          "delta": "meter"
+        },
+        {
+          "sample": 307200,
+          "elapsedSeconds": 12.94165916700149,
+          "delta": ". Please"
+        },
+        {
+          "sample": 317440,
+          "elapsedSeconds": 13.469616333997692,
+          "delta": " check the documentation and"
+        },
+        {
+          "sample": 327680,
+          "elapsedSeconds": 13.956690624996554,
+          "delta": " then"
+        },
+        {
+          "sample": 337920,
+          "elapsedSeconds": 14.494685333993402,
+          "delta": " start the test."
+        },
+        {
+          "sample": 348160,
+          "elapsedSeconds": 14.98624541699246,
+          "delta": " Ich"
+        },
+        {
+          "sample": 358400,
+          "elapsedSeconds": 15.59345920899068,
+          "delta": " denke, wir"
+        },
+        {
+          "sample": 368640,
+          "elapsedSeconds": 16.155349916996784,
+          "delta": " sollten zu"
+        },
+        {
+          "sample": 378880,
+          "elapsedSeconds": 16.71683804198983,
+          "delta": "erst"
+        },
+        {
+          "sample": 389120,
+          "elapsedSeconds": 17.157394541995018,
+          "delta": " die einfachere"
+        },
+        {
+          "sample": 399360,
+          "elapsedSeconds": 17.598493625002448,
+          "delta": " Lösung"
+        },
+        {
+          "sample": 409600,
+          "elapsedSeconds": 18.07034616699093,
+          "delta": " versuchen."
+        },
+        {
+          "sample": 419840,
+          "elapsedSeconds": 18.52333524999267,
+          "delta": " No,"
+        },
+        {
+          "sample": 430080,
+          "elapsedSeconds": 19.032412916989415,
+          "delta": " no,"
+        },
+        {
+          "sample": 440320,
+          "elapsedSeconds": 19.53407820899156,
+          "delta": " this file must"
+        },
+        {
+          "sample": 450560,
+          "elapsedSeconds": 20.01375591699616,
+          "delta": " not"
+        },
+        {
+          "sample": 460800,
+          "elapsedSeconds": 20.561902499990538,
+          "delta": " be deleted yet."
+        },
+        {
+          "sample": 471040,
+          "elapsedSeconds": 21.12802095898951,
+          "delta": " Die Straße führt"
+        },
+        {
+          "sample": 481280,
+          "elapsedSeconds": 21.632360124989646,
+          "delta": " über die Br"
+        },
+        {
+          "sample": 491520,
+          "elapsedSeconds": 22.182699208991835,
+          "delta": "ücke"
+        },
+        {
+          "sample": 501760,
+          "elapsedSeconds": 22.756085458997404,
+          "delta": " zum öff"
+        },
+        {
+          "sample": 512000,
+          "elapsedSeconds": 23.299363958998583,
+          "delta": "entlichen"
+        },
+        {
+          "sample": 522240,
+          "elapsedSeconds": 23.67331374999776,
+          "delta": ""
+        },
+        {
+          "sample": 532480,
+          "elapsedSeconds": 24.161722333999933,
+          "delta": " Gebäude. Today is September"
+        },
+        {
+          "sample": 542720,
+          "elapsedSeconds": 24.63225241699547,
+          "delta": " 22nd"
+        },
+        {
+          "sample": 552960,
+          "elapsedSeconds": 25.113549000001512,
+          "delta": ", "
+        },
+        {
+          "sample": 563200,
+          "elapsedSeconds": 25.662559749995125,
+          "delta": "2026"
+        },
+        {
+          "sample": 573440,
+          "elapsedSeconds": 26.207483749996754,
+          "delta": ". Kannst"
+        },
+        {
+          "sample": 583680,
+          "elapsedSeconds": 26.73875320899242,
+          "delta": " du mir"
+        },
+        {
+          "sample": 593920,
+          "elapsedSeconds": 27.26824266699259,
+          "delta": " bitte erklären"
+        },
+        {
+          "sample": 604160,
+          "elapsedSeconds": 27.798966583999572,
+          "delta": ", warum"
+        },
+        {
+          "sample": 614400,
+          "elapsedSeconds": 28.368445792002603,
+          "delta": " die Verbindung"
+        },
+        {
+          "sample": 624640,
+          "elapsedSeconds": 28.91338874999201,
+          "delta": " unterbro"
+        },
+        {
+          "sample": 634880,
+          "elapsedSeconds": 29.47943070899055,
+          "delta": "chen wurde"
+        },
+        {
+          "sample": 645120,
+          "elapsedSeconds": 29.959122624990414,
+          "delta": "? The password"
+        },
+        {
+          "sample": 655360,
+          "elapsedSeconds": 30.414200416998938,
+          "delta": " does not belong"
+        },
+        {
+          "sample": 665600,
+          "elapsedSeconds": 30.846311583998613,
+          "delta": " in"
+        },
+        {
+          "sample": 675840,
+          "elapsedSeconds": 31.378625750003266,
+          "delta": " the public log."
+        },
+        {
+          "sample": 686080,
+          "elapsedSeconds": 31.863437666994287,
+          "delta": " Wir bra"
+        },
+        {
+          "sample": 696320,
+          "elapsedSeconds": 32.37044195899216,
+          "delta": "uchen sow"
+        },
+        {
+          "sample": 706560,
+          "elapsedSeconds": 32.903580666999915,
+          "delta": "ohl eine deutsche als"
+        },
+        {
+          "sample": 716800,
+          "elapsedSeconds": 33.435917124996195,
+          "delta": " auch eine engl"
+        },
+        {
+          "sample": 727040,
+          "elapsedSeconds": 33.94883995898999,
+          "delta": "ische F"
+        },
+        {
+          "sample": 737280,
+          "elapsedSeconds": 34.52641170899733,
+          "delta": "assung"
+        },
+        {
+          "sample": 747520,
+          "elapsedSeconds": 35.12077608398977,
+          "delta": ". Thank you"
+        },
+        {
+          "sample": 757760,
+          "elapsedSeconds": 35.72994641699188,
+          "delta": " for your message."
+        },
+        {
+          "sample": 768000,
+          "elapsedSeconds": 36.299800249995315,
+          "delta": " I will"
+        },
+        {
+          "sample": 778240,
+          "elapsedSeconds": 36.743683166991104,
+          "delta": " get back"
+        },
+        {
+          "sample": 788480,
+          "elapsedSeconds": 37.23288029199466,
+          "delta": " to you on Friday"
+        },
+        {
+          "sample": 798720,
+          "elapsedSeconds": 37.65495012499741,
+          "delta": ". Der"
+        },
+        {
+          "sample": 808960,
+          "elapsedSeconds": 38.16583670899854,
+          "delta": " Gesamtb"
+        },
+        {
+          "sample": 819200,
+          "elapsedSeconds": 38.70284654200077,
+          "delta": "etrag beträ"
+        },
+        {
+          "sample": 829440,
+          "elapsedSeconds": 39.14148174998991,
+          "delta": ""
+        },
+        {
+          "sample": 839680,
+          "elapsedSeconds": 39.622019999995246,
+          "delta": "gt "
+        },
+        {
+          "sample": 849920,
+          "elapsedSeconds": 40.12396783399163,
+          "delta": "24"
+        },
+        {
+          "sample": 860160,
+          "elapsedSeconds": 40.62884237499384,
+          "delta": "5 Euro"
+        },
+        {
+          "sample": 870400,
+          "elapsedSeconds": 41.21434966700326,
+          "delta": ". Please change"
+        },
+        {
+          "sample": 880640,
+          "elapsedSeconds": 41.82639937500062,
+          "delta": " only the title and"
+        },
+        {
+          "sample": 890880,
+          "elapsedSeconds": 42.40340283399564,
+          "delta": " leave the rest"
+        },
+        {
+          "sample": 901120,
+          "elapsedSeconds": 42.788785917000496,
+          "delta": ""
+        },
+        {
+          "sample": 911360,
+          "elapsedSeconds": 43.25636212500103,
+          "delta": " of the text"
+        },
+        {
+          "sample": 921600,
+          "elapsedSeconds": 43.67708137498994,
+          "delta": " unchanged."
+        },
+        {
+          "sample": 931840,
+          "elapsedSeconds": 44.077036208997015,
+          "delta": " Ich"
+        },
+        {
+          "sample": 942080,
+          "elapsedSeconds": 44.580159584002104,
+          "delta": " habe die"
+        },
+        {
+          "sample": 952320,
+          "elapsedSeconds": 45.0613210839947,
+          "delta": " neue"
+        },
+        {
+          "sample": 962560,
+          "elapsedSeconds": 45.54128129199671,
+          "delta": " Version bereits"
+        },
+        {
+          "sample": 972800,
+          "elapsedSeconds": 46.05114904200309,
+          "delta": " auf meinem"
+        },
+        {
+          "sample": 983040,
+          "elapsedSeconds": 46.588697624989436,
+          "delta": " Computer installiert"
+        },
+        {
+          "sample": 993280,
+          "elapsedSeconds": 47.07712187500147,
+          "delta": ". The"
+        },
+        {
+          "sample": 1003520,
+          "elapsedSeconds": 47.616630834003445,
+          "delta": " review"
+        },
+        {
+          "sample": 1013760,
+          "elapsedSeconds": 48.17871495899453,
+          "delta": " must be fully"
+        },
+        {
+          "sample": 1024000,
+          "elapsedSeconds": 48.743733708994114,
+          "delta": " completed before"
+        },
+        {
+          "sample": 1034240,
+          "elapsedSeconds": 49.21005324998987,
+          "delta": " we continue."
+        },
+        {
+          "sample": 1044480,
+          "elapsedSeconds": 49.63315349999175,
+          "delta": " Erster"
+        },
+        {
+          "sample": 1054720,
+          "elapsedSeconds": 50.062200999993365,
+          "delta": " P"
+        },
+        {
+          "sample": 1064960,
+          "elapsedSeconds": 50.54045454200241,
+          "delta": "unkt, die Qualität"
+        },
+        {
+          "sample": 1075200,
+          "elapsedSeconds": 51.05080250000174,
+          "delta": ". Zwe"
+        },
+        {
+          "sample": 1085440,
+          "elapsedSeconds": 51.55348950000189,
+          "delta": "iter Punkt"
+        },
+        {
+          "sample": 1095680,
+          "elapsedSeconds": 52.0117706250021,
+          "delta": ","
+        },
+        {
+          "sample": 1105920,
+          "elapsedSeconds": 52.55847258400172,
+          "delta": " die Geschwindigkeit"
+        },
+        {
+          "sample": 1116160,
+          "elapsedSeconds": 53.017046833992936,
+          "delta": "."
+        },
+        {
+          "sample": 1126400,
+          "elapsedSeconds": 53.521027041992056,
+          "delta": " That was"
+        },
+        {
+          "sample": 1136640,
+          "elapsedSeconds": 54.13892524999392,
+          "delta": " my last sentence."
+        },
+        {
+          "sample": 1146880,
+          "elapsedSeconds": 54.69140204199357,
+          "delta": " Please do"
+        },
+        {
+          "sample": 1157120,
+          "elapsedSeconds": 55.136235874990234,
+          "delta": " not add"
+        },
+        {
+          "sample": 1167360,
+          "elapsedSeconds": 55.62312170899531,
+          "delta": " any more words."
+        },
+        {
+          "sample": 1177600,
+          "elapsedSeconds": 56.088122542001656,
+          "delta": " Bitte schic"
+        },
+        {
+          "sample": 1187840,
+          "elapsedSeconds": 56.577417209002306,
+          "delta": "ke die aktualisierte"
+        },
+        {
+          "sample": 1198080,
+          "elapsedSeconds": 57.05811233399436,
+          "delta": " Rechn"
+        },
+        {
+          "sample": 1208320,
+          "elapsedSeconds": 57.5384913339949,
+          "delta": "ung m"
+        },
+        {
+          "sample": 1218560,
+          "elapsedSeconds": 58.04971474999911,
+          "delta": "orgen an"
+        },
+        {
+          "sample": 1228800,
+          "elapsedSeconds": 58.563691624993226,
+          "delta": " Frau Müller"
+        },
+        {
+          "sample": 1239040,
+          "elapsedSeconds": 59.16290075000143,
+          "delta": ". The appointment starts at "
+        },
+        {
+          "sample": 1249280,
+          "elapsedSeconds": 59.77334608399542,
+          "delta": "9:30 and"
+        },
+        {
+          "sample": 1259520,
+          "elapsedSeconds": 60.33879333399818,
+          "delta": " ends at"
+        },
+        {
+          "sample": 1269760,
+          "elapsedSeconds": 60.90789116699307,
+          "delta": " 1"
+        },
+        {
+          "sample": 1280000,
+          "elapsedSeconds": 61.494080541990115,
+          "delta": "1. Ich"
+        },
+        {
+          "sample": 1290240,
+          "elapsedSeconds": 61.98924249999982,
+          "delta": " möchte diese Änderung"
+        },
+        {
+          "sample": 1300480,
+          "elapsedSeconds": 62.42000733400346,
+          "delta": " aus"
+        },
+        {
+          "sample": 1310720,
+          "elapsedSeconds": 62.93538404199353,
+          "delta": "drück"
+        },
+        {
+          "sample": 1320960,
+          "elapsedSeconds": 63.50715720899461,
+          "delta": "lich nicht veröffentlichen."
+        },
+        {
+          "sample": 1331200,
+          "elapsedSeconds": 64.00983233399165,
+          "delta": " We have"
+        },
+        {
+          "sample": 1341440,
+          "elapsedSeconds": 64.49244158399233,
+          "delta": " 1"
+        },
+        {
+          "sample": 1351680,
+          "elapsedSeconds": 64.95036387500295,
+          "delta": "2"
+        },
+        {
+          "sample": 1361920,
+          "elapsedSeconds": 65.45483708399115,
+          "delta": " orders and"
+        },
+        {
+          "sample": 1372160,
+          "elapsedSeconds": 66.02416812498996,
+          "delta": " seven unanswered"
+        },
+        {
+          "sample": 1382400,
+          "elapsedSeconds": 66.62271716700343,
+          "delta": " questions. Die Größe"
+        },
+        {
+          "sample": 1392640,
+          "elapsedSeconds": 67.2175581670017,
+          "delta": " der Küche betr"
+        },
+        {
+          "sample": 1402880,
+          "elapsedSeconds": 67.81028770899866,
+          "delta": "ägt unge"
+        },
+        {
+          "sample": 1413120,
+          "elapsedSeconds": 68.18588454199198,
+          "delta": ""
+        },
+        {
+          "sample": 1423360,
+          "elapsedSeconds": 68.65293724999356,
+          "delta": "fähr 1"
+        },
+        {
+          "sample": 1433600,
+          "elapsedSeconds": 69.11924679199001,
+          "delta": "8 Quadrat"
+        },
+        {
+          "sample": 1443840,
+          "elapsedSeconds": 69.52102887499495,
+          "delta": "meter"
+        },
+        {
+          "sample": 1454080,
+          "elapsedSeconds": 70.03525929199532,
+          "delta": ". Please"
+        },
+        {
+          "sample": 1464320,
+          "elapsedSeconds": 70.5745246669976,
+          "delta": " check the documentation and"
+        },
+        {
+          "sample": 1474560,
+          "elapsedSeconds": 71.06176895899989,
+          "delta": " then"
+        },
+        {
+          "sample": 1484800,
+          "elapsedSeconds": 71.58871833399462,
+          "delta": " start the test"
+        },
+        {
+          "sample": 1495040,
+          "elapsedSeconds": 72.09389779200137,
+          "delta": ". Ich"
+        },
+        {
+          "sample": 1505280,
+          "elapsedSeconds": 72.64188670899603,
+          "delta": " denke, wir"
+        },
+        {
+          "sample": 1515520,
+          "elapsedSeconds": 73.20603295900219,
+          "delta": " sollten zu"
+        },
+        {
+          "sample": 1525760,
+          "elapsedSeconds": 73.79664437499014,
+          "delta": "erst die"
+        },
+        {
+          "sample": 1536000,
+          "elapsedSeconds": 74.352542291992,
+          "delta": " einfachere"
+        },
+        {
+          "sample": 1546240,
+          "elapsedSeconds": 74.81052945899137,
+          "delta": " Lösung"
+        },
+        {
+          "sample": 1556480,
+          "elapsedSeconds": 75.29893649999576,
+          "delta": " versuchen."
+        },
+        {
+          "sample": 1566720,
+          "elapsedSeconds": 75.7575568750035,
+          "delta": " No,"
+        },
+        {
+          "sample": 1576960,
+          "elapsedSeconds": 76.27482712500205,
+          "delta": " no,"
+        },
+        {
+          "sample": 1587200,
+          "elapsedSeconds": 76.799772458995,
+          "delta": " this file must"
+        },
+        {
+          "sample": 1597440,
+          "elapsedSeconds": 77.30601887499506,
+          "delta": " not be deleted"
+        },
+        {
+          "sample": 1607680,
+          "elapsedSeconds": 77.81344941699354,
+          "delta": " yet. Die"
+        },
+        {
+          "sample": 1617920,
+          "elapsedSeconds": 78.37486912499298,
+          "delta": " Straße führt"
+        },
+        {
+          "sample": 1628160,
+          "elapsedSeconds": 78.90962304199638,
+          "delta": " über die Brück"
+        },
+        {
+          "sample": 1638400,
+          "elapsedSeconds": 79.44120120900334,
+          "delta": "e"
+        },
+        {
+          "sample": 1648640,
+          "elapsedSeconds": 80.01568029199552,
+          "delta": " zum öff"
+        },
+        {
+          "sample": 1658880,
+          "elapsedSeconds": 80.57759895898926,
+          "delta": "entlichen"
+        },
+        {
+          "sample": 1669120,
+          "elapsedSeconds": 80.95604799999273,
+          "delta": ""
+        },
+        {
+          "sample": 1679360,
+          "elapsedSeconds": 81.44835920899641,
+          "delta": " Gebäude. Today is September"
+        },
+        {
+          "sample": 1689600,
+          "elapsedSeconds": 81.91933745899587,
+          "delta": " 22nd"
+        },
+        {
+          "sample": 1699840,
+          "elapsedSeconds": 82.36649645899888,
+          "delta": ", "
+        },
+        {
+          "sample": 1710080,
+          "elapsedSeconds": 82.91919504199177,
+          "delta": "2026"
+        },
+        {
+          "sample": 1720320,
+          "elapsedSeconds": 83.43817704200046,
+          "delta": ". Kannst"
+        },
+        {
+          "sample": 1730560,
+          "elapsedSeconds": 83.95554566699138,
+          "delta": " du mir bitte"
+        },
+        {
+          "sample": 1740800,
+          "elapsedSeconds": 84.46304129199416,
+          "delta": " erklären"
+        },
+        {
+          "sample": 1751040,
+          "elapsedSeconds": 84.96867845900124,
+          "delta": ", war"
+        },
+        {
+          "sample": 1761280,
+          "elapsedSeconds": 85.55314274999546,
+          "delta": "um die Verbindung"
+        },
+        {
+          "sample": 1771520,
+          "elapsedSeconds": 86.094335709,
+          "delta": " unter"
+        },
+        {
+          "sample": 1781760,
+          "elapsedSeconds": 86.68340354200336,
+          "delta": "brochen wurde"
+        },
+        {
+          "sample": 1792000,
+          "elapsedSeconds": 87.2804713749938,
+          "delta": "? The password"
+        },
+        {
+          "sample": 1802240,
+          "elapsedSeconds": 87.73824637499638,
+          "delta": " does not belong"
+        },
+        {
+          "sample": 1812480,
+          "elapsedSeconds": 88.16186941700289,
+          "delta": " in"
+        },
+        {
+          "sample": 1822720,
+          "elapsedSeconds": 88.65370837500086,
+          "delta": " the public log."
+        },
+        {
+          "sample": 1832960,
+          "elapsedSeconds": 89.16629045899026,
+          "delta": " Wir bra"
+        },
+        {
+          "sample": 1843200,
+          "elapsedSeconds": 89.68343104199448,
+          "delta": "uchen sow"
+        },
+        {
+          "sample": 1853440,
+          "elapsedSeconds": 90.22603941700072,
+          "delta": "ohl eine deutsche als"
+        },
+        {
+          "sample": 1863680,
+          "elapsedSeconds": 90.77276604199142,
+          "delta": " auch eine engl"
+        },
+        {
+          "sample": 1873920,
+          "elapsedSeconds": 91.30261458399764,
+          "delta": "ische F"
+        },
+        {
+          "sample": 1884160,
+          "elapsedSeconds": 91.89531145899673,
+          "delta": "assung."
+        },
+        {
+          "sample": 1894400,
+          "elapsedSeconds": 92.48648316699837,
+          "delta": " Thank you"
+        },
+        {
+          "sample": 1904640,
+          "elapsedSeconds": 93.10812708399317,
+          "delta": " for your message."
+        },
+        {
+          "sample": 1914880,
+          "elapsedSeconds": 93.67274654199718,
+          "delta": " I will"
+        },
+        {
+          "sample": 1925120,
+          "elapsedSeconds": 94.11644108399923,
+          "delta": " get back"
+        },
+        {
+          "sample": 1935360,
+          "elapsedSeconds": 94.6053469999897,
+          "delta": " to you on Friday"
+        },
+        {
+          "sample": 1945600,
+          "elapsedSeconds": 95.08615179199842,
+          "delta": ". Der Ges"
+        },
+        {
+          "sample": 1955840,
+          "elapsedSeconds": 95.57887816699804,
+          "delta": "amtb"
+        },
+        {
+          "sample": 1966080,
+          "elapsedSeconds": 96.10523687499517,
+          "delta": "etrag beträ"
+        },
+        {
+          "sample": 1976320,
+          "elapsedSeconds": 96.56414083400159,
+          "delta": ""
+        },
+        {
+          "sample": 1986560,
+          "elapsedSeconds": 97.04505091698957,
+          "delta": "gt "
+        },
+        {
+          "sample": 1996800,
+          "elapsedSeconds": 97.54849308400298,
+          "delta": "24"
+        },
+        {
+          "sample": 2007040,
+          "elapsedSeconds": 98.0501987089956,
+          "delta": "5 Euro"
+        },
+        {
+          "sample": 2017280,
+          "elapsedSeconds": 98.57748795900261,
+          "delta": ". Please change"
+        },
+        {
+          "sample": 2027520,
+          "elapsedSeconds": 99.20027349999873,
+          "delta": " only the title and"
+        },
+        {
+          "sample": 2037760,
+          "elapsedSeconds": 99.74947462500131,
+          "delta": " leave the"
+        },
+        {
+          "sample": 2048000,
+          "elapsedSeconds": 100.29284254199592,
+          "delta": " rest"
+        },
+        {
+          "sample": 2058240,
+          "elapsedSeconds": 100.75851183399209,
+          "delta": " of the text"
+        },
+        {
+          "sample": 2068480,
+          "elapsedSeconds": 101.17932533400017,
+          "delta": " unchanged."
+        },
+        {
+          "sample": 2078720,
+          "elapsedSeconds": 101.60275966700283,
+          "delta": " Ich"
+        },
+        {
+          "sample": 2088960,
+          "elapsedSeconds": 102.04701995899086,
+          "delta": " habe die"
+        },
+        {
+          "sample": 2099200,
+          "elapsedSeconds": 102.53075824999542,
+          "delta": " neue"
+        },
+        {
+          "sample": 2109440,
+          "elapsedSeconds": 103.02350816699618,
+          "delta": " Version bereits"
+        },
+        {
+          "sample": 2119680,
+          "elapsedSeconds": 103.53804612500244,
+          "delta": " auf meinem"
+        },
+        {
+          "sample": 2129920,
+          "elapsedSeconds": 104.07256666698959,
+          "delta": " Computer installiert"
+        },
+        {
+          "sample": 2140160,
+          "elapsedSeconds": 104.55398154199065,
+          "delta": ". The"
+        },
+        {
+          "sample": 2150400,
+          "elapsedSeconds": 105.05825750000076,
+          "delta": " review must"
+        },
+        {
+          "sample": 2160640,
+          "elapsedSeconds": 105.59869345898915,
+          "delta": " be fully"
+        },
+        {
+          "sample": 2170880,
+          "elapsedSeconds": 106.16087233400322,
+          "delta": " completed before"
+        },
+        {
+          "sample": 2181120,
+          "elapsedSeconds": 106.62821524999163,
+          "delta": " we continue."
+        },
+        {
+          "sample": 2191360,
+          "elapsedSeconds": 107.0603930419893,
+          "delta": " Erster"
+        },
+        {
+          "sample": 2201600,
+          "elapsedSeconds": 107.49252549999801,
+          "delta": " P"
+        },
+        {
+          "sample": 2211840,
+          "elapsedSeconds": 107.97001108399127,
+          "delta": "unkt: die Qualität"
+        },
+        {
+          "sample": 2222080,
+          "elapsedSeconds": 108.47353491699323,
+          "delta": ". Zwe"
+        },
+        {
+          "sample": 2232320,
+          "elapsedSeconds": 108.97823999999673,
+          "delta": "iter Punkt"
+        },
+        {
+          "sample": 2242560,
+          "elapsedSeconds": 109.43880474999605,
+          "delta": ":"
+        },
+        {
+          "sample": 2252800,
+          "elapsedSeconds": 109.98801775000175,
+          "delta": " die Geschwindigkeit"
+        },
+        {
+          "sample": 2263040,
+          "elapsedSeconds": 110.4483805839991,
+          "delta": "."
+        },
+        {
+          "sample": 2273280,
+          "elapsedSeconds": 110.98036629200215,
+          "delta": " That was my"
+        },
+        {
+          "sample": 2283520,
+          "elapsedSeconds": 111.57937545899767,
+          "delta": " last sentence."
+        },
+        {
+          "sample": 2293760,
+          "elapsedSeconds": 112.14746204199037,
+          "delta": " Please do not"
+        },
+        {
+          "sample": 2304000,
+          "elapsedSeconds": 112.755696334003,
+          "delta": " add any more words"
+        },
+        {
+          "sample": 2314240,
+          "elapsedSeconds": 113.18050587500329,
+          "delta": "."
+        },
+        {
+          "sample": 2324480,
+          "elapsedSeconds": 113.6503726249939,
+          "delta": " Bitte schic"
+        },
+        {
+          "sample": 2334720,
+          "elapsedSeconds": 114.13859162500012,
+          "delta": "ke die aktualisierte"
+        },
+        {
+          "sample": 2344960,
+          "elapsedSeconds": 114.64172341699305,
+          "delta": " Rechn"
+        },
+        {
+          "sample": 2355200,
+          "elapsedSeconds": 115.13037699999404,
+          "delta": "ung m"
+        },
+        {
+          "sample": 2365440,
+          "elapsedSeconds": 115.64570429199375,
+          "delta": "orgen an"
+        },
+        {
+          "sample": 2375680,
+          "elapsedSeconds": 116.15366358400206,
+          "delta": " Frau Müller"
+        },
+        {
+          "sample": 2385920,
+          "elapsedSeconds": 116.75004345898924,
+          "delta": ". The appointment starts at "
+        },
+        {
+          "sample": 2396160,
+          "elapsedSeconds": 117.30076395899232,
+          "delta": "9:30 and"
+        },
+        {
+          "sample": 2406400,
+          "elapsedSeconds": 117.86945387499873,
+          "delta": " ends at"
+        },
+        {
+          "sample": 2416640,
+          "elapsedSeconds": 118.43966241698945,
+          "delta": " 1"
+        },
+        {
+          "sample": 2426880,
+          "elapsedSeconds": 119.04029649999575,
+          "delta": "1. Ich"
+        },
+        {
+          "sample": 2437120,
+          "elapsedSeconds": 119.53112508400227,
+          "delta": " möchte diese Änderung"
+        },
+        {
+          "sample": 2447360,
+          "elapsedSeconds": 119.95409508400189,
+          "delta": " aus"
+        },
+        {
+          "sample": 2457600,
+          "elapsedSeconds": 120.40312637499301,
+          "delta": "drück"
+        },
+        {
+          "sample": 2467840,
+          "elapsedSeconds": 120.97566929199093,
+          "delta": "lich nicht veröffentlichen."
+        },
+        {
+          "sample": 2478080,
+          "elapsedSeconds": 121.4795925419894,
+          "delta": " We have"
+        },
+        {
+          "sample": 2488320,
+          "elapsedSeconds": 121.96179983399634,
+          "delta": " 1"
+        },
+        {
+          "sample": 2498560,
+          "elapsedSeconds": 122.4493891250022,
+          "delta": "2 orders"
+        },
+        {
+          "sample": 2508800,
+          "elapsedSeconds": 122.93984500000079,
+          "delta": " and"
+        },
+        {
+          "sample": 2519040,
+          "elapsedSeconds": 123.45073179199244,
+          "delta": " seven unanswered"
+        },
+        {
+          "sample": 2529280,
+          "elapsedSeconds": 124.03656670899363,
+          "delta": " questions. Die Größe"
+        },
+        {
+          "sample": 2539520,
+          "elapsedSeconds": 124.62144912499934,
+          "delta": " der Küche betr"
+        },
+        {
+          "sample": 2549760,
+          "elapsedSeconds": 125.20363366699894,
+          "delta": "ägt unge"
+        },
+        {
+          "sample": 2560000,
+          "elapsedSeconds": 125.77079433399194,
+          "delta": "fähr "
+        },
+        {
+          "sample": 2570240,
+          "elapsedSeconds": 126.19539645899204,
+          "delta": "18"
+        },
+        {
+          "sample": 2580480,
+          "elapsedSeconds": 126.64559683400148,
+          "delta": " Quadrat"
+        },
+        {
+          "sample": 2590720,
+          "elapsedSeconds": 127.04742962500313,
+          "delta": "meter"
+        },
+        {
+          "sample": 2600960,
+          "elapsedSeconds": 127.56301829199947,
+          "delta": ". Please"
+        },
+        {
+          "sample": 2611200,
+          "elapsedSeconds": 128.09667529199214,
+          "delta": " check the documentation and"
+        },
+        {
+          "sample": 2621440,
+          "elapsedSeconds": 128.5780005419947,
+          "delta": " then"
+        },
+        {
+          "sample": 2631680,
+          "elapsedSeconds": 129.12465374999738,
+          "delta": " start the test."
+        },
+        {
+          "sample": 2641920,
+          "elapsedSeconds": 129.60536333399068,
+          "delta": " Ich"
+        },
+        {
+          "sample": 2652160,
+          "elapsedSeconds": 130.15270191700256,
+          "delta": " denke, wir"
+        },
+        {
+          "sample": 2662400,
+          "elapsedSeconds": 130.7160712499899,
+          "delta": " sollten zu"
+        },
+        {
+          "sample": 2672640,
+          "elapsedSeconds": 131.3133527089958,
+          "delta": "erst die"
+        },
+        {
+          "sample": 2682880,
+          "elapsedSeconds": 131.86645883400342,
+          "delta": " einfachere"
+        },
+        {
+          "sample": 2693120,
+          "elapsedSeconds": 132.31477845899644,
+          "delta": " Lösung vers"
+        },
+        {
+          "sample": 2703360,
+          "elapsedSeconds": 132.75775979200262,
+          "delta": "uchen."
+        },
+        {
+          "sample": 2713600,
+          "elapsedSeconds": 133.20041566700093,
+          "delta": " No,"
+        },
+        {
+          "sample": 2723840,
+          "elapsedSeconds": 133.6463258750009,
+          "delta": " no, this"
+        },
+        {
+          "sample": 2734080,
+          "elapsedSeconds": 134.12842125000316,
+          "delta": " file must"
+        },
+        {
+          "sample": 2744320,
+          "elapsedSeconds": 134.6323926670011,
+          "delta": " not be deleted"
+        },
+        {
+          "sample": 2754560,
+          "elapsedSeconds": 135.14071533399692,
+          "delta": " yet. Die"
+        },
+        {
+          "sample": 2764800,
+          "elapsedSeconds": 135.70619608399284,
+          "delta": " Straße führt"
+        },
+        {
+          "sample": 2775040,
+          "elapsedSeconds": 136.25119908399938,
+          "delta": " über die Brück"
+        },
+        {
+          "sample": 2785280,
+          "elapsedSeconds": 136.73307266698976,
+          "delta": "e zum"
+        },
+        {
+          "sample": 2795520,
+          "elapsedSeconds": 137.27385245899495,
+          "delta": " öff"
+        },
+        {
+          "sample": 2805760,
+          "elapsedSeconds": 137.84048349999648,
+          "delta": "entlichen"
+        },
+        {
+          "sample": 2816000,
+          "elapsedSeconds": 138.40795933399932,
+          "delta": " Gebäude. Today"
+        },
+        {
+          "sample": 2826240,
+          "elapsedSeconds": 138.82776775000093,
+          "delta": " is September"
+        },
+        {
+          "sample": 2836480,
+          "elapsedSeconds": 139.32691212499049,
+          "delta": " 22nd,"
+        },
+        {
+          "sample": 2846720,
+          "elapsedSeconds": 139.75880216699443,
+          "delta": " "
+        },
+        {
+          "sample": 2856960,
+          "elapsedSeconds": 140.28942716699385,
+          "delta": "2026"
+        },
+        {
+          "sample": 2867200,
+          "elapsedSeconds": 140.7936185419967,
+          "delta": ". Kannst"
+        },
+        {
+          "sample": 2877440,
+          "elapsedSeconds": 141.32082262499898,
+          "delta": " du mir bitte"
+        },
+        {
+          "sample": 2887680,
+          "elapsedSeconds": 141.8250817090011,
+          "delta": " erklären,"
+        },
+        {
+          "sample": 2897920,
+          "elapsedSeconds": 142.3314397919894,
+          "delta": " warum"
+        },
+        {
+          "sample": 2908160,
+          "elapsedSeconds": 142.8372778339981,
+          "delta": " die Verbindung"
+        },
+        {
+          "sample": 2918400,
+          "elapsedSeconds": 143.3881037090032,
+          "delta": " unterbro"
+        },
+        {
+          "sample": 2928640,
+          "elapsedSeconds": 143.9649908339925,
+          "delta": "chen wurde"
+        },
+        {
+          "sample": 2938880,
+          "elapsedSeconds": 144.55301179199887,
+          "delta": "? The password"
+        },
+        {
+          "sample": 2949120,
+          "elapsedSeconds": 144.99759829200048,
+          "delta": " does not belong"
+        },
+        {
+          "sample": 2959360,
+          "elapsedSeconds": 145.4211304999917,
+          "delta": " in"
+        },
+        {
+          "sample": 2969600,
+          "elapsedSeconds": 145.91324120899662,
+          "delta": " the public log."
+        },
+        {
+          "sample": 2979840,
+          "elapsedSeconds": 146.3582140419894,
+          "delta": " Wir bra"
+        },
+        {
+          "sample": 2990080,
+          "elapsedSeconds": 146.8654532090004,
+          "delta": "uchen sow"
+        },
+        {
+          "sample": 3000320,
+          "elapsedSeconds": 147.40274883399252,
+          "delta": "ohl eine deutsche als"
+        },
+        {
+          "sample": 3010560,
+          "elapsedSeconds": 147.94436633399164,
+          "delta": " auch eine engl"
+        },
+        {
+          "sample": 3020800,
+          "elapsedSeconds": 148.45287937499234,
+          "delta": "ische F"
+        },
+        {
+          "sample": 3031040,
+          "elapsedSeconds": 148.98106404198916,
+          "delta": "assung. Thank"
+        },
+        {
+          "sample": 3041280,
+          "elapsedSeconds": 149.5229366249987,
+          "delta": " you for"
+        },
+        {
+          "sample": 3051520,
+          "elapsedSeconds": 150.1112316249928,
+          "delta": " your message."
+        },
+        {
+          "sample": 3061760,
+          "elapsedSeconds": 150.67440983399865,
+          "delta": " I will get"
+        },
+        {
+          "sample": 3072000,
+          "elapsedSeconds": 151.24618595899665,
+          "delta": " back to"
+        },
+        {
+          "sample": 3082240,
+          "elapsedSeconds": 151.71600874999422,
+          "delta": " you on Friday"
+        },
+        {
+          "sample": 3092480,
+          "elapsedSeconds": 152.18114366699592,
+          "delta": ". Der Ges"
+        },
+        {
+          "sample": 3102720,
+          "elapsedSeconds": 152.6926653339906,
+          "delta": "amtbetrag beträ"
+        },
+        {
+          "sample": 3112960,
+          "elapsedSeconds": 153.13118429199676,
+          "delta": ""
+        },
+        {
+          "sample": 3123200,
+          "elapsedSeconds": 153.59131937500206,
+          "delta": ""
+        },
+        {
+          "sample": 3133440,
+          "elapsedSeconds": 154.09696149999218,
+          "delta": "gt "
+        },
+        {
+          "sample": 3143680,
+          "elapsedSeconds": 154.61287445899507,
+          "delta": "24"
+        },
+        {
+          "sample": 3153920,
+          "elapsedSeconds": 155.13114504200348,
+          "delta": "5 Euro."
+        },
+        {
+          "sample": 3164160,
+          "elapsedSeconds": 155.63610245900054,
+          "delta": " Please change"
+        },
+        {
+          "sample": 3174400,
+          "elapsedSeconds": 156.2463996669976,
+          "delta": " only the title and"
+        },
+        {
+          "sample": 3184640,
+          "elapsedSeconds": 156.79197662499791,
+          "delta": " leave the"
+        },
+        {
+          "sample": 3194880,
+          "elapsedSeconds": 157.33739945899288,
+          "delta": " rest"
+        },
+        {
+          "sample": 3205120,
+          "elapsedSeconds": 157.80728762499348,
+          "delta": " of the text"
+        },
+        {
+          "sample": 3215360,
+          "elapsedSeconds": 158.2305972089962,
+          "delta": " unchanged."
+        },
+        {
+          "sample": 3225600,
+          "elapsedSeconds": 158.66445050000038,
+          "delta": " Ich"
+        },
+        {
+          "sample": 3235840,
+          "elapsedSeconds": 159.12174141699506,
+          "delta": " habe die"
+        },
+        {
+          "sample": 3246080,
+          "elapsedSeconds": 159.60565083399706,
+          "delta": " neue"
+        },
+        {
+          "sample": 3256320,
+          "elapsedSeconds": 160.1091739169933,
+          "delta": " Version bereits auf"
+        },
+        {
+          "sample": 3266560,
+          "elapsedSeconds": 160.59059987499495,
+          "delta": " meinem"
+        },
+        {
+          "sample": 3276800,
+          "elapsedSeconds": 161.116225167003,
+          "delta": " Computer installiert"
+        },
+        {
+          "sample": 3287040,
+          "elapsedSeconds": 161.59745120900334,
+          "delta": ". The"
+        },
+        {
+          "sample": 3297280,
+          "elapsedSeconds": 162.1018552500027,
+          "delta": " review must"
+        },
+        {
+          "sample": 3307520,
+          "elapsedSeconds": 162.65196141699562,
+          "delta": " be fully"
+        },
+        {
+          "sample": 3317760,
+          "elapsedSeconds": 163.2268326249905,
+          "delta": " completed before"
+        },
+        {
+          "sample": 3328000,
+          "elapsedSeconds": 163.81718687499233,
+          "delta": " we continue. Er"
+        },
+        {
+          "sample": 3338240,
+          "elapsedSeconds": 164.21389995899517,
+          "delta": "ster"
+        },
+        {
+          "sample": 3348480,
+          "elapsedSeconds": 164.63638837500184,
+          "delta": " P"
+        },
+        {
+          "sample": 3358720,
+          "elapsedSeconds": 165.10508920899883,
+          "delta": "unkt: die Qualität"
+        },
+        {
+          "sample": 3368960,
+          "elapsedSeconds": 165.55284725000092,
+          "delta": ". Zwe"
+        },
+        {
+          "sample": 3379200,
+          "elapsedSeconds": 166.0554851670022,
+          "delta": "iter Punkt"
+        },
+        {
+          "sample": 3389440,
+          "elapsedSeconds": 166.52026945899706,
+          "delta": ":"
+        },
+        {
+          "sample": 3399680,
+          "elapsedSeconds": 166.967726709001,
+          "delta": ""
+        },
+        {
+          "sample": 3409920,
+          "elapsedSeconds": 167.546720792001,
+          "delta": " die Geschwindigkeit. That"
+        },
+        {
+          "sample": 3420160,
+          "elapsedSeconds": 168.052849959,
+          "delta": " was my"
+        },
+        {
+          "sample": 3430400,
+          "elapsedSeconds": 168.5810038339987,
+          "delta": " last sentence. Please"
+        },
+        {
+          "sample": 3440640,
+          "elapsedSeconds": 169.1216547919903,
+          "delta": " do not"
+        },
+        {
+          "sample": 3450880,
+          "elapsedSeconds": 169.7310962920019,
+          "delta": " add any more words"
+        },
+        {
+          "sample": 3461120,
+          "elapsedSeconds": 170.1542923340021,
+          "delta": "."
+        },
+        {
+          "sample": 3471360,
+          "elapsedSeconds": 170.63252279200242,
+          "delta": " Bitte schic"
+        },
+        {
+          "sample": 3481600,
+          "elapsedSeconds": 171.1349059589993,
+          "delta": "ke die aktualisierte"
+        },
+        {
+          "sample": 3491840,
+          "elapsedSeconds": 171.58182270899124,
+          "delta": " Rechn"
+        },
+        {
+          "sample": 3502080,
+          "elapsedSeconds": 172.0837032499985,
+          "delta": "ung m"
+        },
+        {
+          "sample": 3512320,
+          "elapsedSeconds": 172.58850012499897,
+          "delta": "orgen an"
+        },
+        {
+          "sample": 3522560,
+          "elapsedSeconds": 173.0927227499924,
+          "delta": " Frau Müller"
+        },
+        {
+          "sample": 3532800,
+          "elapsedSeconds": 173.68597270899045,
+          "delta": ". The appointment starts at "
+        },
+        {
+          "sample": 3543040,
+          "elapsedSeconds": 174.26096349999716,
+          "delta": "9:30 and ends"
+        },
+        {
+          "sample": 3553280,
+          "elapsedSeconds": 174.81741283400333,
+          "delta": " at"
+        },
+        {
+          "sample": 3563520,
+          "elapsedSeconds": 175.3938411249983,
+          "delta": " 1"
+        },
+        {
+          "sample": 3573760,
+          "elapsedSeconds": 176.0052722919936,
+          "delta": "1. Ich möchte"
+        },
+        {
+          "sample": 3584000,
+          "elapsedSeconds": 176.59222658399085,
+          "delta": " diese Änderung"
+        },
+        {
+          "sample": 3594240,
+          "elapsedSeconds": 177.01436583399482,
+          "delta": " aus"
+        },
+        {
+          "sample": 3604480,
+          "elapsedSeconds": 177.48160154199286,
+          "delta": "drücklich"
+        },
+        {
+          "sample": 3614720,
+          "elapsedSeconds": 177.9733811670012,
+          "delta": " nicht veröffentlichen."
+        },
+        {
+          "sample": 3624960,
+          "elapsedSeconds": 178.48210858399398,
+          "delta": " We have"
+        },
+        {
+          "sample": 3635200,
+          "elapsedSeconds": 178.97473591699963,
+          "delta": " 1"
+        },
+        {
+          "sample": 3645440,
+          "elapsedSeconds": 179.4621577499929,
+          "delta": "2 orders"
+        },
+        {
+          "sample": 3655680,
+          "elapsedSeconds": 179.94616641699395,
+          "delta": " and"
+        },
+        {
+          "sample": 3665920,
+          "elapsedSeconds": 180.45280937499774,
+          "delta": " seven unanswered questions"
+        },
+        {
+          "sample": 3676160,
+          "elapsedSeconds": 180.98203987500165,
+          "delta": ". Die Größe"
+        },
+        {
+          "sample": 3686400,
+          "elapsedSeconds": 181.56696745900263,
+          "delta": " der Küche betr"
+        },
+        {
+          "sample": 3696640,
+          "elapsedSeconds": 182.1518674169929,
+          "delta": "ägt unge"
+        },
+        {
+          "sample": 3706880,
+          "elapsedSeconds": 182.7287669590005,
+          "delta": "fähr "
+        },
+        {
+          "sample": 3717120,
+          "elapsedSeconds": 183.15846704199794,
+          "delta": "18"
+        },
+        {
+          "sample": 3727360,
+          "elapsedSeconds": 183.6028513749916,
+          "delta": " Quadrat"
+        },
+        {
+          "sample": 3737600,
+          "elapsedSeconds": 184.00295449999976,
+          "delta": "meter"
+        },
+        {
+          "sample": 3747840,
+          "elapsedSeconds": 184.45071216700308,
+          "delta": ". Please check"
+        },
+        {
+          "sample": 3758080,
+          "elapsedSeconds": 184.95569241700287,
+          "delta": " the documentation and"
+        },
+        {
+          "sample": 3768320,
+          "elapsedSeconds": 185.43845466698986,
+          "delta": " then"
+        },
+        {
+          "sample": 3778560,
+          "elapsedSeconds": 185.98692195898911,
+          "delta": " start the test."
+        },
+        {
+          "sample": 3788800,
+          "elapsedSeconds": 186.47172554199642,
+          "delta": " Ich"
+        },
+        {
+          "sample": 3799040,
+          "elapsedSeconds": 187.03610841699992,
+          "delta": " denke, wir"
+        },
+        {
+          "sample": 3809280,
+          "elapsedSeconds": 187.5446859169897,
+          "delta": " sollten zu"
+        },
+        {
+          "sample": 3819520,
+          "elapsedSeconds": 188.12935145899246,
+          "delta": "erst die"
+        },
+        {
+          "sample": 3829760,
+          "elapsedSeconds": 188.69158674999198,
+          "delta": " einfachere Lös"
+        },
+        {
+          "sample": 3840000,
+          "elapsedSeconds": 189.23481783400348,
+          "delta": "ung vers"
+        },
+        {
+          "sample": 3850240,
+          "elapsedSeconds": 189.67999283398967,
+          "delta": "uchen."
+        },
+        {
+          "sample": 3860480,
+          "elapsedSeconds": 190.12479333399097,
+          "delta": " No,"
+        },
+        {
+          "sample": 3870720,
+          "elapsedSeconds": 190.57565937499749,
+          "delta": " no, this"
+        },
+        {
+          "sample": 3880960,
+          "elapsedSeconds": 191.06730937499378,
+          "delta": " file must"
+        },
+        {
+          "sample": 3891200,
+          "elapsedSeconds": 191.57371337499353,
+          "delta": " not be deleted"
+        },
+        {
+          "sample": 3901440,
+          "elapsedSeconds": 192.0971432919905,
+          "delta": " yet. Die"
+        },
+        {
+          "sample": 3911680,
+          "elapsedSeconds": 192.6447656669916,
+          "delta": " Straße führt über"
+        },
+        {
+          "sample": 3921920,
+          "elapsedSeconds": 193.14713062500232,
+          "delta": " die Brück"
+        },
+        {
+          "sample": 3932160,
+          "elapsedSeconds": 193.62894245899224,
+          "delta": "e zum"
+        },
+        {
+          "sample": 3942400,
+          "elapsedSeconds": 194.19122008400154,
+          "delta": " öffent"
+        },
+        {
+          "sample": 3952640,
+          "elapsedSeconds": 194.75055483399774,
+          "delta": "lichen"
+        },
+        {
+          "sample": 3962880,
+          "elapsedSeconds": 195.3277289589896,
+          "delta": " Gebäude. Today"
+        },
+        {
+          "sample": 3973120,
+          "elapsedSeconds": 195.748851833996,
+          "delta": " is September"
+        },
+        {
+          "sample": 3983360,
+          "elapsedSeconds": 196.23710637500335,
+          "delta": " 22nd,"
+        },
+        {
+          "sample": 3993600,
+          "elapsedSeconds": 196.63811470899964,
+          "delta": " "
+        },
+        {
+          "sample": 4003840,
+          "elapsedSeconds": 197.12728495900228,
+          "delta": "2026."
+        },
+        {
+          "sample": 4014080,
+          "elapsedSeconds": 197.60797524999361,
+          "delta": " Kannst"
+        },
+        {
+          "sample": 4024320,
+          "elapsedSeconds": 198.13231920899125,
+          "delta": " du mir bitte"
+        },
+        {
+          "sample": 4034560,
+          "elapsedSeconds": 198.6464127090003,
+          "delta": " erklären,"
+        },
+        {
+          "sample": 4044800,
+          "elapsedSeconds": 199.16120866699202,
+          "delta": " warum"
+        },
+        {
+          "sample": 4055040,
+          "elapsedSeconds": 199.66570979199605,
+          "delta": " die Verbindung"
+        },
+        {
+          "sample": 4065280,
+          "elapsedSeconds": 200.20502724999096,
+          "delta": " unterbro"
+        },
+        {
+          "sample": 4075520,
+          "elapsedSeconds": 200.7716572920035,
+          "delta": "chen wurde"
+        },
+        {
+          "sample": 4085760,
+          "elapsedSeconds": 201.36350691699772,
+          "delta": "? The password"
+        },
+        {
+          "sample": 4096000,
+          "elapsedSeconds": 201.9312225419999,
+          "delta": " does not belong"
+        },
+        {
+          "sample": 4106240,
+          "elapsedSeconds": 202.3552569589956,
+          "delta": " in"
+        },
+        {
+          "sample": 4116480,
+          "elapsedSeconds": 202.85710354200273,
+          "delta": " the public log."
+        },
+        {
+          "sample": 4126720,
+          "elapsedSeconds": 203.30871800000023,
+          "delta": " Wir bra"
+        },
+        {
+          "sample": 4136960,
+          "elapsedSeconds": 203.81469495900092,
+          "delta": "uchen sow"
+        },
+        {
+          "sample": 4147200,
+          "elapsedSeconds": 204.3434909589996,
+          "delta": "ohl eine deutsche als"
+        },
+        {
+          "sample": 4157440,
+          "elapsedSeconds": 204.8726524169906,
+          "delta": " auch eine engl"
+        },
+        {
+          "sample": 4167680,
+          "elapsedSeconds": 205.37827191699762,
+          "delta": "ische F"
+        },
+        {
+          "sample": 4177920,
+          "elapsedSeconds": 205.90679166700284,
+          "delta": "assung. Thank"
+        },
+        {
+          "sample": 4188160,
+          "elapsedSeconds": 206.41493233399524,
+          "delta": " you for"
+        },
+        {
+          "sample": 4198400,
+          "elapsedSeconds": 207.0146435839997,
+          "delta": " your message."
+        },
+        {
+          "sample": 4208640,
+          "elapsedSeconds": 207.5805425419967,
+          "delta": " I will get"
+        },
+        {
+          "sample": 4218880,
+          "elapsedSeconds": 208.16373620899685,
+          "delta": " back to"
+        },
+        {
+          "sample": 4229120,
+          "elapsedSeconds": 208.6591131669993,
+          "delta": " you on Friday."
+        },
+        {
+          "sample": 4239360,
+          "elapsedSeconds": 209.11381662500207,
+          "delta": " Der Ges"
+        },
+        {
+          "sample": 4249600,
+          "elapsedSeconds": 209.58757341699675,
+          "delta": "amtbetrag"
+        },
+        {
+          "sample": 4259840,
+          "elapsedSeconds": 210.09094866699888,
+          "delta": " beträ"
+        },
+        {
+          "sample": 4270080,
+          "elapsedSeconds": 210.55315249999694,
+          "delta": ""
+        },
+        {
+          "sample": 4280320,
+          "elapsedSeconds": 211.0595469589898,
+          "delta": "gt "
+        },
+        {
+          "sample": 4290560,
+          "elapsedSeconds": 211.5732561249897,
+          "delta": "24"
+        },
+        {
+          "sample": 4300800,
+          "elapsedSeconds": 212.076773666995,
+          "delta": "5 Euro."
+        },
+        {
+          "sample": 4311040,
+          "elapsedSeconds": 212.60716204199707,
+          "delta": " Please change only"
+        },
+        {
+          "sample": 4321280,
+          "elapsedSeconds": 213.14737624999543,
+          "delta": " the title and"
+        },
+        {
+          "sample": 4331520,
+          "elapsedSeconds": 213.69457745899854,
+          "delta": " leave the"
+        },
+        {
+          "sample": 4341760,
+          "elapsedSeconds": 214.23747949999233,
+          "delta": " rest"
+        },
+        {
+          "sample": 4352000,
+          "elapsedSeconds": 214.82857225000043,
+          "delta": " of the text"
+        },
+        {
+          "sample": 4362240,
+          "elapsedSeconds": 215.24994095899456,
+          "delta": " unchanged."
+        },
+        {
+          "sample": 4372480,
+          "elapsedSeconds": 215.67488354200032,
+          "delta": " Ich"
+        },
+        {
+          "sample": 4382720,
+          "elapsedSeconds": 216.12642779199814,
+          "delta": " habe die"
+        },
+        {
+          "sample": 4392960,
+          "elapsedSeconds": 216.55142679199344,
+          "delta": " neue"
+        },
+        {
+          "sample": 4403200,
+          "elapsedSeconds": 217.07166529199458,
+          "delta": " Version bereits auf"
+        },
+        {
+          "sample": 4413440,
+          "elapsedSeconds": 217.56240249999973,
+          "delta": " meinem Computer"
+        },
+        {
+          "sample": 4423680,
+          "elapsedSeconds": 218.072277416999,
+          "delta": " installiert"
+        },
+        {
+          "sample": 4433920,
+          "elapsedSeconds": 218.57765441699303,
+          "delta": ". The"
+        },
+        {
+          "sample": 4444160,
+          "elapsedSeconds": 219.0806867499923,
+          "delta": " review must"
+        },
+        {
+          "sample": 4454400,
+          "elapsedSeconds": 219.56275808399369,
+          "delta": " be fully"
+        },
+        {
+          "sample": 4464640,
+          "elapsedSeconds": 220.13485104199208,
+          "delta": " completed before"
+        },
+        {
+          "sample": 4474880,
+          "elapsedSeconds": 220.73596908399486,
+          "delta": " we continue. Er"
+        },
+        {
+          "sample": 4485120,
+          "elapsedSeconds": 221.1359988339973,
+          "delta": "ster"
+        },
+        {
+          "sample": 4495360,
+          "elapsedSeconds": 221.55964433398913,
+          "delta": " P"
+        },
+        {
+          "sample": 4505600,
+          "elapsedSeconds": 222.0473242500011,
+          "delta": "unkt, die Qualität."
+        },
+        {
+          "sample": 4515840,
+          "elapsedSeconds": 222.4701451669971,
+          "delta": " Zwe"
+        },
+        {
+          "sample": 4526080,
+          "elapsedSeconds": 222.97400395899604,
+          "delta": "iter Punkt"
+        },
+        {
+          "sample": 4536320,
+          "elapsedSeconds": 223.5015716249909,
+          "delta": ", die Gesch"
+        },
+        {
+          "sample": 4546560,
+          "elapsedSeconds": 224.013358917,
+          "delta": "windigkeit"
+        },
+        {
+          "sample": 4556800,
+          "elapsedSeconds": 224.50624070900085,
+          "delta": ". That"
+        },
+        {
+          "sample": 4567040,
+          "elapsedSeconds": 225.01752816699445,
+          "delta": " was my last"
+        },
+        {
+          "sample": 4577280,
+          "elapsedSeconds": 225.54542458399374,
+          "delta": " sentence. Please"
+        },
+        {
+          "sample": 4587520,
+          "elapsedSeconds": 226.0862904999958,
+          "delta": " do not"
+        },
+        {
+          "sample": 4597760,
+          "elapsedSeconds": 226.69519270899764,
+          "delta": " add any more words"
+        },
+        {
+          "sample": 4608000,
+          "elapsedSeconds": 227.23849033399893,
+          "delta": "."
+        },
+        {
+          "sample": 4618240,
+          "elapsedSeconds": 227.70471804199042,
+          "delta": " Bitte schic"
+        },
+        {
+          "sample": 4628480,
+          "elapsedSeconds": 228.2294194999995,
+          "delta": "ke die aktualisierte"
+        },
+        {
+          "sample": 4638720,
+          "elapsedSeconds": 228.6857192919997,
+          "delta": " Rechn"
+        },
+        {
+          "sample": 4648960,
+          "elapsedSeconds": 229.1913063749962,
+          "delta": "ung morgen"
+        },
+        {
+          "sample": 4659200,
+          "elapsedSeconds": 229.6745027500001,
+          "delta": " an"
+        },
+        {
+          "sample": 4669440,
+          "elapsedSeconds": 230.19894745899364,
+          "delta": " Frau Müller. The"
+        },
+        {
+          "sample": 4679680,
+          "elapsedSeconds": 230.7483111670008,
+          "delta": " appointment starts at "
+        },
+        {
+          "sample": 4689920,
+          "elapsedSeconds": 231.3226459169964,
+          "delta": "9:30 and ends"
+        },
+        {
+          "sample": 4700160,
+          "elapsedSeconds": 231.80517429199244,
+          "delta": " at"
+        },
+        {
+          "sample": 4710400,
+          "elapsedSeconds": 232.38402399999904,
+          "delta": " 1"
+        },
+        {
+          "sample": 4720640,
+          "elapsedSeconds": 232.98275166699023,
+          "delta": "1. Ich"
+        },
+        {
+          "sample": 4730880,
+          "elapsedSeconds": 233.61217291699722,
+          "delta": " möchte diese Änderung"
+        },
+        {
+          "sample": 4741120,
+          "elapsedSeconds": 234.0323070000013,
+          "delta": " aus"
+        },
+        {
+          "sample": 4751360,
+          "elapsedSeconds": 234.49732933400082,
+          "delta": "drücklich"
+        },
+        {
+          "sample": 4761600,
+          "elapsedSeconds": 234.98774970899103,
+          "delta": " nicht veröffentlichen."
+        },
+        {
+          "sample": 4771840,
+          "elapsedSeconds": 235.46764816700306,
+          "delta": " We have"
+        },
+        {
+          "sample": 4782080,
+          "elapsedSeconds": 235.95366187499894,
+          "delta": " 1"
+        },
+        {
+          "sample": 4792320,
+          "elapsedSeconds": 236.4476487919892,
+          "delta": "2 orders"
+        },
+        {
+          "sample": 4800000,
+          "elapsedSeconds": 236.45083375000104,
+          "delta": ""
+        }
+      ],
+      "loadSeconds": 2.6305582500062883,
+      "status": "completed",
+      "text": "Bitte schicke die aktualisierte Rechnung morgen an Frau Müller. The appointment starts at 9.30 and ends at 11. Ich möchte diese Änderung ausdrücklich nicht veröffentlichen. We have 12 orders and seven unanswered questions. Die Größe der Küche beträgt ungefähr 18 Quadratmeter. Please check the documentation and then start the test. Ich denke, wir sollten zuerst die einfachere Lösung versuchen. No, no, this file must not be deleted yet. Die Straße führt über die Brücke zum öffentlichen Gebäude. Today is September 22nd, 2026. Kannst du mir bitte erklären, warum die Verbindung unterbrochen wurde? The password does not belong in the public log. Wir brauchen sowohl eine deutsche als auch eine englische Fassung. Thank you for your message. I will get back to you on Friday. Der Gesamtbetrag beträgt 245 Euro. Please change only the title and leave the rest of the text unchanged. Ich habe die neue Version bereits auf meinem Computer installiert. The review must be fully completed before we continue. Erster Punkt, die Qualität. Zweiter Punkt, die Geschwindigkeit. That was my last sentence. Please do not add any more words. Bitte schicke die aktualisierte Rechnung morgen an Frau Müller. The appointment starts at 9:30 and ends at 11. Ich möchte diese Änderung ausdrücklich nicht veröffentlichen. We have 12 orders and seven unanswered questions. Die Größe der Küche beträgt ungefähr 18 Quadratmeter. Please check the documentation and then start the test. Ich denke, wir sollten zuerst die einfachere Lösung versuchen. No, no, this file must not be deleted yet. Die Straße führt über die Brücke zum öffentlichen Gebäude. Today is September 22nd, 2026. Kannst du mir bitte erklären, warum die Verbindung unterbrochen wurde? The password does not belong in the public log. Wir brauchen sowohl eine deutsche als auch eine englische Fassung. Thank you for your message. I will get back to you on Friday. Der Gesamtbetrag beträgt 245 Euro. Please change only the title and leave the rest of the text unchanged. Ich habe die neue Version bereits auf meinem Computer installiert. The review must be fully completed before we continue. Erster Punkt: die Qualität. Zweiter Punkt: die Geschwindigkeit. That was my last sentence. Please do not add any more words. Bitte schicke die aktualisierte Rechnung morgen an Frau Müller. The appointment starts at 9:30 and ends at 11. Ich möchte diese Änderung ausdrücklich nicht veröffentlichen. We have 12 orders and seven unanswered questions. Die Größe der Küche beträgt ungefähr 18 Quadratmeter. Please check the documentation and then start the test. Ich denke, wir sollten zuerst die einfachere Lösung versuchen. No, no, this file must not be deleted yet. Die Straße führt über die Brücke zum öffentlichen Gebäude. Today is September 22nd, 2026. Kannst du mir bitte erklären, warum die Verbindung unterbrochen wurde? The password does not belong in the public log. Wir brauchen sowohl eine deutsche als auch eine englische Fassung. Thank you for your message. I will get back to you on Friday. Der Gesamtbetrag beträgt 245 Euro. Please change only the title and leave the rest of the text unchanged. Ich habe die neue Version bereits auf meinem Computer installiert. The review must be fully completed before we continue. Erster Punkt: die Qualität. Zweiter Punkt: die Geschwindigkeit. That was my last sentence. Please do not add any more words. Bitte schicke die aktualisierte Rechnung morgen an Frau Müller. The appointment starts at 9:30 and ends at 11. Ich möchte diese Änderung ausdrücklich nicht veröffentlichen. We have 12 orders and seven unanswered questions. Die Größe der Küche beträgt ungefähr 18 Quadratmeter. Please check the documentation and then start the test. Ich denke, wir sollten zuerst die einfachere Lösung versuchen. No, no, this file must not be deleted yet. Die Straße führt über die Brücke zum öffentlichen Gebäude. Today is September 22nd, 2026. Kannst du mir bitte erklären, warum die Verbindung unterbrochen wurde? The password does not belong in the public log. Wir brauchen sowohl eine deutsche als auch eine englische Fassung. Thank you for your message. I will get back to you on Friday. Der Gesamtbetrag beträgt 245 Euro. Please change only the title and leave the rest of the text unchanged. Ich habe die neue Version bereits auf meinem Computer installiert. The review must be fully completed before we continue. Erster Punkt, die Qualität. Zweiter Punkt, die Geschwindigkeit. That was my last sentence. Please do not add any more words. Bitte schicke die aktualisierte Rechnung morgen an Frau Müller. The appointment starts at 9:30 and ends at 11. Ich möchte diese Änderung ausdrücklich nicht veröffentlichen. We have 12 orders and seven unanswered questions.",
+      "firstTextSeconds": 0.7567329589946894,
+      "finalizeSeconds": 0.43791308300569654,
+      "streamSeconds": 236.88874941699032,
+      "realTimeFactor": 0.789629164723301,
+      "exitCode": 0
+    }
+  ],
+  "limitations": "Fixture probe only; not German/English release acceptance or measured acoustic word latency.",
+  "childrenPeakRssBytes": 5137399808
+}

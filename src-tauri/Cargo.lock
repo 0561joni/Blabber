@@ -4540,6 +4540,7 @@ dependencies = [
  "cc",
  "chrono",
  "cpal",
+ "dispatch2",
  "enigo",
  "fs2",
  "hound",

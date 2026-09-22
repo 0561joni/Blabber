@@ -83,7 +83,9 @@ pub fn insert_text(
     text: &str,
     behavior: InsertBehavior,
     paste_target: Option<&PasteTarget>,
+    check_active: impl Fn() -> Result<()>,
 ) -> Result<InsertionOutcome> {
+    check_active()?;
     #[cfg(target_os = "macos")]
     let clipboard_snapshot = if should_attempt_paste(behavior, auto_paste_allowed()) {
         Some(ClipboardSnapshot::capture())
@@ -105,6 +107,7 @@ pub fn insert_text(
         std::ptr::null_mut()
     };
 
+    check_active()?;
     app.clipboard().write_text(text.to_string())?;
 
     #[cfg(target_os = "macos")]
@@ -112,6 +115,27 @@ pub fn insert_text(
 
     #[cfg(target_os = "windows")]
     let dictated_clipboard_sequence_number = windows_clipboard_restore::sequence_number();
+
+    // A reset may arrive during clipboard propagation, refocusing, or a retry.
+    // Restore only our unchanged temporary clipboard, then stop before the key event.
+    macro_rules! ensure_current {
+        () => {
+            if let Err(error) = check_active() {
+                #[cfg(target_os = "macos")]
+                restore_macos_clipboard_after_paste(
+                    clipboard_snapshot,
+                    dictated_clipboard_change_count,
+                );
+                #[cfg(target_os = "windows")]
+                restore_windows_clipboard_after_paste(
+                    windows_clipboard_snapshot,
+                    dictated_clipboard_sequence_number,
+                    windows_clipboard_owner,
+                );
+                return Err(error);
+            }
+        };
+    }
 
     match behavior {
         InsertBehavior::ClipboardOnly => Ok(InsertionOutcome::ClipboardOnly),
@@ -122,14 +146,18 @@ pub fn insert_text(
 
             // Give the system clipboard a moment to propagate before sending Cmd/Ctrl+V.
             thread::sleep(Duration::from_millis(120));
+            ensure_current!();
 
             #[cfg(target_os = "windows")]
             {
-                if refocus_paste_target(paste_target).is_err() {
+                let focus = refocus_paste_target(paste_target);
+                ensure_current!();
+                if focus.is_err() {
                     return Ok(InsertionOutcome::ClipboardOnly);
                 }
 
-                if simulate_paste_with_retry(3).is_err() {
+                if simulate_paste_with_retry(3, &check_active, simulate_paste).is_err() {
+                    ensure_current!();
                     return Ok(InsertionOutcome::ClipboardOnly);
                 }
 
@@ -143,9 +171,11 @@ pub fn insert_text(
 
             #[cfg(not(target_os = "windows"))]
             {
-                refocus_paste_target(paste_target)?;
+                let focus = refocus_paste_target(paste_target);
+                ensure_current!();
+                focus?;
 
-                match simulate_paste_with_retry(3) {
+                match simulate_paste_with_retry(3, &check_active, simulate_paste) {
                     Ok(()) => {
                         #[cfg(target_os = "macos")]
                         restore_macos_clipboard_after_paste(
@@ -155,6 +185,7 @@ pub fn insert_text(
                         Ok(InsertionOutcome::Pasted)
                     }
                     Err(error) => {
+                        ensure_current!();
                         let _ = error;
                         Ok(InsertionOutcome::ClipboardOnly)
                     }
@@ -250,10 +281,15 @@ fn should_attempt_paste(behavior: InsertBehavior, auto_paste_supported: bool) ->
     matches!(behavior, InsertBehavior::Paste) && auto_paste_supported
 }
 
-fn simulate_paste_with_retry(attempts: usize) -> Result<()> {
+fn simulate_paste_with_retry(
+    attempts: usize,
+    check_active: &impl Fn() -> Result<()>,
+    mut paste: impl FnMut() -> Result<()>,
+) -> Result<()> {
     let mut last_error = None;
     for index in 0..attempts {
-        match simulate_paste() {
+        check_active()?;
+        match paste() {
             Ok(()) => return Ok(()),
             Err(error) => {
                 last_error = Some(error);
@@ -515,6 +551,29 @@ fn focus_window_handle(handle: isize) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancellation_before_a_paste_or_retry_never_sends_another_key_event() {
+        let active = std::cell::Cell::new(false);
+        let attempts = std::cell::Cell::new(0);
+        let check = || {
+            if active.get() {
+                Ok(())
+            } else {
+                Err(anyhow!("canceled"))
+            }
+        };
+        let paste = || {
+            attempts.set(attempts.get() + 1);
+            active.set(false);
+            Err(anyhow!("temporary insertion failure"))
+        };
+        assert!(simulate_paste_with_retry(3, &check, paste).is_err());
+        assert_eq!(attempts.get(), 0);
+        active.set(true);
+        assert!(simulate_paste_with_retry(3, &check, paste).is_err());
+        assert_eq!(attempts.get(), 1);
+    }
 
     #[test]
     fn paste_behavior_falls_back_when_auto_paste_is_unsupported() {

@@ -1,7 +1,8 @@
 {
   "bundle": {
     "resources": {
-      "bundle/translation/": "workers/"
+      "bundle/translation/": "workers/",
+      "bundle/r2t2/": "workers/r2t2/"
     }
   }
 }

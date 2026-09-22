@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -75,9 +76,53 @@ struct ActiveRecordingSegment {
     input_sample_rate_hz: u32,
     input_channels: u16,
     samples: Arc<Mutex<Vec<f32>>>,
+    sample_limit: Arc<AtomicUsize>,
     input_level: Arc<Mutex<f32>>,
     error_message: Arc<Mutex<Option<String>>>,
     stream: Stream,
+}
+
+/// A cursor-based view of a single capture segment. Normalization and inference
+/// run outside the microphone callback; slow consumers never discard packets.
+#[derive(Clone)]
+pub(crate) struct CaptureTap {
+    pub session_id: String,
+    pub rate: u32,
+    pub channels: u16,
+    samples: Arc<Mutex<Vec<f32>>>,
+    error: Arc<Mutex<Option<String>>>,
+}
+impl CaptureTap {
+    pub(crate) fn from_recording(session_id: String, audio: PreparedAudio) -> Self {
+        Self {
+            session_id,
+            rate: audio.sample_rate_hz,
+            channels: audio.channels,
+            samples: Arc::new(Mutex::new(audio.samples)),
+            error: Default::default(),
+        }
+    }
+    pub fn read_since(&self, start: usize, maximum: usize) -> Result<Vec<f32>> {
+        if self
+            .error
+            .lock()
+            .map_err(|_| anyhow!("Capture state unavailable"))?
+            .is_some()
+        {
+            return Err(anyhow!("R2T2_CAPTURE_FAILED: The microphone stopped. Stop recording to recover the captured audio."));
+        }
+        let samples = self
+            .samples
+            .lock()
+            .map_err(|_| anyhow!("Capture buffer unavailable"))?;
+        if start > samples.len() {
+            return Err(anyhow!("R2T2_CAPTURE_ORDER: Capture moved backwards."));
+        }
+        Ok(samples[start..samples.len().min(start.saturating_add(maximum))].to_vec())
+    }
+    pub fn sample_count(&self) -> usize {
+        self.samples.lock().map(|s| s.len()).unwrap_or(0)
+    }
 }
 
 struct RecordingWorkerState {
@@ -362,10 +407,12 @@ fn cleanup_older_recordings(temp_dir: &PathBuf, keep_path: &PathBuf) -> Result<(
 enum WorkerCommand {
     Status(Sender<RecordingStatusResponse>),
     InputLevel(Sender<f32>),
+    LiveTap(Sender<Result<CaptureTap, String>>),
     Start(Sender<Result<RecordingStatusResponse, String>>),
     Pause(Sender<Result<RecordingStatusResponse, String>>),
     Resume(Sender<Result<RecordingStatusResponse, String>>),
     Stop(Sender<Result<RecordingResult, String>>),
+    StopOwned(String, Sender<Result<RecordingResult, String>>),
     Cancel(Sender<Result<RecordingStatusResponse, String>>),
 }
 
@@ -488,6 +535,14 @@ impl RecordingController {
         }
     }
 
+    pub(crate) fn live_tap(&self) -> Result<CaptureTap> {
+        match self.dispatch(Duration::from_secs(2), WorkerCommand::LiveTap) {
+            SendOutcome::Ok(value) => value.map_err(anyhow::Error::msg),
+            SendOutcome::Failed(error) => Err(error),
+            SendOutcome::Timeout => Err(anyhow!("Capture setup timed out")),
+        }
+    }
+
     pub fn stop(&self) -> Result<RecordingResult> {
         let result = match self.dispatch(Duration::from_secs(10), WorkerCommand::Stop) {
             SendOutcome::Ok(value) => value,
@@ -504,6 +559,17 @@ impl RecordingController {
             }
         };
         result.map_err(anyhow::Error::msg)
+    }
+    pub(crate) fn stop_owned(&self, session_id: &str) -> Result<RecordingResult> {
+        match self.dispatch(Duration::from_secs(10), |tx| {
+            WorkerCommand::StopOwned(session_id.into(), tx)
+        }) {
+            SendOutcome::Ok(value) => value.map_err(anyhow::Error::msg),
+            SendOutcome::Failed(error) => Err(error),
+            SendOutcome::Timeout => Err(anyhow!(
+                "The recording did not stop in time. Reset dictation before trying again."
+            )),
+        }
     }
 
     pub fn pause(&self) -> Result<RecordingStatusResponse> {
@@ -550,6 +616,35 @@ fn process_worker_commands(worker: &mut RecordingWorkerState, receiver: Receiver
             WorkerCommand::InputLevel(response_tx) => {
                 let _ = response_tx.send(worker.current_input_level());
             }
+            WorkerCommand::LiveTap(response_tx) => {
+                let result = (|| -> Result<CaptureTap> {
+                    let active = worker
+                        .active
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("No active recording"))?;
+                    if !active.accumulated_samples.is_empty() {
+                        return Err(anyhow!("Live capture cannot resume a paused recording"));
+                    }
+                    let segment = active
+                        .current_segment
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("No capture segment"))?;
+                    segment.sample_limit.store(
+                        segment.input_sample_rate_hz as usize
+                            * segment.input_channels as usize
+                            * 300,
+                        Ordering::SeqCst,
+                    );
+                    Ok(CaptureTap {
+                        session_id: active.session_id.clone(),
+                        rate: segment.input_sample_rate_hz,
+                        channels: segment.input_channels,
+                        samples: segment.samples.clone(),
+                        error: segment.error_message.clone(),
+                    })
+                })();
+                let _ = response_tx.send(result.map_err(|error| error.to_string()));
+            }
             WorkerCommand::Start(response_tx) => {
                 let _ = response_tx.send(worker.start().map_err(|error| error.to_string()));
             }
@@ -561,6 +656,18 @@ fn process_worker_commands(worker: &mut RecordingWorkerState, receiver: Receiver
             }
             WorkerCommand::Stop(response_tx) => {
                 let _ = response_tx.send(worker.stop().map_err(|error| error.to_string()));
+            }
+            WorkerCommand::StopOwned(id, response_tx) => {
+                let result = if worker
+                    .active
+                    .as_ref()
+                    .is_some_and(|active| active.session_id == id)
+                {
+                    worker.stop().map_err(|error| error.to_string())
+                } else {
+                    Err("DICTATION_CANCELED: Capture belongs to another session.".into())
+                };
+                let _ = response_tx.send(result);
             }
             WorkerCommand::Cancel(response_tx) => {
                 let _ = response_tx.send(worker.cancel().map_err(|error| error.to_string()));
@@ -580,6 +687,7 @@ fn create_input_segment(preferred_device_name: Option<String>) -> Result<ActiveR
     let input_channels = default_config.channels();
     let stream_config: StreamConfig = default_config.clone().into();
     let samples = Arc::new(Mutex::new(Vec::new()));
+    let sample_limit = Arc::new(AtomicUsize::new(usize::MAX));
     let input_level = Arc::new(Mutex::new(0.0));
     let error_message = Arc::new(Mutex::new(None));
     let stream = build_input_stream(
@@ -587,6 +695,7 @@ fn create_input_segment(preferred_device_name: Option<String>) -> Result<ActiveR
         default_config.sample_format(),
         &stream_config,
         Arc::clone(&samples),
+        sample_limit.clone(),
         Arc::clone(&input_level),
         Arc::clone(&error_message),
     )?;
@@ -596,6 +705,7 @@ fn create_input_segment(preferred_device_name: Option<String>) -> Result<ActiveR
         input_sample_rate_hz,
         input_channels,
         samples,
+        sample_limit,
         input_level,
         error_message,
         stream,
@@ -709,6 +819,7 @@ fn build_input_stream(
     sample_format: SampleFormat,
     config: &StreamConfig,
     samples: Arc<Mutex<Vec<f32>>>,
+    sample_limit: Arc<AtomicUsize>,
     input_level: Arc<Mutex<f32>>,
     error_message: Arc<Mutex<Option<String>>>,
 ) -> Result<Stream> {
@@ -718,7 +829,8 @@ fn build_input_stream(
             {
                 let samples = Arc::clone(&samples);
                 let input_level = Arc::clone(&input_level);
-                move |data: &[f32], _| append_samples(data, &samples, &input_level)
+                let sample_limit = sample_limit.clone();
+                move |data: &[f32], _| append_samples(data, &samples, &input_level, &sample_limit)
             },
             {
                 let error_message = Arc::clone(&error_message);
@@ -731,12 +843,13 @@ fn build_input_stream(
             {
                 let samples = Arc::clone(&samples);
                 let input_level = Arc::clone(&input_level);
+                let sample_limit = sample_limit.clone();
                 move |data: &[i16], _| {
                     let converted = data
                         .iter()
                         .map(|sample| *sample as f32 / i16::MAX as f32)
                         .collect::<Vec<_>>();
-                    append_samples(&converted, &samples, &input_level);
+                    append_samples(&converted, &samples, &input_level, &sample_limit);
                 }
             },
             {
@@ -750,12 +863,13 @@ fn build_input_stream(
             {
                 let samples = Arc::clone(&samples);
                 let input_level = Arc::clone(&input_level);
+                let sample_limit = sample_limit.clone();
                 move |data: &[u16], _| {
                     let converted = data
                         .iter()
                         .map(|sample| (*sample as f32 / u16::MAX as f32) * 2.0 - 1.0)
                         .collect::<Vec<_>>();
-                    append_samples(&converted, &samples, &input_level);
+                    append_samples(&converted, &samples, &input_level, &sample_limit);
                 }
             },
             {
@@ -769,9 +883,17 @@ fn build_input_stream(
     Ok(stream)
 }
 
-fn append_samples(input: &[f32], samples: &Arc<Mutex<Vec<f32>>>, input_level: &Arc<Mutex<f32>>) {
+fn append_samples(
+    input: &[f32],
+    samples: &Arc<Mutex<Vec<f32>>>,
+    input_level: &Arc<Mutex<f32>>,
+    limit: &AtomicUsize,
+) {
     if let Ok(mut buffer) = samples.lock() {
-        buffer.extend_from_slice(input);
+        let count = input
+            .len()
+            .min(limit.load(Ordering::Relaxed).saturating_sub(buffer.len()));
+        buffer.extend_from_slice(&input[..count]);
     }
     let mut peak = 0.0_f32;
     let mut sum_squares = 0.0_f32;
@@ -853,6 +975,34 @@ impl RecordingWorkerState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_tap_preserves_packet_tail_and_enforces_explicit_capture_limit() {
+        let samples = Arc::new(Mutex::new(Vec::new()));
+        let level = Default::default();
+        let limit = AtomicUsize::new(7);
+        let tap = CaptureTap {
+            session_id: "capture".into(),
+            rate: 48000,
+            channels: 2,
+            samples: samples.clone(),
+            error: Default::default(),
+        };
+        append_samples(&[0.1, 0.2, 0.3], &samples, &level, &limit);
+        let first = tap.read_since(0, 2).unwrap();
+        append_samples(&[0.4, 0.5, 0.6, 0.7, 0.8], &samples, &level, &limit);
+        append_samples(&[0.9], &samples, &level, &limit);
+        let tail = tap.read_since(first.len(), 99).unwrap();
+        assert_eq!(
+            [first, tail].concat(),
+            vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+        );
+        assert_eq!(tap.sample_count(), 7);
+        assert!(tap.read_since(7, 10).unwrap().is_empty());
+        assert!(tap.read_since(8, 10).is_err());
+        *tap.error.lock().unwrap() = Some("Device disconnected".into());
+        assert!(tap.read_since(0, 1).is_err());
+    }
 
     // These cover the controller<->worker dispatch and the respawn machinery
     // without touching audio hardware (status() never opens a stream), which is

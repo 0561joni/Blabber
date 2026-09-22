@@ -160,4 +160,6 @@ stageWindowsCudaRuntime();
 if (process.platform === "darwin" && process.arch === "arm64") {
   const worker = spawnSync(process.execPath, ["scripts/build-translation-worker.mjs"], { stdio: "inherit" });
   if (worker.status !== 0) throw new Error("Translation runtime build failed.");
+  const streaming = spawnSync(process.execPath, ["scripts/build-r2t2-worker.mjs"], { stdio: "inherit" });
+  if (streaming.status !== 0) throw new Error("R2T2 runtime build failed.");
 }

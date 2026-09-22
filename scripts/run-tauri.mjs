@@ -160,6 +160,7 @@ const hasBundleOverride = args.includes("--bundles");
 
 if (process.platform === "darwin" && process.arch === "arm64" && args[0] === "dev") {
   run(process.execPath, [join(rootDir, "scripts", "build-translation-worker.mjs")]);
+  run(process.execPath, [join(rootDir, "scripts", "build-r2t2-worker.mjs")]);
 }
 
 if (process.platform === "darwin" && isBuildCommand && !hasBundleOverride) {

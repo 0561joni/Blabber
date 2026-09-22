@@ -1,0 +1,154 @@
+--- a/include/engine/community_models/confucius4_r2t2/session.h
++++ b/include/engine/community_models/confucius4_r2t2/session.h
+@@ -9,6 +9,7 @@
+ #include "engine/community_models/confucius4_r2t2/tokenizer_text.h"
+ #include "engine/community_models/confucius4_r2t2/types.h"
+ 
++#include "blabber_rolling.hpp"
+ #include <chrono>
+ #include <cstdint>
+ #include <memory>
+@@ -113,6 +114,8 @@
+     int64_t chunk_size_samples_ = 0;
+     int64_t chunk_id_ = 0;
+     size_t published_codepoints_ = 0;
++    blabber::RollingTranscript rolling_;
++    void roll_audio_window();
+     int stream_sample_rate_ = 0;
+     int stream_channels_ = 1;
+     runtime::StreamEventCallback stream_event_sink_;
+--- a/src/community_models/confucius4_r2t2/session.cpp
++++ b/src/community_models/confucius4_r2t2/session.cpp
+@@ -276,6 +276,9 @@
+     options.max_new_tokens = stream_config_.max_new_tokens;
+     options.reuse_graphs = true;
+     const auto tokens = thinker_.generate(prompt, embeddings, options);
++    if (tokens.token_ids.size() >= static_cast<size_t>(options.max_new_tokens)) {
++        throw std::runtime_error("R2T2_OUTPUT_TRUNCATED: decode token budget exhausted");
++    }
+     return tokenizer_.decode(tokens.token_ids);
+ }
+ 
+@@ -302,22 +305,12 @@
+ }
+ 
+ std::string R2T2ASRSession::build_stream_prefix(bool final_flush) const {
+-    if (chunk_id_ < stream_config_.unfixed_chunk_num) {
+-        return {};
+-    }
+-    const std::string raw_truncated = truncate_at_pipe(raw_decoded_);
+-    const auto ids = tokenizer_.encode(raw_truncated);
+-    if (final_flush) {
+-        // finish_streaming_transcribe uses a fixed rollback without the
+-        // replacement-character loop and never rolls back past the first token.
+-        const int64_t end_index = std::max<int64_t>(1, static_cast<int64_t>(ids.size()) - stream_config_.unfixed_token_num);
+-        return truncate_at_pipe(sanitize_utf8_lossy(tokenizer_.decode(std::vector<int32_t>(ids.begin(), ids.begin() + static_cast<std::ptrdiff_t>(end_index)))));
+-    }
+-    int64_t k = stream_config_.unfixed_token_num;
+-    if (stream_config_.rollback_punctuation && ends_with_rollback_punctuation(raw_truncated)) {
+-        k = 0;
+-    }
+-    return truncate_at_pipe(decode_rollback_prefix(ids, k));
++    (void) final_flush;
++    const auto & prefix = rolling_.prefix;
++    if (force_language_.empty() && !language_.empty()) {
++        return "language " + language_ + kAsrTextTag + prefix;
++    }
++    return prefix;
+ }
+ 
+ R2T2ASRSession::StreamOutcome R2T2ASRSession::decode_stream_chunk(bool final_flush) {
+@@ -389,7 +382,7 @@
+     text_ = truncate_at_pipe(parsed.text);
+     ++chunk_id_;
+     outcome.text = text_;
+-    outcome.fixed_text = fixed_text;
++    outcome.fixed_text = final_flush ? text_ : fixed_text;
+     debug::trace_log_scalar("confucius4_r2t2.stream.final_flush", final_flush ? 1 : 0);
+     debug::trace_log_scalar("confucius4_r2t2.stream.chunk_id", chunk_id_);
+     debug::trace_log_scalar("confucius4_r2t2.stream.raw_decoded", raw_decoded_);
+@@ -399,21 +392,9 @@
+ }
+ 
+ void R2T2ASRSession::publish_stream_delta(const std::string & fixed_text, runtime::StreamEvent & event) {
+-    // fixed_text contains transcript text only; metadata must never advance
+-    // this code-point offset. Stable transcript prefixes may still shrink
+-    // between chunks, so only publish newly committed code points.
+-    const size_t length = utf8_codepoint_count(fixed_text);
+-    if (length <= published_codepoints_) {
+-        return;
+-    }
+-    runtime::Transcript transcript;
+-    transcript.text = utf8_slice_from_codepoint(fixed_text, published_codepoints_);
+-    if (transcript.text.empty()) {
+-        return;
+-    }
+-    transcript.language = language_;
+-    event.partial_text = std::move(transcript);
+-    published_codepoints_ = length;
++    const auto delta = rolling_.commit(
++        rolling_.window_start + static_cast<int64_t>(audio_accum_.size()), fixed_text);
++    if (!delta.empty()) event.partial_text = runtime::Transcript{delta, language_};
+ }
+ 
+ runtime::StreamingPolicy R2T2ASRSession::streaming_policy() const {
+@@ -469,6 +450,7 @@
+     chunk_size_samples_ = 0;
+     chunk_id_ = 0;
+     published_codepoints_ = 0;
++    rolling_ = {};
+     stream_sample_rate_ = 0;
+     stream_channels_ = 1;
+     stream_started_ = false;
+@@ -508,10 +490,9 @@
+         const size_t take_values = static_cast<size_t>(chunk_size_samples_) * channel_stride;
+         audio_accum_.insert(audio_accum_.end(), buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(take_values));
+         buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(take_values));
++        roll_audio_window();
+         const auto outcome = decode_stream_chunk(/*final_flush=*/false);
+-        if (!outcome.fixed_text.empty()) {
+-            publish_stream_delta(outcome.fixed_text, event);
+-        }
++        publish_stream_delta(outcome.fixed_text, event);
+         if (!streaming_result_.text_output.has_value()) {
+             streaming_result_.text_output = runtime::Transcript{outcome.text, language_};
+         } else {
+@@ -532,6 +513,16 @@
+     return event;
+ }
+ 
++void R2T2ASRSession::roll_audio_window() {
++    if (stream_sample_rate_ != 16000 || stream_channels_ != 1) {
++        throw std::runtime_error("R2T2_FORMAT: normalize to 16 kHz mono before streaming");
++    }
++    while (audio_accum_.size() > 16 * 16000) {
++        rolling_.advance(rolling_.window_start + 8 * 16000);
++        audio_accum_.erase(audio_accum_.begin(), audio_accum_.begin() + 8 * 16000);
++    }
++}
++
+ runtime::TaskResult R2T2ASRSession::finish_stream() {
+     return finalize();
+ }
+@@ -545,10 +536,12 @@
+     if (!stream_started_) {
+         throw std::runtime_error("R2T2 ASR finalize() requires start_stream");
+     }
+-    if (!buffer_.empty()) {
++    if (!buffer_.empty() || !audio_accum_.empty()) {
+         audio_accum_.insert(audio_accum_.end(), buffer_.begin(), buffer_.end());
+         buffer_.clear();
++        roll_audio_window();
+         const auto outcome = decode_stream_chunk(/*final_flush=*/true);
++        rolling_.commit(rolling_.window_start + static_cast<int64_t>(audio_accum_.size()), outcome.fixed_text, true);
+         if (!streaming_result_.text_output.has_value()) {
+             streaming_result_.text_output = runtime::Transcript{outcome.text, language_};
+         } else {
+@@ -561,6 +554,7 @@
+     if (!streaming_result_.text_output.has_value()) {
+         streaming_result_.text_output = runtime::Transcript{text_, language_};
+     }
++    streaming_result_.text_output = runtime::Transcript{rolling_.complete, language_};
+     if (stream_event_sink_ != nullptr) {
+         // The final transcript travels in the task result (the server emits it
+         // as transcript.text.done); the reference integrator adds no final

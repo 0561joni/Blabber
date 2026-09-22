@@ -191,7 +191,7 @@ pub fn build_asr_prompt_from_db_path(db_path: &Path) -> Result<Option<Vocabulary
     Ok(build_asr_prompt(&terms))
 }
 
-fn build_asr_prompt(terms: &[VocabularyTerm]) -> Option<VocabularyPrompt> {
+pub(crate) fn build_asr_prompt(terms: &[VocabularyTerm]) -> Option<VocabularyPrompt> {
     let mut ordered = terms.to_vec();
     ordered.sort_by(|left, right| {
         prompt_rank(left)
@@ -348,6 +348,13 @@ pub fn correct_transcript_result(
     transcript: TranscriptResult,
 ) -> Result<TranscriptResult> {
     let terms = list_vocabulary_terms_from_db_path(db_path)?;
+    correct_transcript_with_terms(&terms, transcript)
+}
+
+pub(crate) fn correct_transcript_with_terms(
+    terms: &[VocabularyTerm],
+    transcript: TranscriptResult,
+) -> Result<TranscriptResult> {
     let mut segments = Vec::with_capacity(transcript.segments.len());
     let mut _correction_decisions = Vec::new();
     let matcher = if terms.is_empty() {

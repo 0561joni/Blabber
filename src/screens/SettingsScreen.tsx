@@ -1097,6 +1097,7 @@ export function SettingsScreen({
                               {model.availabilityReason}
                             </p>
                           ) : null}
+                          {model.licenseUrl ? <p className="downloadable-model-meta"><a href={model.licenseUrl} target="_blank" rel="noreferrer">NetEase model terms</a></p> : null}
                           {isDownloading ? (
                             <div className="model-download-progress">
                               <div className="model-download-progress-track">

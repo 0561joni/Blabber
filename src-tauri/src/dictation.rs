@@ -13,7 +13,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use crate::asr::{FileTranscriptionRequest, TranscriptionEngine};
 use crate::audio_capture::RecordingController;
 use crate::desktop_shell::{DesktopShellController, DictationOverlayPayload, OverlayPhase};
-use crate::insertion::{detect_frontmost_paste_target, insert_text, InsertionOutcome, PasteTarget};
+use crate::insertion::{detect_frontmost_paste_target, InsertionOutcome, PasteTarget};
 use crate::settings::{AppSettings, ShortcutMode};
 use crate::sound::SoundPlayer;
 use crate::storage;
@@ -71,6 +71,7 @@ pub struct QuickDictationStatusResponse {
     pub last_model_name: Option<String>,
     pub last_insert_outcome: Option<InsertionOutcome>,
     pub last_duration_ms: Option<i64>,
+    pub can_retry_streaming: bool,
 }
 
 impl Default for QuickDictationStatusResponse {
@@ -87,6 +88,7 @@ impl Default for QuickDictationStatusResponse {
             last_model_name: None,
             last_insert_outcome: None,
             last_duration_ms: None,
+            can_retry_streaming: false,
         }
     }
 }
@@ -118,6 +120,22 @@ pub struct QuickDictationController {
     translation: crate::translation::TranslationService,
     shortcut_pair: Arc<Mutex<Vec<String>>>,
     cycle_pressed: Arc<AtomicBool>,
+    live: Arc<Mutex<Option<LiveDictation>>>,
+    recovery: Arc<Mutex<Option<LiveRecovery>>>,
+}
+
+#[derive(Clone)]
+struct LiveDictation {
+    session_id: String,
+    settings: AppSettings,
+    vocabulary: Vec<vocabulary::VocabularyTerm>,
+    handle: crate::r2t2::LiveSession,
+}
+#[derive(Clone)]
+struct LiveRecovery {
+    recording: crate::audio_capture::RecordingResult,
+    settings: AppSettings,
+    vocabulary: Vec<vocabulary::VocabularyTerm>,
 }
 
 impl QuickDictationController {
@@ -135,6 +153,8 @@ impl QuickDictationController {
             translation,
             shortcut_pair: Default::default(),
             cycle_pressed: Default::default(),
+            live: Default::default(),
+            recovery: Default::default(),
             engine,
             recording_controller,
             db_path,
@@ -192,6 +212,8 @@ impl QuickDictationController {
     }
     pub fn sync_shortcut_registration(&self) -> Result<QuickDictationStatusResponse> {
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
+        // A settings/model change must not leave a previous helper resident.
+        self.translation.processing_queue().evict_idle();
         let mut registered = self
             .shortcut_pair
             .lock()
@@ -370,9 +392,35 @@ impl QuickDictationController {
             return Err(anyhow!("Another recording is already active."));
         }
 
-        let session = self.translation.begin()?;
+        let mut session = self.translation.begin()?;
+        let generation = {
+            let _status = self
+                .status
+                .lock()
+                .map_err(|_| anyhow!("Dictation state unavailable"))?;
+            self.poller_generation.fetch_add(1, Ordering::SeqCst) + 1
+        };
         let reservation = self.translation.guard(&session);
-        let settings = storage::get_settings_from_db_path(&self.db_path).ok();
+        let settings = Some(storage::get_settings_from_db_path(&self.db_path)?);
+        let live_setup = if settings
+            .as_ref()
+            .and_then(|s| s.shortcut_dictation_selected_model_id.as_deref())
+            == Some(crate::r2t2::MODEL_ID)
+        {
+            let settings = settings.as_ref().unwrap().clone();
+            let (helper, model) = self.translation.r2t2_setup().map_err(|error| {
+                let _ = self.set_error(error.to_string());
+                error
+            })?;
+            let language = crate::r2t2::source_language(&settings).map_err(|error| {
+                let _ = self.set_error(error.to_string());
+                error
+            })?;
+            let terms = vocabulary::list_vocabulary_terms_from_db_path(&self.db_path)?;
+            Some((settings, terms, helper, model, language))
+        } else {
+            None
+        };
         if let Some(player) = self.sound_player.as_ref().as_ref() {
             player.prepare_capture(
                 settings
@@ -394,13 +442,24 @@ impl QuickDictationController {
             *paste_target = detect_frontmost_paste_target();
         }
 
-        if let Err(error) = self.recording_controller.start() {
-            self.restore_system_volume();
-            // Surface the failure (overlay "Failed" + status + log) so a wedged
-            // microphone never silently swallows the dictation, then reset.
-            let _ = self.set_error(error.to_string());
-            return Err(error);
+        let capture = match self.recording_controller.start() {
+            Ok(capture) => capture,
+            Err(error) => {
+                self.restore_system_volume();
+                // Surface the failure (overlay "Failed" + status + log) so a wedged
+                // microphone never silently swallows the dictation, then reset.
+                let _ = self.set_error(error.to_string());
+                return Err(error);
+            }
+        };
+        session.recording_id = capture.current_session_id.clone();
+        if let Some(id) = &session.recording_id {
+            self.translation.bind_recording(id.clone(), None);
         }
+        *self
+            .recovery
+            .lock()
+            .map_err(|_| anyhow!("Recovery state unavailable"))? = None;
         if crate::shutdown::is_shutting_down() {
             let _ = self.recording_controller.cancel();
             self.restore_system_volume();
@@ -410,6 +469,10 @@ impl QuickDictationController {
             .set_overlay_payload(DictationOverlayPayload {
                 phase: OverlayPhase::Listening,
                 audio_level: 0.0,
+                session_id: Some(session.id.clone()),
+                streaming_state: live_setup
+                    .as_ref()
+                    .map(|_| crate::desktop_shell::StreamingState::Preparing),
                 ..Default::default()
             })?;
         self.update_status(|status| {
@@ -418,37 +481,89 @@ impl QuickDictationController {
             status.last_transcript_text = None;
             status.last_transcript_id = None;
             status.last_insert_outcome = None;
+            status.can_retry_streaming = false;
         })?;
         // Bump the generation so any previous poller exits, then start the one
         // poller that belongs to this listening session.
-        let generation = self.poller_generation.fetch_add(1, Ordering::SeqCst) + 1;
-        self.spawn_overlay_level_poller(generation);
+        self.spawn_overlay_level_poller(generation, session.id.clone());
+        if let Some((settings, terms, helper, model, language)) = live_setup {
+            let tap = match self.recording_controller.live_tap() {
+                Ok(tap) => tap,
+                Err(error) => {
+                    let _ = self.recording_controller.cancel();
+                    let _ = self.set_error_owned(error.to_string(), generation);
+                    return Err(error);
+                }
+            };
+            let controller = self.clone();
+            let owner = session.clone();
+            let stop = Arc::new(move || {
+                if controller.poller_generation.load(Ordering::SeqCst) == generation
+                    && controller.translation.ensure_active(&owner).is_ok()
+                {
+                    let _ = controller.finish_dictation();
+                }
+            });
+            let translation = self.translation.clone();
+            let context = vocabulary::build_asr_prompt(&terms)
+                .map(|p| p.text)
+                .unwrap_or_default();
+            let handle = crate::r2t2::start(
+                session.id.clone(),
+                tap,
+                session.cancelled.clone(),
+                self.translation.processing_queue(),
+                self.desktop_shell.clone(),
+                helper,
+                model,
+                language,
+                context,
+                Arc::new(move || translation.release_asr_resources()),
+                stop,
+            )?;
+            *self
+                .live
+                .lock()
+                .map_err(|_| anyhow!("Live dictation state unavailable"))? = Some(LiveDictation {
+                session_id: session.id.clone(),
+                settings,
+                vocabulary: terms,
+                handle: handle.clone(),
+            });
+            handle.activate();
+        }
         reservation.disarm();
         Ok(())
     }
 
     fn finish_dictation(&self) -> Result<()> {
-        if self.status().state != QuickDictationState::Listening {
-            self.restore_system_volume();
+        let Ok(session) = self.translation.current() else {
             return Ok(());
-        }
-        self.restore_system_volume();
-
-        self.desktop_shell
-            .set_overlay_payload(DictationOverlayPayload {
-                phase: OverlayPhase::Processing,
-                audio_level: 0.0,
-                ..Default::default()
-            })?;
-        self.update_status(|status| {
+        };
+        let generation = self.translation.with_active(&session, || {
+            let mut status = self
+                .status
+                .lock()
+                .map_err(|_| anyhow!("Dictation state unavailable"))?;
+            if status.state != QuickDictationState::Listening {
+                return Ok(None);
+            }
             status.state = QuickDictationState::Processing;
             status.last_error_message = None;
+            self.state_since_ms.store(now_ms(), Ordering::SeqCst);
+            drop(status);
+            self.restore_system_volume();
+            self.desktop_shell
+                .processing_for_session(&session.id, "Finishing", false)?;
+            self.update_status(|_| {})?;
+            Ok(Some(self.poller_generation.load(Ordering::SeqCst)))
         })?;
+        let Some(generation) = generation else {
+            return Ok(());
+        };
 
         let work = crate::shutdown::begin_work(true)?;
-        let session = self.translation.current()?;
         let controller = self.clone();
-        let generation = self.poller_generation.load(Ordering::SeqCst);
         thread::spawn(move || {
             let _work = work;
             if let Err(error) = controller.finish_dictation_worker(generation, session) {
@@ -456,7 +571,7 @@ impl QuickDictationController {
                     return;
                 }
                 eprintln!("[dictation] finish worker failed: {error:?}");
-                let _ = controller.set_error(error.to_string());
+                let _ = controller.set_error_owned(error.to_string(), generation);
             }
         });
         Ok(())
@@ -471,9 +586,24 @@ impl QuickDictationController {
         if self.poller_generation.load(Ordering::SeqCst) != generation {
             return Ok(());
         }
-        let recording = match self.recording_controller.stop() {
+        let recording = match self.recording_controller.stop_owned(
+            session
+                .recording_id
+                .as_deref()
+                .ok_or_else(|| anyhow!("Missing capture identity"))?,
+        ) {
             Ok(result) => result,
             Err(error) => {
+                if let Ok(mut live) = self.live.lock() {
+                    if live
+                        .as_ref()
+                        .is_some_and(|live| live.session_id == session.id)
+                    {
+                        if let Some(live) = live.take() {
+                            live.handle.cancel();
+                        }
+                    }
+                }
                 return Err(error);
             }
         };
@@ -481,47 +611,121 @@ impl QuickDictationController {
         if self.poller_generation.load(Ordering::SeqCst) != generation {
             return Ok(());
         }
-        let settings = storage::get_settings_from_db_path(&self.db_path)?;
+        let live = {
+            let mut live = self
+                .live
+                .lock()
+                .map_err(|_| anyhow!("Live dictation state unavailable"))?;
+            if live
+                .as_ref()
+                .is_some_and(|live| live.session_id == session.id)
+            {
+                live.take()
+            } else {
+                None
+            }
+        };
+        if live.is_some() {
+            self.translation
+                .phase(&session, "streaming_finishing", "Finishing")?;
+        }
+        let settings = match &live {
+            Some(live) => live.settings.clone(),
+            None => storage::get_settings_from_db_path(&self.db_path)?,
+        };
+        // Keep recovery material even when streaming failed before stop. Retry
+        // is explicit and must use a copy action rather than the old paste target.
+        self.translation.with_active(&session, || {
+            self.update_status(|status| {
+                status.last_recording_path = Some(recording.file_path.clone());
+                status.last_duration_ms = Some(recording.duration_ms);
+            })
+        })?;
         if let Some(player) = self.sound_player.as_ref().as_ref() {
             player.finish_capture(settings.sounds_enabled, false);
         }
-        let _permit = self.translation.acquire(&session)?;
-        let resolved_model_name = resolve_model_name(self.engine.as_ref(), &settings)?;
-        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&self.db_path)?;
-        if let Some(prompt) = &vocabulary_prompt {
-            eprintln!(
-                "[dictation] dictionary prompt enabled: included={} truncated={}",
-                prompt.included_count, prompt.truncated_count
-            );
-        }
-        let transcript = match self.translation.transcribe(
-            &session,
-            FileTranscriptionRequest {
-                use_context: Some(crate::model_metadata::ModelUseContext::ShortcutDictation),
-                profile: settings.shortcut_dictation_model_profile,
-                selected_model_id: settings.shortcut_dictation_selected_model_id.clone(),
-                language_mode: settings.language_mode,
-                fixed_language: settings.fixed_language.clone(),
-                timestamps: false,
-                prefer_gpu: settings.gpu_enabled,
-                file_path: recording.file_path.clone(),
-                context_prompt: vocabulary_prompt.as_ref().map(|prompt| prompt.text.clone()),
-                context_terms: vocabulary_prompt
-                    .as_ref()
-                    .map(|prompt| prompt.terms.clone())
-                    .unwrap_or_default(),
-            },
-        ) {
-            Ok(result) => result,
-            Err(error) => {
-                return Err(error);
-            }
+        let resolved_model_name = if live.is_some() {
+            Some(crate::r2t2::MODEL_NAME.into())
+        } else {
+            resolve_model_name(self.engine.as_ref(), &settings)?
         };
+        let _permit;
+        let corrected = if let Some(live) = live {
+            let result = live
+                .handle
+                .finish(&recording.session_id, recording.sample_count);
+            let completed = match result {
+                Ok(result) => result,
+                Err(error) => {
+                    // Store only if this session still owns dictation; a stale
+                    // worker cannot replace a newer recording's recovery material.
+                    let _ = self.translation.with_active(&session, || {
+                        *self
+                            .recovery
+                            .lock()
+                            .map_err(|_| anyhow!("Recovery unavailable"))? = Some(LiveRecovery {
+                            recording: recording.clone(),
+                            settings: live.settings.clone(),
+                            vocabulary: live.vocabulary.clone(),
+                        });
+                        self.update_status(|status| status.can_retry_streaming = true)?;
+                        Ok(())
+                    });
+                    live.handle.cancel();
+                    return Err(error);
+                }
+            };
+            self.translation.ensure_active(&session)?;
+            let (text, permit) = completed.release_worker(
+                &self.translation.processing_queue(),
+                session.mode == crate::translation::OutputMode::Original,
+            );
+            _permit = permit;
+            let language = (settings.language_mode == crate::settings::LanguageMode::Fixed)
+                .then(|| settings.fixed_language.clone())
+                .flatten();
+            vocabulary::correct_transcript_with_terms(
+                &live.vocabulary,
+                crate::r2t2::transcript(&session.id, text, recording.duration_ms, language),
+            )?
+        } else {
+            _permit = self.translation.acquire(&session)?;
+            let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&self.db_path)?;
+            if let Some(prompt) = &vocabulary_prompt {
+                eprintln!(
+                    "[dictation] dictionary prompt enabled: included={} truncated={}",
+                    prompt.included_count, prompt.truncated_count
+                );
+            }
+            let transcript = match self.translation.transcribe(
+                &session,
+                FileTranscriptionRequest {
+                    use_context: Some(crate::model_metadata::ModelUseContext::ShortcutDictation),
+                    profile: settings.shortcut_dictation_model_profile,
+                    selected_model_id: settings.shortcut_dictation_selected_model_id.clone(),
+                    language_mode: settings.language_mode,
+                    fixed_language: settings.fixed_language.clone(),
+                    timestamps: false,
+                    prefer_gpu: settings.gpu_enabled,
+                    file_path: recording.file_path.clone(),
+                    context_prompt: vocabulary_prompt.as_ref().map(|prompt| prompt.text.clone()),
+                    context_terms: vocabulary_prompt
+                        .as_ref()
+                        .map(|prompt| prompt.terms.clone())
+                        .unwrap_or_default(),
+                },
+            ) {
+                Ok(result) => result,
+                Err(error) => {
+                    return Err(error);
+                }
+            };
 
-        let corrected = match vocabulary::correct_transcript_result(&self.db_path, transcript) {
-            Ok(result) => result,
-            Err(error) => {
-                return Err(error);
+            match vocabulary::correct_transcript_result(&self.db_path, transcript) {
+                Ok(result) => result,
+                Err(error) => {
+                    return Err(error);
+                }
             }
         };
 
@@ -535,9 +739,11 @@ impl QuickDictationController {
         let translated = session.mode != crate::translation::OutputMode::Original;
         let mut saved_transcript_id = output.transcript_id.clone();
         if output.status != "completed" {
-            self.update_status(|status| {
-                status.last_transcript_text = Some(corrected.plain_text.clone());
-                status.last_transcript_id = saved_transcript_id.clone();
+            self.translation.with_active(&session, || {
+                self.update_status(|status| {
+                    status.last_transcript_text = Some(corrected.plain_text.clone());
+                    status.last_transcript_id = saved_transcript_id.clone();
+                })
             })?;
             return Err(anyhow!(output
                 .error_message
@@ -545,18 +751,25 @@ impl QuickDictationController {
         }
         let output_text = output.output_text.unwrap_or_default();
         if output_text.trim().is_empty() {
-            self.update_status(|status| status.state = QuickDictationState::Idle)?;
-            self.desktop_shell.set_overlay_payload(Default::default())?;
+            self.translation.with_active(&session, || {
+                self.update_status(|status| status.state = QuickDictationState::Idle)?;
+                self.desktop_shell.set_overlay_payload(Default::default())
+            })?;
             return Ok(());
         }
-        if !translated && settings.save_history {
-            saved_transcript_id = storage::save_quick_dictation_transcript(
-                &self.db_path,
-                &corrected,
-                recording.duration_ms,
-            )
-            .ok()
-            .map(|s| s.id);
+        self.translation.ensure_active(&session)?;
+        if !translated && session.save_history {
+            saved_transcript_id = self
+                .translation
+                .with_active(&session, || {
+                    storage::save_quick_dictation_transcript(
+                        &self.db_path,
+                        &corrected,
+                        recording.duration_ms,
+                    )
+                })
+                .ok()
+                .map(|s| s.id);
         }
 
         let force_clipboard = self.force_clipboard_only.swap(false, Ordering::SeqCst);
@@ -577,21 +790,28 @@ impl QuickDictationController {
                 if self.poller_generation.load(Ordering::SeqCst) != generation {
                     return Ok(());
                 }
-                if saved_transcript_id.is_none() && !translated {
-                    saved_transcript_id = storage::save_quick_dictation_transcript(
-                        &self.db_path,
-                        &corrected,
-                        recording.duration_ms,
-                    )
-                    .ok()
-                    .map(|s| s.id);
+                self.translation.ensure_active(&session)?;
+                if saved_transcript_id.is_none() && !translated && session.save_history {
+                    saved_transcript_id = self
+                        .translation
+                        .with_active(&session, || {
+                            storage::save_quick_dictation_transcript(
+                                &self.db_path,
+                                &corrected,
+                                recording.duration_ms,
+                            )
+                        })
+                        .ok()
+                        .map(|s| s.id);
                 }
-                self.update_status(|status| {
-                    status.last_transcript_text = Some(output_text.clone());
-                    status.last_transcript_id = saved_transcript_id.clone();
-                    status.last_recording_path = Some(recording.file_path.clone());
-                    status.last_model_name = resolved_model_name.clone();
-                    status.last_duration_ms = Some(recording.duration_ms);
+                self.translation.with_active(&session, || {
+                    self.update_status(|status| {
+                        status.last_transcript_text = Some(output_text.clone());
+                        status.last_transcript_id = saved_transcript_id.clone();
+                        status.last_recording_path = Some(recording.file_path.clone());
+                        status.last_model_name = resolved_model_name.clone();
+                        status.last_duration_ms = Some(recording.duration_ms);
+                    })
                 })?;
                 return Err(error);
             }
@@ -602,15 +822,20 @@ impl QuickDictationController {
         }
         if saved_transcript_id.is_none()
             && !translated
+            && session.save_history
             && matches!(insert_outcome, InsertionOutcome::ClipboardOnly)
         {
-            saved_transcript_id = storage::save_quick_dictation_transcript(
-                &self.db_path,
-                &corrected,
-                recording.duration_ms,
-            )
-            .ok()
-            .map(|s| s.id);
+            saved_transcript_id = self
+                .translation
+                .with_active(&session, || {
+                    storage::save_quick_dictation_transcript(
+                        &self.db_path,
+                        &corrected,
+                        recording.duration_ms,
+                    )
+                })
+                .ok()
+                .map(|s| s.id);
         }
 
         let next_state = match insert_outcome {
@@ -621,25 +846,32 @@ impl QuickDictationController {
             InsertionOutcome::Pasted => OverlayPhase::Inserted,
             InsertionOutcome::ClipboardOnly => OverlayPhase::ClipboardOnly,
         };
-        self.update_status(|status| {
-            status.state = next_state;
-            status.last_transcript_text = Some(output_text.clone());
-            status.last_transcript_id = saved_transcript_id.clone();
-            status.last_recording_path = Some(recording.file_path.clone());
-            status.last_error_message = None;
-            status.last_model_name = resolved_model_name.clone();
-            status.last_insert_outcome = Some(insert_outcome);
-            status.last_duration_ms = Some(recording.duration_ms);
+        self.translation.with_active(&session, || {
+            self.update_status(|status| {
+                status.state = next_state;
+                status.last_transcript_text = Some(output_text.clone());
+                status.last_transcript_id = saved_transcript_id.clone();
+                status.last_recording_path = Some(recording.file_path.clone());
+                status.last_error_message = None;
+                status.last_model_name = resolved_model_name.clone();
+                status.last_insert_outcome = Some(insert_outcome);
+                status.last_duration_ms = Some(recording.duration_ms);
+            })
         })?;
         // Flash the result on the overlay so users get feedback even when
         // they're focused on a different app (the in-window toast can't reach
         // them there). The hide is scheduled in `schedule_idle_reset`.
-        self.desktop_shell
-            .set_overlay_payload(DictationOverlayPayload {
-                phase: result_phase,
-                audio_level: 0.0,
-                ..Default::default()
-            })?;
+        self.translation.with_active(&session, || {
+            self.desktop_shell
+                .set_overlay_payload(DictationOverlayPayload {
+                    phase: result_phase,
+                    audio_level: 0.0,
+                    duration_limit_reached: resolved_model_name.as_deref()
+                        == Some(crate::r2t2::MODEL_NAME)
+                        && recording.duration_ms >= 300_000,
+                    ..Default::default()
+                })
+        })?;
         crate::sound::notify(
             &self.app,
             crate::sound::FeedbackCue::Complete,
@@ -676,8 +908,19 @@ impl QuickDictationController {
                 let _ = response_tx.send(Err("Dictation was reset.".to_string()));
                 return;
             }
-            let _ = desktop_shell.set_overlay_payload(DictationOverlayPayload::default());
-            let result = insert_text(&app, &text, behavior, paste_target.as_ref())
+            if let Err(error) = service.with_active(&session, || {
+                desktop_shell.set_overlay_payload(DictationOverlayPayload::default())
+            }) {
+                let _ = response_tx.send(Err(error.to_string()));
+                return;
+            }
+            let result =
+                crate::insertion::insert_text(&app, &text, behavior, paste_target.as_ref(), || {
+                    if active_generation.load(Ordering::SeqCst) != generation {
+                        return Err(anyhow!("Dictation was reset."));
+                    }
+                    service.ensure_active(&session)
+                })
                 .map_err(|error| error.to_string());
             let _ = response_tx.send(result);
         })?;
@@ -689,8 +932,136 @@ impl QuickDictationController {
             .map_err(anyhow::Error::msg)
     }
 
-    fn spawn_overlay_level_poller(&self, generation: u64) {
-        let revision = self.desktop_shell.overlay_revision();
+    /// Explicit recovery returns text for the user to copy. It never uses the
+    /// original application's paste target or changes the clipboard.
+    pub fn retry_streaming(&self) -> Result<QuickDictationStatusResponse> {
+        let _work = crate::shutdown::begin_work(true)?;
+        let recovery = self
+            .recovery
+            .lock()
+            .map_err(|_| anyhow!("Recovery unavailable"))?
+            .clone()
+            .ok_or_else(|| anyhow!("No failed live recording is available."))?;
+        let session = self.translation.begin()?;
+        let _guard = self.translation.guard(&session);
+        let generation = {
+            let _status = self
+                .status
+                .lock()
+                .map_err(|_| anyhow!("Dictation state unavailable"))?;
+            self.poller_generation.fetch_add(1, Ordering::SeqCst) + 1
+        };
+        let result = (|| -> Result<()> {
+            let (helper, model) = self.translation.r2t2_setup()?;
+            let prepared = crate::audio_preprocess::decode_audio_file(std::path::Path::new(
+                &recovery.recording.file_path,
+            ))?;
+            if prepared.samples.len() > crate::r2t2::MAX_SAMPLES {
+                return Err(anyhow!("R2T2_LIMIT: This recording exceeds five minutes."));
+            }
+            let count = prepared.samples.len();
+            let tap =
+                crate::audio_capture::CaptureTap::from_recording(session.id.clone(), prepared);
+            self.translation.with_active(&session, || {
+                self.update_status(|status| {
+                    status.state = QuickDictationState::Processing;
+                    status.last_error_message = None;
+                })?;
+                self.desktop_shell
+                    .set_overlay_payload(DictationOverlayPayload {
+                        session_id: Some(session.id.clone()),
+                        phase: OverlayPhase::Processing,
+                        streaming_state: Some(crate::desktop_shell::StreamingState::Preparing),
+                        ..Default::default()
+                    })
+            })?;
+            self.translation.phase(
+                &session,
+                "streaming_finishing",
+                "Retrying live transcription",
+            )?;
+            let translation = self.translation.clone();
+            let handle = crate::r2t2::start(
+                session.id.clone(),
+                tap,
+                session.cancelled.clone(),
+                self.translation.processing_queue(),
+                self.desktop_shell.clone(),
+                helper,
+                model,
+                crate::r2t2::source_language(&recovery.settings)?,
+                vocabulary::build_asr_prompt(&recovery.vocabulary)
+                    .map(|p| p.text)
+                    .unwrap_or_default(),
+                Arc::new(move || translation.release_asr_resources()),
+                Arc::new(|| {}),
+            )?;
+            handle.activate();
+            let completion = match handle.finish(&session.id, count) {
+                Ok(done) => done,
+                Err(error) => {
+                    handle.cancel();
+                    return Err(error);
+                }
+            };
+            self.translation.ensure_active(&session)?;
+            let (text, _permit) = completion.release_worker(
+                &self.translation.processing_queue(),
+                session.mode == crate::translation::OutputMode::Original,
+            );
+            let source = vocabulary::correct_transcript_with_terms(
+                &recovery.vocabulary,
+                crate::r2t2::transcript(&session.id, text, recovery.recording.duration_ms, None),
+            )?;
+            let output =
+                self.translation
+                    .process(&session, &source, recovery.recording.duration_ms)?;
+            self.translation.ensure_active(&session)?;
+            if output.status != "completed" {
+                return Err(anyhow!(output.error_message.unwrap_or_else(|| {
+                    "Translation failed. The original text is available.".into()
+                })));
+            }
+            let mut saved = output.transcript_id;
+            if session.mode == crate::translation::OutputMode::Original && session.save_history {
+                saved = Some(
+                    self.translation
+                        .with_active(&session, || {
+                            storage::save_quick_dictation_transcript(
+                                &self.db_path,
+                                &source,
+                                recovery.recording.duration_ms,
+                            )
+                        })?
+                        .id,
+                );
+            }
+            self.translation.with_active(&session, || {
+                self.update_status(|status| {
+                    status.state = QuickDictationState::Idle;
+                    status.last_transcript_text = output.output_text.clone();
+                    status.last_transcript_id = saved.clone();
+                    status.last_model_name = Some(crate::r2t2::MODEL_NAME.into());
+                    status.last_error_message = None;
+                    status.last_insert_outcome = None;
+                    status.can_retry_streaming = false;
+                })?;
+                *self
+                    .recovery
+                    .lock()
+                    .map_err(|_| anyhow!("Recovery unavailable"))? = None;
+                self.desktop_shell.set_overlay_payload(Default::default())
+            })?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            let _ = self.set_error_owned(error.to_string(), generation);
+            return Err(error);
+        }
+        Ok(self.status())
+    }
+
+    fn spawn_overlay_level_poller(&self, generation: u64, session_id: String) {
         let controller = self.clone();
         thread::spawn(move || {
             // Exit as soon as this poller is superseded by a newer listening
@@ -700,17 +1071,20 @@ impl QuickDictationController {
                 && controller.status().state == QuickDictationState::Listening
             {
                 let level = controller.recording_controller.input_level().unwrap_or(0.0);
-                let _ = controller.desktop_shell.update_level(revision, level);
-                thread::sleep(Duration::from_millis(50));
+                let _ = controller.desktop_shell.update_level(&session_id, level);
+                thread::sleep(Duration::from_millis(100));
             }
         });
     }
 
     fn schedule_idle_reset(&self) {
         let revision = self.desktop_shell.overlay_revision();
-        let controller = self.clone();
         let generation = self.poller_generation.load(Ordering::SeqCst);
         let transition = self.state_since_ms.load(Ordering::SeqCst);
+        self.schedule_idle_reset_at(revision, generation, transition);
+    }
+    fn schedule_idle_reset_at(&self, revision: u64, generation: u64, transition: i64) {
+        let controller = self.clone();
         thread::spawn(move || {
             // Long enough to read the result chip; short enough to feel snappy
             // and not block subsequent dictations.
@@ -731,7 +1105,17 @@ impl QuickDictationController {
                     .desktop_shell
                     .set_overlay_if_revision(revision, DictationOverlayPayload::default());
                 if let Err(error) = controller.update_status(|status| {
-                    status.state = QuickDictationState::Idle;
+                    if controller.poller_generation.load(Ordering::SeqCst) == generation
+                        && controller.state_since_ms.load(Ordering::SeqCst) == transition
+                        && matches!(
+                            status.state,
+                            QuickDictationState::Inserted
+                                | QuickDictationState::ClipboardOnly
+                                | QuickDictationState::Error
+                        )
+                    {
+                        status.state = QuickDictationState::Idle;
+                    }
                 }) {
                     eprintln!("[dictation] failed to reset to idle: {error:?}");
                 }
@@ -740,6 +1124,16 @@ impl QuickDictationController {
     }
 
     fn set_error(&self, message: String) -> Result<()> {
+        self.set_error_owned(message, self.poller_generation.load(Ordering::SeqCst))
+    }
+    fn set_error_owned(&self, message: String, generation: u64) -> Result<()> {
+        let mut status = self
+            .status
+            .lock()
+            .map_err(|_| anyhow!("Dictation state unavailable"))?;
+        if self.poller_generation.load(Ordering::SeqCst) != generation {
+            return Ok(());
+        }
         self.restore_system_volume();
         if let Some(player) = self.sound_player.as_ref().as_ref() {
             player.finish_capture(false, true);
@@ -758,12 +1152,15 @@ impl QuickDictationController {
                 audio_level: 0.0,
                 ..Default::default()
             })?;
-        self.update_status(|status| {
-            status.state = QuickDictationState::Error;
-            status.last_error_message = Some(message.clone());
-        })?;
+        status.state = QuickDictationState::Error;
+        status.last_error_message = Some(message);
+        let transition = now_ms();
+        self.state_since_ms.store(transition, Ordering::SeqCst);
+        let revision = self.desktop_shell.overlay_revision();
+        self.app.emit(QUICK_DICTATE_STATUS_EVENT, status.clone())?;
+        drop(status);
         // Auto-hide the error chip too — same path as success outcomes.
-        self.schedule_idle_reset();
+        self.schedule_idle_reset_at(revision, generation, transition);
         Ok(())
     }
 
@@ -831,6 +1228,10 @@ impl QuickDictationController {
     /// Stop capture and insertion without re-registering shortcuts.
     pub fn prepare_shutdown(&self) {
         self.translation.cancel();
+        if let Some(live) = self.live.lock().ok().and_then(|mut live| live.take()) {
+            live.handle.cancel();
+        }
+        self.translation.processing_queue().evict_idle();
         self.poller_generation.fetch_add(1, Ordering::SeqCst);
         let _ = self.suspend_shortcut_registration();
         let _ = self.recording_controller.cancel();
@@ -849,6 +1250,10 @@ impl QuickDictationController {
     /// both the manual reset command and the watchdog.
     pub fn force_reset(&self) -> Result<QuickDictationStatusResponse> {
         self.translation.cancel();
+        if let Some(live) = self.live.lock().ok().and_then(|mut live| live.take()) {
+            live.handle.cancel();
+        }
+        self.translation.processing_queue().evict_idle();
         if crate::shutdown::is_shutting_down() {
             return Ok(self.status());
         }
@@ -883,9 +1288,19 @@ impl QuickDictationController {
             thread::sleep(POLL_INTERVAL);
             let state = controller.status().state;
             let phase = controller.translation.snapshot().stage;
+            // Live capture has sample-progress checks, a five-minute cap, and
+            // separate loading/finalization deadlines in its streaming service.
+            if controller
+                .live
+                .lock()
+                .map(|live| live.is_some())
+                .unwrap_or(false)
+            {
+                continue;
+            }
             if matches!(
                 phase.as_str(),
-                "waiting" | "transcribing" | "loading" | "translating"
+                "waiting" | "transcribing" | "loading" | "translating" | "streaming_finishing"
             ) {
                 continue;
             }

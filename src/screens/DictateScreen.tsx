@@ -32,6 +32,7 @@ interface Props {
   outputState?: DictationOutputState | null;
   onOutputModeChange?: (mode: OutputMode) => Promise<void>;
   onRetryTranslation?: () => Promise<void>;
+  onRetryLive?: () => Promise<void>;
   dictationError?: string | null;
   settings: AppSettings | null;
   platform: string | null;
@@ -354,6 +355,10 @@ export function DictateScreen(props: Props) {
         <div className="error-panel" role="alert">
           <strong>Let’s try that again</strong>
           <p>{error}</p>
+          {quick?.canRetryStreaming && props.onRetryLive ? <>
+            <p>The recording is retained. Retry returns text here for you to copy; it will not paste into another app.</p>
+            <ActionButton icon="reset" action={props.onRetryLive} success="Transcript ready">Retry transcription</ActionButton>
+          </> : null}
           <ActionButton icon="reset" action={reset} success="Reset">
             Reset dictation
           </ActionButton>
