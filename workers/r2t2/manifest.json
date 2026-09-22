@@ -11,6 +11,6 @@
   "runtimeArchiveSha256": "212453797250cab2567393962a3e082ab94b6fe6c4b7cd57fc70eab6eafbb680",
   "officialRevision": "c4611929bc3592b38dab34e96a8c9940d6da3755",
   "licenseUrl": "https://github.com/netease-youdao/Confucius4-R2T2/blob/c4611929bc3592b38dab34e96a8c9940d6da3755/MODEL_LICENSE",
-  "releaseEnabled": false,
-  "releaseBlocker": "Human-recording German/English accuracy, rolling continuity and interactive packaged-app acceptance remain unvalidated."
+  "releaseEnabled": true,
+  "validationStatus": "Experimental: human-recording German/English accuracy, rolling continuity and interactive packaged-app acceptance remain unvalidated."
 }

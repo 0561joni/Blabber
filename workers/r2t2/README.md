@@ -2,8 +2,9 @@
 
 This helper powers the optional live shortcut-dictation integration described in
 [`docs/r2t2.md`](../../docs/r2t2.md). `manifest.json` pins the source and model and
-controls the release gate. `releaseEnabled` remains false until human-recording
-correctness and interactive packaged-app acceptance pass. Apple Silicon app builds
+controls normal-build availability. `releaseEnabled` is true for opt-in experimental
+testing in the app; human-recording and interactive acceptance remain outstanding.
+Apple Silicon app builds
 bundle the signed helper and notices. The model is a separate explicit download;
 existing model selections and defaults are unchanged.
 
