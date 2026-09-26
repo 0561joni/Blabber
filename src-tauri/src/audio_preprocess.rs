@@ -7,7 +7,7 @@ use anyhow::{anyhow, Context, Result};
 use hound::{SampleFormat, WavSpec, WavWriter};
 use sha2::{Digest, Sha256};
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
@@ -19,7 +19,40 @@ use uuid::Uuid;
 pub const TARGET_SAMPLE_RATE_HZ: u32 = 16_000;
 pub const TARGET_CHANNELS: u16 = 1;
 pub const MAX_AUDIO_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// Videos are larger because the picture is skipped; only the audio track is decoded.
+pub const MAX_VIDEO_FILE_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 pub const MAX_AUDIO_DURATION_MS: i64 = 6 * 60 * 60 * 1000;
+
+/// Audio file extensions accepted for file transcription.
+pub const AUDIO_FILE_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "opus"];
+/// Video containers whose first audio track is extracted and transcribed.
+pub const VIDEO_FILE_EXTENSIONS: &[&str] = &["mp4", "mov", "m4v", "mkv", "webm", "avi"];
+/// Video containers that macOS (AVFoundation / WebKit) opens natively.
+const APPLE_VIDEO_FILE_EXTENSIONS: &[&str] = &["mp4", "mov", "m4v"];
+
+fn lowercase_extension(path: &Path) -> Option<String> {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+}
+
+pub fn is_video_path(path: &Path) -> bool {
+    lowercase_extension(path).is_some_and(|ext| VIDEO_FILE_EXTENSIONS.contains(&ext.as_str()))
+}
+
+pub fn is_supported_media_path(path: &Path) -> bool {
+    lowercase_extension(path).is_some_and(|ext| {
+        AUDIO_FILE_EXTENSIONS.contains(&ext.as_str())
+            || VIDEO_FILE_EXTENSIONS.contains(&ext.as_str())
+    })
+}
+
+/// True when the macOS web view can play the original file directly.
+pub fn is_natively_playable_path(path: &Path) -> bool {
+    !is_video_path(path)
+        || lowercase_extension(path)
+            .is_some_and(|ext| APPLE_VIDEO_FILE_EXTENSIONS.contains(&ext.as_str()))
+}
 
 #[derive(Debug, Clone)]
 pub struct PreparedAudio {
@@ -72,24 +105,16 @@ fn decode_audio_file_native(path: &Path) -> Result<PreparedAudio> {
         )
         .context("failed to probe audio format")?;
     let mut format = probed.format;
-    let track = format
-        .default_track()
+    let track = select_audio_track(format.tracks())
         .ok_or_else(|| anyhow!("No supported audio track was found"))?;
     let track_id = track.id;
-    let sample_rate_hz = track
-        .codec_params
-        .sample_rate
-        .ok_or_else(|| anyhow!("Unable to determine audio sample rate"))?;
-    let channels = track
-        .codec_params
-        .channels
-        .map(|channels| channels.count() as u16)
-        .ok_or_else(|| anyhow!("Unable to determine audio channel count"))?;
 
     let mut decoder = get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
         .context("failed to create audio decoder")?;
-    let mut normalizer = StreamingNormalizer::new(sample_rate_hz, channels)?;
+    // AAC inside MP4/MOV often reports no channel layout until the first packet
+    // is decoded, so the normalizer is created from the first decoded buffer.
+    let mut normalizer: Option<StreamingNormalizer> = None;
 
     loop {
         let packet = match format.next_packet() {
@@ -117,13 +142,40 @@ fn decode_audio_file_native(path: &Path) -> Result<PreparedAudio> {
         let duration = decoded.capacity() as u64;
         let mut sample_buffer = SampleBuffer::<f32>::new(duration, spec);
         sample_buffer.copy_interleaved_ref(decoded);
-        normalizer.push(sample_buffer.samples())?;
+        if normalizer.is_none() {
+            normalizer = Some(StreamingNormalizer::new(
+                spec.rate,
+                spec.channels.count() as u16,
+            )?);
+        }
+        if let Some(normalizer) = normalizer.as_mut() {
+            normalizer.push(sample_buffer.samples())?;
+        }
     }
 
-    normalizer.finish()
+    normalizer
+        .ok_or_else(|| anyhow!("The audio track contains no decodable audio"))?
+        .finish()
+}
+
+/// Video containers list picture/subtitle tracks too (often first), so pick the
+/// first track that carries a codec Symphonia can actually decode.
+fn select_audio_track(
+    tracks: &[symphonia::core::formats::Track],
+) -> Option<&symphonia::core::formats::Track> {
+    let codecs = get_codecs();
+    tracks.iter().find(|track| {
+        track.codec_params.codec != CODEC_TYPE_NULL
+            && track.codec_params.sample_rate.is_some()
+            && codecs.get_codec(track.codec_params.codec).is_some()
+    })
 }
 
 fn decode_audio_file_with_fallback(path: &Path) -> Result<PreparedAudio> {
+    if is_video_path(path) {
+        return decode_video_audio_with_fallback(path);
+    }
+
     #[cfg(target_os = "macos")]
     {
         if let Ok(prepared) = decode_audio_file_with_afconvert(path) {
@@ -132,6 +184,69 @@ fn decode_audio_file_with_fallback(path: &Path) -> Result<PreparedAudio> {
     }
 
     decode_audio_file_with_ffmpeg(path)
+}
+
+fn decode_video_audio_with_fallback(path: &Path) -> Result<PreparedAudio> {
+    #[cfg(target_os = "macos")]
+    let avfoundation_error = if is_natively_playable_path(path) {
+        match decode_video_audio_with_avconvert(path) {
+            Ok(prepared) => return Ok(prepared),
+            Err(error) => Some(error),
+        }
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "macos"))]
+    let avfoundation_error: Option<anyhow::Error> = None;
+
+    if find_command_binary("ffmpeg").is_none() {
+        if let Some(error) = avfoundation_error {
+            return Err(error);
+        }
+        let extension = lowercase_extension(path)
+            .unwrap_or_default()
+            .to_ascii_uppercase();
+        return Err(anyhow!(
+            "{extension} videos need ffmpeg to extract the audio. Install it with `brew install ffmpeg`, or convert the video to MP4/MOV."
+        ));
+    }
+    decode_audio_file_with_ffmpeg(path)
+}
+
+/// Uses macOS AVFoundation (`/usr/bin/avconvert`) to export only the audio
+/// track of an MP4/MOV/M4V into a temporary M4A, then decodes that natively.
+#[cfg(target_os = "macos")]
+fn decode_video_audio_with_avconvert(path: &Path) -> Result<PreparedAudio> {
+    let avconvert = find_command_binary("avconvert")
+        .ok_or_else(|| anyhow!("macOS avconvert is unavailable"))?;
+    let temp_m4a = transcoded_temp_path(path, "avconvert", "m4a");
+    let output = Command::new(&avconvert)
+        .arg("--source")
+        .arg(path)
+        .arg("--preset")
+        .arg("PresetAppleM4A")
+        .arg("--output")
+        .arg(&temp_m4a)
+        .arg("--replace")
+        .output()
+        .with_context(|| format!("failed to launch avconvert for {}", path.display()))?;
+
+    if !output.status.success() || !temp_m4a.is_file() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        cleanup_temp_file(&temp_m4a);
+        return Err(anyhow!(
+            "Could not extract audio from {} (the video may have no audio track): {} {}",
+            path.display(),
+            stderr,
+            stdout
+        ));
+    }
+
+    let decoded = decode_audio_file_native(&temp_m4a)
+        .or_else(|_| decode_audio_file_with_afconvert(&temp_m4a));
+    cleanup_temp_file(&temp_m4a);
+    decoded
 }
 
 #[cfg(target_os = "macos")]
@@ -176,9 +291,15 @@ fn decode_audio_file_with_ffmpeg(path: &Path) -> Result<PreparedAudio> {
         anyhow!("No fallback audio decoder was found. Install ffmpeg or use WAV/MP3 input.")
     })?;
     let output = Command::new(&ffmpeg_binary)
+        .arg("-nostdin")
         .arg("-y")
         .arg("-i")
         .arg(path)
+        .arg("-map")
+        .arg("0:a:0")
+        .arg("-vn")
+        .arg("-sn")
+        .arg("-dn")
         .arg("-ac")
         .arg("1")
         .arg("-ar")
@@ -198,6 +319,12 @@ fn decode_audio_file_with_ffmpeg(path: &Path) -> Result<PreparedAudio> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         cleanup_temp_file(&temp_wav);
+        if stderr.contains("matches no streams") {
+            return Err(anyhow!(
+                "{} has no audio track to transcribe.",
+                path.display()
+            ));
+        }
         return Err(anyhow!("ffmpeg failed for {}: {}", path.display(), stderr));
     }
 
@@ -207,12 +334,16 @@ fn decode_audio_file_with_ffmpeg(path: &Path) -> Result<PreparedAudio> {
 }
 
 fn transcoded_temp_wav_path(path: &Path, tool_name: &str) -> std::path::PathBuf {
+    transcoded_temp_path(path, tool_name, "wav")
+}
+
+fn transcoded_temp_path(path: &Path, tool_name: &str, extension: &str) -> std::path::PathBuf {
     let file_stem = path
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or("transcode");
     std::env::temp_dir().join(format!(
-        "{file_stem}-{tool_name}-{}-{}.wav",
+        "{file_stem}-{tool_name}-{}-{}.{extension}",
         std::process::id(),
         Uuid::new_v4()
     ))
@@ -364,9 +495,14 @@ pub fn sha256_file(path: &Path) -> Result<String> {
 pub fn validate_audio_file_size(path: &Path) -> Result<()> {
     let metadata =
         std::fs::metadata(path).with_context(|| format!("failed to read {}", path.display()))?;
-    if metadata.len() > MAX_AUDIO_FILE_BYTES {
+    let (limit, message_prefix, limit_label) = if is_video_path(path) {
+        (MAX_VIDEO_FILE_BYTES, "Video", "video files up to 20 GB")
+    } else {
+        (MAX_AUDIO_FILE_BYTES, "Audio", "files up to 2.00 GB")
+    };
+    if metadata.len() > limit {
         return Err(anyhow!(
-            "Audio file is too large: {:.2} GB. Blabber currently supports files up to 2.00 GB.",
+            "{message_prefix} file is too large: {:.2} GB. Blabber currently supports {limit_label}.",
             metadata.len() as f64 / 1_000_000_000.0
         ));
     }
@@ -395,6 +531,89 @@ fn prepared_duration_ms(prepared: &PreparedAudio) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_extensions_are_classified() {
+        assert!(is_video_path(Path::new("/tmp/Call.MOV")));
+        assert!(is_supported_media_path(Path::new("/tmp/talk.webm")));
+        assert!(!is_video_path(Path::new("/tmp/voice.m4a")));
+        assert!(is_natively_playable_path(Path::new("/tmp/clip.mp4")));
+        assert!(!is_natively_playable_path(Path::new("/tmp/talk.mkv")));
+        assert!(is_natively_playable_path(Path::new("/tmp/voice.opus")));
+    }
+
+    #[test]
+    #[ignore = "requires local ffmpeg to create video fixtures"]
+    fn video_files_decode_only_their_audio_track() {
+        let dir = temp_path("video-fixtures");
+        std::fs::create_dir_all(&dir).unwrap();
+        // Video track first, audio second: the decoder must skip the picture.
+        for (name, video_codec, audio_codec) in [
+            ("clip.mp4", "libx264", "aac"),
+            ("clip.mov", "libx264", "aac"),
+            ("clip.m4v", "libx264", "aac"),
+            ("clip.mkv", "libx264", "aac"),
+            ("clip.webm", "libvpx", "libopus"),
+            ("clip.avi", "mpeg4", "libmp3lame"),
+        ] {
+            let path = dir.join(name);
+            let output = Command::new("ffmpeg")
+                .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+                .arg("testsrc=size=320x240:rate=25:duration=3")
+                .args([
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "sine=frequency=440:duration=3:sample_rate=48000",
+                ])
+                .args([
+                    "-map",
+                    "0:v",
+                    "-map",
+                    "1:a",
+                    "-c:v",
+                    video_codec,
+                    "-c:a",
+                    audio_codec,
+                ])
+                .arg(&path)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let audio =
+                decode_audio_file(&path).unwrap_or_else(|error| panic!("{name}: {error:#}"));
+            let seconds = audio.samples.len() as f64 / audio.sample_rate_hz as f64;
+            assert!((seconds - 3.0).abs() < 0.15, "{name}: {seconds}s");
+            assert!(
+                audio.samples.iter().any(|sample| sample.abs() > 0.05),
+                "{name} is silent"
+            );
+        }
+        let silent = dir.join("no-audio.mkv");
+        let output = Command::new("ffmpeg")
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=1",
+                "-c:v",
+                "libx264",
+            ])
+            .arg(&silent)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let error = decode_audio_file(&silent).unwrap_err();
+        assert!(format!("{error:#}").contains("no audio track"), "{error:#}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("blabber-audio-test-{name}-{}", Uuid::new_v4()))

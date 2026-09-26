@@ -202,12 +202,12 @@ export function App() {
     (error: unknown) => {
       const message = errorMessage(
         error,
-        "Drop WAV, MP3, M4A, or OPUS files to transcribe.",
+        "Drop audio (WAV, MP3, M4A, OPUS) or video (MP4, MOV, M4V, MKV, WEBM, AVI) files to transcribe.",
       );
       console.error(message);
       pushToast({
         kind: "error",
-        message: "Unsupported audio file",
+        message: "Unsupported file",
         hint: message,
         durationMs: 5000,
       });

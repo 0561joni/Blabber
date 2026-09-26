@@ -18,7 +18,13 @@ pub fn clock_ms(ms: i64) -> String {
 
 /// One line of `timestamped_text`: `[MM:SS - MM:SS] lang: text`.
 pub fn timestamped_line(start_ms: i64, end_ms: i64, language: &str, text: &str) -> String {
-    format!("[{} - {}] {}: {}", clock_ms(start_ms), clock_ms(end_ms), language, text)
+    format!(
+        "[{} - {}] {}: {}",
+        clock_ms(start_ms),
+        clock_ms(end_ms),
+        language,
+        text
+    )
 }
 
 const LANGUAGE_NAMES: &[(&str, &[&str])] = &[
@@ -78,9 +84,11 @@ pub fn normalize_language_code(value: Option<&str>) -> String {
     }
 }
 
-const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "opus", "aac", "mp4", "flac", "ogg"];
+const AUDIO_EXTENSIONS: &[&str] = &[
+    "wav", "mp3", "m4a", "opus", "aac", "mp4", "flac", "ogg", "mov", "m4v", "mkv", "webm", "avi",
+];
 
-/// Library title for an imported file: the file name without its audio extension.
+/// Library title for an imported file: the file name without its audio/video extension.
 pub fn file_display_title(original_name: &str) -> String {
     let name = original_name.trim();
     if let Some((stem, extension)) = name.rsplit_once('.') {
@@ -144,6 +152,8 @@ mod tests {
     fn file_titles_drop_only_audio_extensions() {
         assert_eq!(file_display_title("English-Spanish.m4a"), "English-Spanish");
         assert_eq!(file_display_title("Meeting 2026.05.WAV"), "Meeting 2026.05");
+        assert_eq!(file_display_title("Team call.MOV"), "Team call");
+        assert_eq!(file_display_title("talk.webm"), "talk");
         assert_eq!(file_display_title("notes.v2"), "notes.v2");
         assert_eq!(file_display_title(".m4a"), ".m4a");
     }
@@ -151,7 +161,10 @@ mod tests {
     #[test]
     fn fallback_titles_use_local_german_order_and_one_ellipsis() {
         let now = Local.with_ymd_and_hms(2026, 9, 25, 23, 4, 0).unwrap();
-        assert_eq!(dictation_fallback_title(now), "Quick dictate 25.09.2026 23:04");
+        assert_eq!(
+            dictation_fallback_title(now),
+            "Quick dictate 25.09.2026 23:04"
+        );
         assert_eq!(truncate_title("short", 72), "short");
         assert_eq!(truncate_title("abcdef", 3), "abc…");
     }

@@ -145,9 +145,9 @@ export function FilesScreen(props: Props) {
         <div className={"file-dropzone" + (props.dragging ? " is-dragging" : "")}>
           <AppIcon name="upload" />
           <p>
-            <strong>{props.dragging ? "Drop to transcribe" : "Drop audio files here"}</strong>
+            <strong>{props.dragging ? "Drop to transcribe" : "Drop audio or video files here"}</strong>
             <span className="muted">
-              {props.dragging ? "Files are added to the queue." : "WAV, MP3, M4A or OPUS. Or use Choose files."}
+              {props.dragging ? "Files are added to the queue." : "Audio (WAV, MP3, M4A, OPUS) or video (MP4, MOV, M4V, MKV, WEBM, AVI). Only the sound is transcribed."}
             </span>
           </p>
         </div>

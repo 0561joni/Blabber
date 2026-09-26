@@ -930,7 +930,9 @@ export async function prepareDroppedAudioFiles(
       .filter(isSupportedAudioPath)
       .map((filePath) => buildMockSelectedFile(filePath));
     if (files.length === 0) {
-      throw new Error("Drop WAV, MP3, M4A, or OPUS files to transcribe.");
+      throw new Error(
+        "Drop audio (WAV, MP3, M4A, OPUS) or video (MP4, MOV, M4V, MKV, WEBM, AVI) files to transcribe.",
+      );
     }
     return files;
   }
@@ -1154,28 +1156,29 @@ function buildMockSelectedFile(filePath: string): SelectedSourceFile {
   return {
     filePath,
     originalName,
-    mimeType:
-      extension === "mp3"
-        ? "audio/mpeg"
-        : extension === "m4a"
-          ? "audio/mp4"
-          : extension === "opus"
-            ? "audio/ogg"
-            : "audio/wav",
+    mimeType: MOCK_MIME_TYPES[extension ?? ""] ?? "audio/wav",
     sizeBytes: 1_024_000,
     durationMs: null,
     sha256: null,
   };
 }
 
+const MOCK_MIME_TYPES: Record<string, string> = {
+  wav: "audio/wav",
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  opus: "audio/ogg",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  m4v: "video/x-m4v",
+  mkv: "video/x-matroska",
+  webm: "video/webm",
+  avi: "video/x-msvideo",
+};
+
 function isSupportedAudioPath(filePath: string) {
-  const extension = filePath.split(".").pop()?.toLowerCase();
-  return (
-    extension === "wav" ||
-    extension === "mp3" ||
-    extension === "m4a" ||
-    extension === "opus"
-  );
+  const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
+  return Object.prototype.hasOwnProperty.call(MOCK_MIME_TYPES, extension);
 }
 
 export async function getRecordingStatus(): Promise<RecordingStatusResponse> {

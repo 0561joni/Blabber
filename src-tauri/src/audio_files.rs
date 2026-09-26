@@ -29,13 +29,22 @@ pub struct FileTranscriptionRequest {
     pub speaker_count_hint: Option<i32>,
 }
 
+pub const UNSUPPORTED_DROP_MESSAGE: &str =
+    "Drop audio (WAV, MP3, M4A, OPUS) or video (MP4, MOV, M4V, MKV, WEBM, AVI) files to transcribe.";
+
+const SUPPORTED_MEDIA_EXTENSIONS: [&str; 10] = [
+    "wav", "mp3", "m4a", "opus", "mp4", "mov", "m4v", "mkv", "webm", "avi",
+];
+
 pub async fn pick_audio_files(window: &Window) -> Result<Vec<SelectedSourceFile>> {
     let (tx, rx) = mpsc::channel();
     window
         .app_handle()
         .dialog()
         .file()
-        .add_filter("Audio", &["wav", "mp3", "m4a", "opus"])
+        .add_filter("Audio & video", &SUPPORTED_MEDIA_EXTENSIONS)
+        .add_filter("Audio", audio_preprocess::AUDIO_FILE_EXTENSIONS)
+        .add_filter("Video", audio_preprocess::VIDEO_FILE_EXTENSIONS)
         .pick_files(move |files| {
             let _ = tx.send(files);
         });
@@ -70,7 +79,7 @@ pub fn prepare_dropped_audio_files(paths: Vec<String>) -> Result<Vec<SelectedSou
     }
 
     if selected_files.is_empty() {
-        return Err(anyhow!("Drop WAV, MP3, M4A, or OPUS files to transcribe."));
+        return Err(anyhow!(UNSUPPORTED_DROP_MESSAGE));
     }
 
     Ok(selected_files)
@@ -90,7 +99,7 @@ pub fn selected_source_file_from_path(path: PathBuf) -> Result<SelectedSourceFil
     let original_name = path
         .file_name()
         .and_then(|value| value.to_str())
-        .ok_or_else(|| anyhow!("Unable to determine audio filename"))?
+        .ok_or_else(|| anyhow!("Unable to determine the file name"))?
         .to_string();
 
     // Decoding and fingerprinting happen in the queued preparation stage.
@@ -105,13 +114,7 @@ pub fn selected_source_file_from_path(path: PathBuf) -> Result<SelectedSourceFil
 }
 
 fn is_supported_audio_path(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|value| value.to_str())
-            .map(|value| value.to_ascii_lowercase())
-            .as_deref(),
-        Some("wav" | "mp3" | "m4a" | "opus")
-    )
+    audio_preprocess::is_supported_media_path(path)
 }
 
 fn mime_type_for_path(path: &Path) -> String {
@@ -125,6 +128,12 @@ fn mime_type_for_path(path: &Path) -> String {
         Some("m4a") => "audio/mp4".to_string(),
         Some("opus") => "audio/ogg".to_string(),
         Some("wav") => "audio/wav".to_string(),
+        Some("mp4") => "video/mp4".to_string(),
+        Some("m4v") => "video/x-m4v".to_string(),
+        Some("mov") => "video/quicktime".to_string(),
+        Some("mkv") => "video/x-matroska".to_string(),
+        Some("webm") => "video/webm".to_string(),
+        Some("avi") => "video/x-msvideo".to_string(),
         _ => "application/octet-stream".to_string(),
     }
 }
@@ -153,9 +162,48 @@ mod tests {
         let error = prepare_dropped_audio_files(vec!["/tmp/document.pdf".to_string()])
             .expect_err("unsupported files should be rejected");
 
+        assert_eq!(error.to_string(), UNSUPPORTED_DROP_MESSAGE);
+    }
+
+    #[test]
+    fn video_paths_are_supported() {
+        for name in [
+            "/tmp/clip.mp4",
+            "/tmp/Screen Recording.MOV",
+            "/tmp/clip.m4v",
+            "/tmp/talk.mkv",
+            "/tmp/talk.webm",
+            "/tmp/old.avi",
+        ] {
+            assert!(is_supported_audio_path(Path::new(name)), "{name}");
+        }
+        assert!(!is_supported_audio_path(Path::new("/tmp/slides.pdf")));
+    }
+
+    #[test]
+    fn video_paths_use_video_mime_types() {
+        assert_eq!(mime_type_for_path(Path::new("/tmp/a.mp4")), "video/mp4");
         assert_eq!(
-            error.to_string(),
-            "Drop WAV, MP3, M4A, or OPUS files to transcribe."
+            mime_type_for_path(Path::new("/tmp/a.MOV")),
+            "video/quicktime"
         );
+        assert_eq!(
+            mime_type_for_path(Path::new("/tmp/a.mkv")),
+            "video/x-matroska"
+        );
+        assert_eq!(mime_type_for_path(Path::new("/tmp/a.webm")), "video/webm");
+    }
+
+    #[test]
+    fn picker_extensions_cover_audio_and_video_lists() {
+        for extension in audio_preprocess::AUDIO_FILE_EXTENSIONS
+            .iter()
+            .chain(audio_preprocess::VIDEO_FILE_EXTENSIONS)
+        {
+            assert!(
+                SUPPORTED_MEDIA_EXTENSIONS.contains(extension),
+                "{extension}"
+            );
+        }
     }
 }

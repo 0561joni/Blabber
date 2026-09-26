@@ -1,0 +1,59 @@
+== date
+Sa. 26 Sep. 2026 10:47:09 -03
+== codesigning identities (valid)
+  1) 5251FA1397134823AC34DD457B4AF97677787C85 "Blabber Local Signing"
+     1 valid identities found
+== codesigning identities (all)
+
+Policy: Code Signing
+  Matching identities
+  1) 5251FA1397134823AC34DD457B4AF97677787C85 "Blabber Local Signing"
+     1 identities found
+
+  Valid identities only
+  1) 5251FA1397134823AC34DD457B4AF97677787C85 "Blabber Local Signing"
+     1 valid identities found
+== certificate
+SHA-256 hash: 05A49F78EB977909FA59A98ADF376ADCF73733FD978FAFD280C070220CB7C4B0
+SHA-1 hash: 5251FA1397134823AC34DD457B4AF97677787C85
+keychain: "/Users/jonibuch/Library/Keychains/login.keychain-db"
+version: 512
+class: 0x80001000 
+== trust settings
+Cert 0: Blabber Local Signing
+   Number of trust settings : 1
+   Trust Setting 0:
+      Policy OID            : Code Signing
+== installed copies
+/Users/jonibuch/Documents/Codex/Blabber/src-tauri/target/model-repair-backup-20260922-171311/Blabber.app
+/Users/jonibuch/Documents/Codex/Blabber/src-tauri/target/release/bundle/macos/Blabber.app
+/Applications/Blabber.app
+/Users/jonibuch/Documents/Codex/Blabber/src-tauri/target/debug/bundle/macos/Blabber.app
+/Users/jonibuch/Documents/Codex/Blabber/src-tauri/target/r2t2-fix-backup-20260922-173235/Blabber.app
+/Users/jonibuch/Documents/Codex/Blabber/src-tauri/target/r2t2-tentative-backup-20260923-002718/Blabber.app
+== /Applications/Blabber.app
+drwxr-xr-x@ 3 jonibuch  admin  96 26 Sep. 10:16 /Applications/Blabber.app
+Identifier=com.jonibuch.speechtotext
+Signature size=1649
+Authority=Blabber Local Signing
+TeamIdentifier=not set
+-- designated requirement
+designated => identifier "com.jonibuch.speechtotext" and certificate leaf = H"5251fa1397134823ac34dd457b4af97677787c85"
+-- verify
+ok
+-- quarantine
+xattr: /Applications/Blabber.app: No such xattr: com.apple.quarantine
+== src-tauri/target/release/bundle/macos/Blabber.app
+drwxr-xr-x@ 3 jonibuch  staff  96 26 Sep. 10:16 src-tauri/target/release/bundle/macos/Blabber.app
+Identifier=com.jonibuch.speechtotext
+Signature size=1649
+Authority=Blabber Local Signing
+TeamIdentifier=not set
+-- designated requirement
+designated => identifier "com.jonibuch.speechtotext" and certificate leaf = H"5251fa1397134823ac34dd457b4af97677787c85"
+-- verify
+ok
+-- quarantine
+xattr: src-tauri/target/release/bundle/macos/Blabber.app: No such xattr: com.apple.quarantine
+== running
+49707 /Applications/Blabber.app/Contents/MacOS/speech-to-text

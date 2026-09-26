@@ -86,6 +86,9 @@ impl MediaStore {
             .port
             .ok_or_else(|| anyhow!("AUDIO_UNAVAILABLE: Local audio playback could not start."))?;
         let source = validated_source(store, reference, replacement_path)?;
+        // MKV/WebM/AVI cannot be played by the web view; serve extracted audio instead.
+        let fallback = fallback
+            || !crate::audio_preprocess::is_natively_playable_path(Path::new(&source.file_path));
         let asset = if fallback {
             let prepared =
                 crate::audio_preprocess::decode_audio_file(Path::new(&source.file_path))?;

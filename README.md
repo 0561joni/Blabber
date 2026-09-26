@@ -33,6 +33,22 @@ application needs no separately installed translation runtime.
 See [translation architecture and acceptance](docs/translation.md) for pinned
 versions, error handling, reproducible benchmarks, and remaining release checks.
 
+## File transcription: audio and video
+
+Drop files on **Files** (or use **Choose files**). Supported:
+
+- **Audio:** WAV, MP3, M4A, OPUS (up to 2 GB)
+- **Video:** MP4, MOV, M4V, MKV, WEBM, AVI (up to 20 GB). Only the first audio
+  track is extracted and transcribed; the picture is skipped. The 6-hour
+  duration cap applies to both.
+
+MP4/MOV/M4V, MKV (AAC/FLAC/Vorbis/PCM) and Vorbis WebM decode fully offline with
+the built-in decoder, with macOS AVFoundation (`avconvert`) as fallback. Opus
+WebM and AVI need `ffmpeg` (`brew install ffmpeg`); without it Blabber shows a
+clear error. Review playback streams MP4/MOV/M4V directly and plays extracted
+audio for the other video formats. Videos without sound are rejected with
+"has no audio track".
+
 ## Local development
 
 Use the repo's supported Node version before installing dependencies:
