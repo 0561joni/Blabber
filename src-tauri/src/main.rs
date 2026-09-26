@@ -19,6 +19,7 @@ mod managed_process;
 mod model_downloads;
 mod model_metadata;
 mod native_asr;
+mod output_format;
 mod platform;
 mod qwen_asr;
 mod r2t2;
@@ -39,6 +40,7 @@ mod transcription_policy;
 mod transcription_quality;
 mod transcription_worker;
 mod translation;
+mod translation_check;
 mod vocabulary;
 
 use app_state::AppState;
@@ -829,12 +831,15 @@ async fn preview_transcription(
             None
         };
         let _session_guard = session.as_ref().map(|s| app_state.translation.guard(s));
-        let _permit = match &session {
-            Some(session) => app_state.translation.acquire(session),
-            None => app_state.translation.acquire_background(
-                &uuid::Uuid::new_v4().to_string(),
-                &std::sync::atomic::AtomicBool::new(false),
-            ),
+        let (_permit, warm_worker) = match &session {
+            Some(session) => app_state.translation.acquire_for_asr(session),
+            None => app_state
+                .translation
+                .acquire_background(
+                    &uuid::Uuid::new_v4().to_string(),
+                    &std::sync::atomic::AtomicBool::new(false),
+                )
+                .map(|permit| (permit, None)),
         }
         .map_err(|e| e.to_string())?;
         let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&app_state.db_path)
@@ -863,7 +868,9 @@ async fn preview_transcription(
                 .unwrap_or_default(),
         };
         let result = if let Some(session) = &session {
-            app_state.translation.transcribe(session, engine_request)
+            app_state
+                .translation
+                .transcribe(session, engine_request, &_permit, warm_worker)
         } else {
             app_state.engine.transcribe_file(engine_request, None)
         };
@@ -1309,6 +1316,9 @@ fn resolve_model_selection(
 }
 
 fn main() {
+    if std::env::args().any(|arg| arg == transcription_worker::PERSISTENT_WORKER_ARG) {
+        std::process::exit(transcription_worker::run_persistent_stdio_worker());
+    }
     if std::env::args().any(|arg| arg == transcription_worker::WORKER_ARG) {
         std::process::exit(transcription_worker::run_stdio_worker());
     }

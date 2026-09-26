@@ -169,4 +169,21 @@ describe("Dictation workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
     expect(current.onResolveReadiness).toHaveBeenCalledWith("accessibility");
   });
+  it("retains copied words and permission guidance after the result flash expires", async () => {
+    const current = props();
+    render(<DictateScreen {...current}
+      readiness={{ ...current.readiness, accessibilityGranted: false }}
+      quickDictationStatus={{ state: "idle", registeredShortcut: null, shortcutMode: "push_to_talk", isRegistered: true,
+        lastTranscriptText: "A complete dictation.", lastTranscriptId: null, lastRecordingPath: null, lastErrorMessage: null,
+        lastModelName: "R2T2", lastInsertOutcome: "clipboard_only", lastDurationMs: 1000,
+        lastInsertWarning: "Text copied. Auto-paste needs Accessibility access for this Blabber app." }} />);
+    expect(screen.getByText("A complete dictation.")).toBeTruthy();
+    expect(screen.getByText(/Text copied\. Auto-paste needs Accessibility/)).toBeTruthy();
+    expect(screen.getByText("Press ⌘+V to paste.")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Copy text" }));
+    await waitFor(() => expect(mocks.copy).toHaveBeenCalledWith("A complete dictation."));
+    fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
+    expect(current.onResolveReadiness).toHaveBeenCalledWith("accessibility");
+  });
 });

@@ -661,8 +661,10 @@ fn output_to_segments(output: &NativeOutput, start_ms: i64, end_ms: i64) -> Vec<
             .language
             .as_deref()
             .and_then(qwen_language_code)
-            .unwrap_or("und")
-            .to_string(),
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                crate::output_format::normalize_language_code(output.language.as_deref())
+            }),
         segment_order: 0,
         confidence: None,
         speaker_id: None,
@@ -679,8 +681,8 @@ fn gap_segment(start_ms: i64, end_ms: i64) -> TranscriptSegment {
         end_ms,
         text: format!(
             "[Unclear audio {}–{}]",
-            format_ms(start_ms),
-            format_ms(end_ms)
+            crate::output_format::clock_ms(start_ms),
+            crate::output_format::clock_ms(end_ms)
         ),
         language_code: "und".to_string(),
         segment_order: 0,
@@ -739,11 +741,6 @@ fn peak_memory_bytes() -> Option<u64> {
 #[cfg(not(unix))]
 fn peak_memory_bytes() -> Option<u64> {
     None
-}
-
-fn format_ms(value: i64) -> String {
-    let seconds = value.max(0) / 1000;
-    format!("{:02}:{:02}", seconds / 60, seconds % 60)
 }
 
 pub fn qwen_language_name(value: &str) -> Option<&'static str> {
@@ -813,6 +810,7 @@ unsafe impl Send for NativeContext {}
 #[cfg(not(target_os = "windows"))]
 impl NativeContext {
     fn load(model_dir: &Path) -> Result<Self> {
+        configure_native_threads();
         let path = CString::new(model_dir.to_string_lossy().as_bytes())?;
         let raw = unsafe { qwen_load(path.as_ptr()) };
         if raw.is_null() {
@@ -981,6 +979,47 @@ extern "C" {
     ) -> *mut c_char;
     fn qwen_last_detected_language(context: *const QwenContext) -> *const c_char;
     fn qwen_free_text(text: *mut c_char);
+    fn qwen_set_threads(n: c_int);
+}
+
+/// The vendored runtime defaults to a single-thread pool; without this call the
+/// per-token decoder matvecs run on one core. Configure the pool once per
+/// process (it is persistent and not safe to resize during inference).
+#[cfg(not(target_os = "windows"))]
+fn configure_native_threads() {
+    static CONFIGURE: std::sync::Once = std::sync::Once::new();
+    CONFIGURE.call_once(|| {
+        let threads = native_thread_count();
+        unsafe { qwen_set_threads(threads as c_int) };
+    });
+}
+
+/// Performance cores on Apple Silicon (efficiency cores would straggle behind
+/// the pool's barrier); otherwise the available parallelism, capped at 8.
+#[cfg(not(target_os = "windows"))]
+fn native_thread_count() -> usize {
+    #[cfg(target_os = "macos")]
+    {
+        let mut value: libc::c_int = 0;
+        let mut size = std::mem::size_of::<libc::c_int>();
+        let name = b"hw.perflevel0.physicalcpu\0";
+        let status = unsafe {
+            libc::sysctlbyname(
+                name.as_ptr() as *const c_char,
+                &mut value as *mut libc::c_int as *mut c_void,
+                &mut size,
+                ptr::null_mut(),
+                0,
+            )
+        };
+        if status == 0 && value > 0 {
+            return (value as usize).min(16);
+        }
+    }
+    std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(4)
+        .clamp(1, 8)
 }
 
 #[cfg(test)]

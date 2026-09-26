@@ -1,3 +1,4 @@
+import { formatClock } from "./formatting";
 import type { TranscriptSegment, TranscriptSpeaker } from "../types/domain";
 export const speakerMap = (speakers: TranscriptSpeaker[]) =>
   new Map(speakers.map((s) => [s.speakerId, s]));
@@ -32,7 +33,5 @@ export function needsSpeakerReview(
   return !manual.has(segment.id) && segment.speakerAttribution !== "assigned";
 }
 export function timestamp(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  const tail = `${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
-  return seconds >= 3600 ? `${Math.floor(seconds / 3600)}:${tail}` : tail;
+  return formatClock(ms);
 }

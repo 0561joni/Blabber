@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { OverlayApp } from "./OverlayApp";
+import { invoke } from "@tauri-apps/api/core";
 
 const mocks = vi.hoisted(() => ({ listener: null as null | ((event: { payload: unknown }) => void), cleanup: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async (_: string, callback: typeof mocks.listener) => { mocks.listener = callback; return mocks.cleanup; }) }));
@@ -8,6 +9,89 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => ({ phase: "hi
 vi.mock("./lib/api", () => ({ getHealthCheck: vi.fn(async () => ({ platform: "macos" })) }));
 
 describe("Dictation overlay ordering", () => {
+  it("shows the five-minute warning while a batch dictation is listening", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    const view = render(<OverlayApp />);
+    await act(async () => mocks.listener?.({ payload: { phase: "listening", sessionId: "long", revision: 50, audioLevel: 0.2 } }));
+    expect(screen.queryByText("30 s left · 5-minute limit")).toBeNull();
+    await act(async () => mocks.listener?.({ payload: { phase: "listening", sessionId: "long", revision: 51, audioLevel: 0.2, statusText: "30 s left · 5-minute limit" } }));
+    expect(screen.getByText("30 s left · 5-minute limit")).toBeTruthy();
+    view.unmount();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+  it("honors the app's reduced-motion setting when tentative text changes", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    const oldMotion = document.documentElement.dataset.motion;
+    document.documentElement.dataset.motion = "reduced";
+    const scroll = vi.fn();
+    const oldScroll = HTMLElement.prototype.scrollTo;
+    HTMLElement.prototype.scrollTo = scroll;
+    const view = render(<OverlayApp />);
+    await act(async () => mocks.listener?.({ payload: { phase: "listening", sessionId: "reduced", revision: 1, audioLevel: 0, streamingState: "listening", liveText: "", tentativeText: "Newest words" } }));
+    expect(scroll).toHaveBeenLastCalledWith({ left: expect.any(Number), behavior: "auto" });
+    view.unmount(); HTMLElement.prototype.scrollTo = oldScroll;
+    if (oldMotion === undefined) delete document.documentElement.dataset.motion;
+    else document.documentElement.dataset.motion = oldMotion;
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+  it("does not let a delayed initial snapshot overwrite newer tentative words", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    let resolveSnapshot!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { resolveSnapshot = resolve; });
+    const calls = vi.mocked(invoke).mock.calls.length;
+    vi.mocked(invoke).mockReturnValueOnce(pending);
+    const view = render(<OverlayApp />);
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(calls + 1));
+    const base = { phase: "listening", sessionId: "current", audioLevel: 0, streamingState: "listening", liveText: "" };
+    await act(async () => mocks.listener?.({ payload: { ...base, revision: 10, tentativeText: "new draft" } }));
+    await act(async () => resolveSnapshot({ ...base, revision: 2, tentativeText: "old draft" }));
+    expect(screen.getByLabelText("Live transcript").textContent).toBe("new draft");
+    expect(screen.getByRole("status").textContent).not.toContain("draft");
+    view.unmount();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+  it("replaces tentative words and promotes them without duplicate text or needless scrolling", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    const scroll = vi.fn();
+    const previousScroll = HTMLElement.prototype.scrollTo;
+    HTMLElement.prototype.scrollTo = scroll;
+    const view = render(<OverlayApp />);
+    const base = { phase: "listening", sessionId: "live", audioLevel: 0, streamingState: "listening" };
+    let revision = 1;
+    const send = async (liveText: string, tentativeText: string) => act(async () => mocks.listener?.({ payload: { ...base, revision: revision++, liveText, tentativeText } }));
+    await send("", "Grö");
+    const line = screen.getByLabelText("Live transcript");
+    expect(line.textContent).toBe("Grö");
+    expect(line.getAttribute("aria-live")).toBe("off");
+    expect(screen.getByLabelText("Tentative text, may change").textContent).toBe("Grö");
+    await send("", "Größe über");
+    const beforePromotion = scroll.mock.calls.length;
+    await send("Größe", " über");
+    expect(line.textContent).toBe("Größe über");
+    expect(scroll.mock.calls.length).toBe(beforePromotion);
+    expect(screen.getByRole("status").textContent).toBe("Listening · Original · Größe");
+    await send("Größe", " in");
+    expect(line.textContent).toBe("Größe in");
+    expect(scroll.mock.calls.length).toBe(beforePromotion + 1);
+    await send("Größe", "");
+    expect(line.textContent).toBe("Größe");
+    await act(async () => mocks.listener?.({ payload: { ...base, phase: "processing", streamingState: "translating", revision: revision++, liveText: "Größe in Berlin.", tentativeText: "" } }));
+    expect(line.textContent).toBe("Größe in Berlin.");
+    expect(screen.queryByLabelText("Tentative text, may change")).toBeNull();
+    await act(async () => mocks.listener?.({ payload: { ...base, revision: 1, liveText: "", tentativeText: "stale draft" } }));
+    expect(line.textContent).toBe("Größe in Berlin.");
+    view.unmount(); HTMLElement.prototype.scrollTo = previousScroll;
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+  it("explains a blocked auto-paste without calling the successful transcription a failure", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    const view = render(<OverlayApp />);
+    await act(async () => mocks.listener?.({ payload: { phase: "clipboard_only", revision: 1, audioLevel: 0, statusText: "Copied · Enable auto-paste" } }));
+    expect(screen.getByRole("status").textContent).toContain("Copied · Enable auto-paste");
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    view.unmount();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
   it("keeps Unicode source text while finishing and translating, and scrolls only when text arrives", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     const scroll = vi.fn();

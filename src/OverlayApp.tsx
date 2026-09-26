@@ -1,11 +1,12 @@
 import { outputLanguageLabel } from "./lib/translationApi";
 import type { OutputMode } from "./types/domain";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { getHealthCheck } from "./lib/api";
 import { formatPasteShortcutForDisplay } from "./lib/formatting";
 import { AppIcon } from "./components/IconButton";
+import { splitLiveTranscript } from "./lib/liveTranscript";
 
 type OverlayPhase =
   | "mode"
@@ -23,6 +24,7 @@ interface OverlayPayload {
   revision?: number;
   sessionId?: string | null;
   liveText?: string;
+  tentativeText?: string;
   streamingState?: "preparing" | "waiting" | "listening" | "catching_up" | "finishing" | "translating" | "failed" | null;
   lagMs?: number;
   durationLimitReached?: boolean;
@@ -36,14 +38,20 @@ export function OverlayApp() {
   const [platform, setPlatform] = useState<string | null>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState(false);
+  const committed = status.liveText ?? "";
+  const tentative = status.tentativeText ?? "";
+  const displayedText = committed + tentative;
+  const styledText = useMemo(() => splitLiveTranscript(committed, tentative), [committed, tentative]);
   useEffect(() => {
     const element = viewport.current;
     if (!element) return;
     setOverflow(element.scrollWidth > element.clientWidth);
-    const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    const reducedMotion = document.documentElement.dataset.motion === "reduced"
+      || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const behavior = reducedMotion ? "auto" : "smooth";
     if (element.scrollTo) element.scrollTo({ left: element.scrollWidth, behavior });
     else element.scrollLeft = element.scrollWidth;
-  }, [status.liveText, status.sessionId]);
+  }, [displayedText, status.sessionId]);
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     let disposed = false;
@@ -79,13 +87,13 @@ export function OverlayApp() {
   const { phase } = status;
   const label =
     status.streamingState && (phase === "listening" || phase === "processing") ? status.statusText || "Listening" : phase === "mode" ? "Output language" : phase === "listening"
-      ? "Listening"
+      ? status.statusText || "Listening"
       : phase === "processing"
         ? status.statusText || "Transcribing"
         : phase === "inserted"
-          ? "Pasted" + (status.durationLimitReached ? " · 5-minute limit" : "")
+          ? status.statusText || "Pasted" + (status.durationLimitReached ? " · 5-minute limit" : "")
           : phase === "clipboard_only"
-            ? "Copied · " + formatPasteShortcutForDisplay(platform)
+            ? status.statusText || "Copied · " + formatPasteShortcutForDisplay(platform)
             : phase === "failed"
               ? "Needs attention"
               : "";
@@ -97,14 +105,15 @@ export function OverlayApp() {
       className={"overlay-root" + (phase === "hidden" ? " is-hidden" : "")}
       aria-hidden={phase === "hidden"}
     >
-      <div className={"overlay-capsule" + (status.streamingState ? " is-streaming" : "")} role="status" aria-label={`${label} · ${outputLanguageLabel(status.outputMode ?? "original")}`}>
+      <div className={"overlay-capsule" + (status.streamingState ? " is-streaming" : "")} role="group" aria-label="Dictation overlay">
+        <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{`${label} · ${outputLanguageLabel(status.outputMode ?? "original")}`}{status.streamingState && !result && committed ? ` · ${committed}` : ""}</span>
         <span className="overlay-language">{outputLanguageLabel(status.outputMode ?? "original")}</span>
         {status.streamingState && !result ? <>
           <span className="overlay-live-indicator" aria-hidden="true" style={{ opacity: phase === "listening" ? 0.45 + 0.55 * level : 0.6 }}><AppIcon name="microphone" /></span>
-          <div ref={viewport} className={"overlay-live-text" + (overflow ? " has-overflow" : "")} aria-label="Live transcript">
-            {status.liveText || <span className="overlay-live-placeholder">{label}</span>}
+          <div ref={viewport} className={"overlay-live-text" + (overflow ? " has-overflow" : "")} aria-label="Live transcript" aria-live="off">
+            {displayedText ? <><span className="overlay-live-committed">{styledText.committed}</span><span className="overlay-live-tentative" aria-label={styledText.tentative ? "Tentative text, may change" : undefined}>{styledText.tentative}</span></> : <span className="overlay-live-placeholder">{label}</span>}
           </div>
-          {status.liveText ? <span className="overlay-live-state" title={label}>{label}</span> : null}
+          {displayedText ? <span className="overlay-live-state" title={label}>{label}</span> : null}
         </> : phase === "mode" ? <span className="overlay-mode-hint">Output language</span> : phase === "processing" ? (
           <>
             <span className="overlay-spinner" aria-hidden="true" />
@@ -125,15 +134,22 @@ export function OverlayApp() {
             {label}
           </span>
         ) : (
-          <div className="overlay-bars" aria-hidden="true">
-            {[0.4, 0.7, 1, 0.7, 0.4].map((weight, index) => (
-              <span
-                className="overlay-bar"
-                key={index}
-                style={{ height: 4 + 30 * level * weight + "px" }}
-              />
-            ))}
-          </div>
+          <>
+            <div className="overlay-bars" aria-hidden="true">
+              {[0.4, 0.7, 1, 0.7, 0.4].map((weight, index) => (
+                <span
+                  className="overlay-bar"
+                  key={index}
+                  style={{ height: 4 + 30 * level * weight + "px" }}
+                />
+              ))}
+            </div>
+            {phase === "listening" && status.statusText ? (
+              <span className="overlay-phase-label overlay-limit-notice">
+                {status.statusText}
+              </span>
+            ) : null}
+          </>
         )}
       </div>
     </div>

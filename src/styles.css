@@ -1916,6 +1916,8 @@ html.overlay-window body {
 .overlay-live-indicator svg { width: 14px; height: 14px; }
 .overlay-live-text { flex: 1 1 auto; min-width: 0; overflow-x: hidden; white-space: nowrap; font-size: 14px; line-height: 24px; color: var(--text-primary); }
 .overlay-live-text.has-overflow { mask-image: linear-gradient(to right, transparent, black 14px); }
+.overlay-live-committed { color: var(--text-primary); }
+.overlay-live-tentative { color: var(--text-secondary); }
 .overlay-live-placeholder { color: var(--text-muted); font-size: 12px; }
 /* Fixed status width keeps the newest words visible when the phase changes,
    without scrolling the transcript again for a status-only update. */

@@ -97,6 +97,7 @@ pub fn initialize_database(state: &AppState) -> Result<()> {
         .execute_batch(INIT_MIGRATION)
         .context("failed to run initial migration")?;
     ensure_settings_columns(&connection)?;
+    ensure_installed_model_profile_column(&connection)?;
     ensure_translation_schema(&connection)?;
     ensure_transcript_quality_columns(&connection)?;
     ensure_diarization_schema(&connection)?;
@@ -208,12 +209,13 @@ pub fn sync_installed_models(state: &AppState, models: &[InstalledModel]) -> Res
 
 pub fn sync_installed_models_for_db_path(db_path: &Path, models: &[InstalledModel]) -> Result<()> {
     let mut connection = open_connection_by_path(db_path)?;
+    ensure_installed_model_profile_column(&connection)?;
     let transaction = connection.transaction()?;
     transaction.execute("DELETE FROM installed_models", [])?;
     for model in models {
         transaction.execute(
-            "INSERT INTO installed_models (id, engine, model_name, variant, local_path, size_bytes, is_default)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO installed_models (id, engine, model_name, variant, local_path, size_bytes, is_default, profile)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 &model.id,
                 &model.engine,
@@ -222,6 +224,7 @@ pub fn sync_installed_models_for_db_path(db_path: &Path, models: &[InstalledMode
                 &model.local_path,
                 model.size_bytes,
                 model.is_default,
+                to_model_profile(model.profile),
             ],
         )?;
     }
@@ -423,9 +426,13 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
 }
 
 pub fn list_installed_models(state: &AppState) -> Result<Vec<InstalledModel>> {
-    let connection = open_connection(state)?;
+    list_installed_models_for_db_path(&state.db_path)
+}
+
+pub(crate) fn list_installed_models_for_db_path(db_path: &Path) -> Result<Vec<InstalledModel>> {
+    let connection = open_connection_by_path(db_path)?;
     let mut statement = connection.prepare(
-        "SELECT id, engine, model_name, variant, local_path, size_bytes, is_default
+        "SELECT id, engine, model_name, variant, local_path, size_bytes, is_default, profile
          FROM installed_models ORDER BY model_name ASC",
     )?;
     let rows = statement.query_map([], map_installed_model_row)?;
@@ -505,7 +512,7 @@ pub fn save_file_transcription(
         &transaction,
         &transcript_id,
         SourceType::FileUpload,
-        source_file.original_name.clone(),
+        crate::output_format::file_display_title(&source_file.original_name),
         result,
         source_file.duration_ms,
     )?;
@@ -744,6 +751,29 @@ fn load_translation(
         .optional()?;
     raw.map(|s| serde_json::from_str(&s).map_err(anyhow::Error::from))
         .transpose()
+}
+
+fn ensure_installed_model_profile_column(connection: &Connection) -> Result<()> {
+    // `variant` is a display label (for example "Q8_0 · streaming"), not
+    // an enum. Persist the engine's actual profile independently of that label.
+    let transaction = connection.unchecked_transaction()?;
+    let has_profile = transaction
+        .prepare("PRAGMA table_info(installed_models)")?
+        .query_map([], |row| row.get::<_, String>("name"))?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .iter()
+        .any(|name| name == "profile");
+    if !has_profile {
+        transaction.execute(
+            "ALTER TABLE installed_models ADD COLUMN profile TEXT NOT NULL DEFAULT 'accurate'",
+            [],
+        )?;
+        // Legacy Whisper rows stored the profile in variant; the native models
+        // all used Accurate. Startup discovery then refreshes exact profiles.
+        transaction.execute("UPDATE installed_models SET profile = variant WHERE variant IN ('fast', 'balanced', 'accurate')", [])?;
+    }
+    transaction.commit()?;
+    Ok(())
 }
 
 fn ensure_settings_columns(connection: &Connection) -> Result<()> {
@@ -1337,21 +1367,15 @@ fn insert_transcript(
 }
 
 fn build_transcript_title(text: &str) -> String {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return format!("Quick dictate {}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
+    if text.trim().is_empty() {
+        return crate::output_format::dictation_fallback_title(chrono::Local::now());
     }
-
-    let mut title = trimmed.chars().take(72).collect::<String>();
-    if trimmed.chars().count() > 72 {
-        title.push_str("...");
-    }
-    title
+    crate::output_format::truncate_title(text, 72)
 }
 
 fn map_installed_model_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<InstalledModel> {
     let variant: String = row.get("variant")?;
-    let profile = parse_model_profile(variant.clone())?;
+    let profile = parse_model_profile(row.get("profile")?)?;
     Ok(InstalledModel {
         id: row.get("id")?,
         engine: row.get("engine")?,
@@ -1492,11 +1516,19 @@ fn resolve_profile_model(
 fn map_transcript_summary_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TranscriptSummary> {
     let languages_raw: String = row.get("detected_languages")?;
     let detected_languages = serde_json::from_str(&languages_raw).unwrap_or_default();
+    let source_type = parse_source_type(row.get("source_type")?)?;
+    let title: String = row.get("title")?;
+    // Older imports stored the file name with its audio extension.
+    let title = if matches!(source_type, SourceType::FileUpload) {
+        crate::output_format::file_display_title(&title)
+    } else {
+        title
+    };
     Ok(TranscriptSummary {
         id: row.get("id")?,
         created_at: row.get("created_at")?,
-        source_type: parse_source_type(row.get("source_type")?)?,
-        title: row.get("title")?,
+        source_type,
+        title,
         plain_text: row.get("plain_text")?,
         status: parse_transcript_status(row.get("status")?)?,
         detected_languages,
@@ -1700,6 +1732,165 @@ mod tests {
     use super::*;
 
     #[test]
+    fn installed_model_profiles_roundtrip_independently_of_variant_labels() {
+        let path =
+            std::env::temp_dir().join(format!("blabber-model-profiles-{}.sqlite", Uuid::new_v4()));
+        let connection = open_connection_by_path(&path).unwrap();
+        connection.execute_batch(INIT_MIGRATION).unwrap();
+        let rows = [
+            (
+                crate::r2t2::MODEL_ID,
+                "audio.cpp-r2t2",
+                "R2T2",
+                "Q8_0 · streaming",
+                ModelProfile::Accurate,
+                2_477_512_064,
+            ),
+            (
+                crate::model_metadata::MOSS_MODEL_ID,
+                "moss-transcribe-cpp",
+                "MOSS",
+                "0.9B F16",
+                ModelProfile::Accurate,
+                1_833_647_104,
+            ),
+            (
+                crate::model_metadata::VIBEVOICE_MODEL_ID,
+                "vibevoice-mlx",
+                "VibeVoice",
+                "8-bit MLX",
+                ModelProfile::Accurate,
+                9_521_624_407,
+            ),
+            (
+                "qwen3-asr-1.7b-bf16",
+                "qwen3_asr_c",
+                "Qwen",
+                "1.7B BF16",
+                ModelProfile::Accurate,
+                4_703_041_355,
+            ),
+            (
+                "ggml-small-bin",
+                "whisper.cpp",
+                "Whisper Small",
+                "balanced",
+                ModelProfile::Balanced,
+                487_601_967,
+            ),
+            (
+                "future-model",
+                "future-engine",
+                "Future model",
+                "Arbitrary display label",
+                ModelProfile::Fast,
+                10,
+            ),
+        ];
+        let models: Vec<_> = rows
+            .iter()
+            .map(
+                |(id, engine, name, variant, profile, size)| InstalledModel {
+                    id: (*id).into(),
+                    engine: (*engine).into(),
+                    model_name: (*name).into(),
+                    variant: (*variant).into(),
+                    local_path: format!("/models/{id}"),
+                    size_bytes: *size,
+                    is_default: false,
+                    profile: *profile,
+                    capabilities: crate::model_metadata::capabilities_for_model(id, engine),
+                },
+            )
+            .collect();
+        sync_installed_models_for_db_path(&path, &models).unwrap();
+        drop(connection);
+        // The same readback command used by startup and download completion.
+        let restored = list_installed_models_for_db_path(&path).unwrap();
+        assert_eq!(restored.len(), models.len());
+        for original in &models {
+            let saved = restored
+                .iter()
+                .find(|model| model.id == original.id)
+                .unwrap();
+            assert_eq!(saved.profile, original.profile);
+            assert_eq!(saved.variant, original.variant);
+            assert_eq!(saved.size_bytes, original.size_bytes);
+            assert_eq!(saved.capabilities, original.capabilities);
+        }
+        let live = restored
+            .iter()
+            .find(|model| model.id == crate::r2t2::MODEL_ID)
+            .unwrap();
+        assert!(live.capabilities.streaming_transcription);
+        assert_eq!(
+            live.capabilities.supported_contexts,
+            [crate::model_metadata::ModelUseContext::ShortcutDictation]
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn existing_installed_model_rows_migrate_without_losing_labels_or_legacy_profiles() {
+        let path =
+            std::env::temp_dir().join(format!("blabber-legacy-models-{}.sqlite", Uuid::new_v4()));
+        let connection = open_connection_by_path(&path).unwrap();
+        connection.execute_batch(INIT_MIGRATION).unwrap();
+        connection
+            .execute_batch("ALTER TABLE installed_models DROP COLUMN profile;")
+            .unwrap();
+        for (id, variant) in [
+            ("r2t2", "Q8_0 · streaming"),
+            ("small", "balanced"),
+            ("tiny", "fast"),
+            ("qwen", "1.7B BF16"),
+            ("moss", "0.9B F16"),
+            ("vibe", "8-bit MLX"),
+        ] {
+            connection.execute("INSERT INTO installed_models (id, engine, model_name, variant, local_path, size_bytes, is_default) VALUES (?1, 'test', ?1, ?2, '/models/keep', 2477512064, 0)", params![id, variant]).unwrap();
+        }
+        ensure_installed_model_profile_column(&connection).unwrap();
+        let models = list_installed_models_for_db_path(&path).unwrap();
+        assert_eq!(models.len(), 6);
+        assert_eq!(
+            models.iter().find(|m| m.id == "small").unwrap().profile,
+            ModelProfile::Balanced
+        );
+        assert_eq!(
+            models.iter().find(|m| m.id == "tiny").unwrap().profile,
+            ModelProfile::Fast
+        );
+        for id in ["r2t2", "qwen", "moss", "vibe"] {
+            assert_eq!(
+                models.iter().find(|m| m.id == id).unwrap().profile,
+                ModelProfile::Accurate
+            );
+        }
+        assert_eq!(
+            models.iter().find(|m| m.id == "r2t2").unwrap().variant,
+            "Q8_0 · streaming"
+        );
+        connection
+            .execute(
+                "UPDATE installed_models SET profile='balanced' WHERE id='r2t2'",
+                [],
+            )
+            .unwrap();
+        ensure_installed_model_profile_column(&connection).unwrap();
+        assert_eq!(
+            list_installed_models_for_db_path(&path)
+                .unwrap()
+                .iter()
+                .find(|m| m.id == "r2t2")
+                .unwrap()
+                .profile,
+            ModelProfile::Balanced
+        );
+        drop(connection);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn translation_settings_migrate_without_changing_existing_preferences() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch(INIT_MIGRATION).unwrap();
@@ -1752,6 +1943,7 @@ mod tests {
             error_message: None,
             error_code: None,
             source_languages: vec!["de".into()],
+            fallback_to_original: false,
         };
         save_translated_dictation_source(&path, &original, 20000, &mut output).unwrap();
         let saved = fetch_transcript_summary(&connection, output.transcript_id.as_deref().unwrap())

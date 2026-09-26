@@ -392,7 +392,10 @@ export function DictateScreen(props: Props) {
               Copy text
             </ActionButton> : null}
           </div>
-          {quick?.state === "clipboard_only" && !result ? (
+          {quick?.lastInsertWarning && !result ? (
+            <p className="muted" role="status">{quick.lastInsertWarning}</p>
+          ) : null}
+          {quick?.lastInsertOutcome === "clipboard_only" && !result ? (
             <p className="muted">
               Press {formatPasteShortcutForDisplay(props.platform)} to paste.
             </p>

@@ -616,6 +616,8 @@ impl FileTranscriptionController {
         let standalone = should_run_post_process_diarization(
             settings.file_diarization_enabled,
             resolved_model.as_ref(),
+            request.source_file.duration_ms,
+            request.speaker_count_hint,
         );
         if standalone {
             corrected.diarization_status = diarization::DiarizationStatus::Running;
@@ -672,6 +674,8 @@ impl FileTranscriptionController {
         if should_run_post_process_diarization(
             settings.file_diarization_enabled,
             resolved_model.as_ref(),
+            request.source_file.duration_ms,
+            request.speaker_count_hint,
         ) {
             self.update_status(
                 &request.job_id,
@@ -1353,8 +1357,20 @@ fn resolve_model_for_settings(
     })
 }
 
-fn should_run_post_process_diarization(enabled: bool, model: Option<&InstalledModel>) -> bool {
-    enabled && !model.is_some_and(|model| model.capabilities.native_diarization)
+/// Short recordings (under two minutes) skip automatic speaker identification
+/// unless the user asked for a specific speaker count. "Identify again" in the
+/// review workspace still runs it on demand.
+const AUTOMATIC_DIARIZATION_MIN_DURATION_MS: i64 = 120_000;
+
+fn should_run_post_process_diarization(
+    enabled: bool,
+    model: Option<&InstalledModel>,
+    duration_ms: Option<i64>,
+    speaker_count_hint: Option<i32>,
+) -> bool {
+    let long_enough = speaker_count_hint.is_some()
+        || duration_ms.is_none_or(|duration| duration >= AUTOMATIC_DIARIZATION_MIN_DURATION_MS);
+    enabled && long_enough && !model.is_some_and(|model| model.capabilities.native_diarization)
 }
 
 fn resolve_model_id_for_job(
@@ -1476,10 +1492,29 @@ mod tests {
             profile: crate::settings::ModelProfile::Accurate,
             capabilities: crate::model_metadata::ModelCapabilities::moss(),
         };
-        assert!(!should_run_post_process_diarization(true, Some(&model)));
+        assert!(!should_run_post_process_diarization(true, Some(&model), Some(600_000), None));
         model.capabilities = crate::model_metadata::ModelCapabilities::standard_asr();
-        assert!(should_run_post_process_diarization(true, Some(&model)));
-        assert!(!should_run_post_process_diarization(false, Some(&model)));
+        assert!(should_run_post_process_diarization(true, Some(&model), Some(600_000), None));
+        assert!(!should_run_post_process_diarization(false, Some(&model), Some(600_000), None));
+    }
+
+    #[test]
+    fn short_files_skip_automatic_speaker_identification_unless_a_count_is_given() {
+        let model = InstalledModel {
+            id: "ggml-large-v3-turbo-bin".into(),
+            engine: "whisper.cpp".into(),
+            model_name: "Whisper Turbo".into(),
+            variant: "large-v3-turbo".into(),
+            local_path: "/tmp/model.bin".into(),
+            size_bytes: 1,
+            is_default: false,
+            profile: crate::settings::ModelProfile::Accurate,
+            capabilities: crate::model_metadata::ModelCapabilities::standard_asr(),
+        };
+        assert!(!should_run_post_process_diarization(true, Some(&model), Some(60_000), None));
+        assert!(should_run_post_process_diarization(true, Some(&model), Some(60_000), Some(2)));
+        assert!(should_run_post_process_diarization(true, Some(&model), Some(120_000), None));
+        assert!(should_run_post_process_diarization(true, Some(&model), None, None));
     }
 
     #[test]

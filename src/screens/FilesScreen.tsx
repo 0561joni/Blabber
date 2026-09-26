@@ -9,7 +9,7 @@ import { AppIcon } from "../components/IconButton";
 import { TranscriptReader } from "../components/TranscriptReader";
 import { copyTextToClipboard } from "../lib/api";
 import { copyReview } from "../lib/reviewApi";
-import { formatDuration } from "../lib/formatting";
+import { formatBytes, formatDuration, formatDurationMs } from "../lib/formatting";
 import type { FileQueueItem } from "../types/domain";
 
 export const isFileWorking = (stage: FileQueueItem["stage"]) =>
@@ -198,13 +198,10 @@ export function FilesScreen(props: Props) {
                 <div className="queue-item-copy">
                   <h3>{item.sourceFile.originalName}</h3>
                   <span className="muted">
-                    {Math.max(0.1, item.sourceFile.sizeBytes / 1048576).toFixed(
-                      1,
-                    )}{" "}
-                    MB
+                    {formatBytes(item.sourceFile.sizeBytes)}
                     {item.sourceFile.durationMs
                       ? " · " +
-                        formatDuration(item.sourceFile.durationMs / 1000)
+                        formatDurationMs(item.sourceFile.durationMs)
                       : ""}
                   </span>
                 </div>

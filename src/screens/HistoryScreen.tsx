@@ -1,3 +1,4 @@
+import { formatClock, formatDateTime, formatShortDate } from "../lib/formatting";
 import { TranslationResult } from "../components/TranslationResult";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -577,10 +578,7 @@ export function HistoryScreen({
                         : "microphone"
                     }
                   />
-                  {new Date(item.createdAt).toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  {formatShortDate(item.createdAt)}
                 </span>
                 <strong>{item.title}</strong>
                 <span className="clamped-text muted">{item.plainText}</span>
@@ -687,7 +685,7 @@ export function HistoryScreen({
                         <div>
                           <dt>Created</dt>
                           <dd>
-                            {new Date(transcript.createdAt).toLocaleString()}
+                            {formatDateTime(transcript.createdAt)}
                           </dd>
                         </div>
                         <div>
@@ -887,7 +885,7 @@ export function HistoryScreen({
                                         )}
                                         <div>
                                           <span className="speaker-time">
-                                            {formatTime(group[0].startMs)}
+                                            {formatClock(group[0].startMs)}
                                           </span>
                                           <p>
                                             {group
@@ -1283,10 +1281,6 @@ function speakerColor(
       speakers.find((speaker) => speaker.speakerId === id)?.speakerOrder ?? 0,
     ) % 6
   );
-}
-function formatTime(ms: number) {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 function formatDiarizationStatus(transcript: TranscriptSummary) {
   if (transcript.diarizationStatus === "completed")

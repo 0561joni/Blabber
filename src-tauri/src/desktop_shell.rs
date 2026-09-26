@@ -64,6 +64,10 @@ pub struct DictationOverlayPayload {
     pub revision: u64,
     pub session_id: Option<String>,
     pub live_text: String,
+    #[serde(default)]
+    pub tentative_text: String,
+    #[serde(skip)]
+    pub stream_text_final: bool,
     pub streaming_state: Option<StreamingState>,
     pub lag_ms: u64,
     pub duration_limit_reached: bool,
@@ -93,10 +97,77 @@ impl Default for DictationOverlayPayload {
             revision: 0,
             session_id: None,
             live_text: String::new(),
+            tentative_text: String::new(),
+            stream_text_final: false,
             streaming_state: None,
             lag_ms: 0,
             duration_limit_reached: false,
         }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct StreamingText {
+    pub committed: String,
+    pub tentative: String,
+}
+
+impl DictationOverlayPayload {
+    fn owns_stream(&self, session_id: &str) -> bool {
+        self.session_id.as_deref() == Some(session_id)
+            && matches!(
+                self.phase,
+                OverlayPhase::Listening | OverlayPhase::Processing
+            )
+    }
+
+    fn apply_stream(
+        &mut self,
+        session_id: &str,
+        state: StreamingState,
+        text: Option<StreamingText>,
+        lag_ms: u64,
+    ) -> bool {
+        if !self.owns_stream(session_id)
+            || (self.stream_text_final && state != StreamingState::Failed)
+            || self.streaming_state == Some(StreamingState::Failed)
+        {
+            return false;
+        }
+        if let Some(text) = text {
+            self.live_text = text.committed;
+            self.tentative_text = text.tentative;
+        }
+        if state == StreamingState::Failed {
+            self.tentative_text.clear();
+            self.stream_text_final = true;
+        }
+        self.streaming_state = Some(state);
+        self.status_text = Some(
+            if self.duration_limit_reached && state == StreamingState::Finishing {
+                "5-minute limit · Finishing"
+            } else {
+                state.label()
+            }
+            .into(),
+        );
+        self.lag_ms = lag_ms;
+        self.revision = self.revision.wrapping_add(1);
+        true
+    }
+
+    fn finalize_stream_text(&mut self, session_id: &str, text: String) -> bool {
+        if !self.owns_stream(session_id)
+            || self.streaming_state.is_none()
+            || self.streaming_state == Some(StreamingState::Failed)
+        {
+            return false;
+        }
+        self.live_text = text;
+        self.tentative_text.clear();
+        self.stream_text_final = true;
+        self.revision = self.revision.wrapping_add(1);
+        true
     }
 }
 
@@ -150,6 +221,23 @@ impl DesktopShellController {
         });
         Ok(())
     }
+    /// Short notice shown in place of "Listening" (e.g. the 5-minute warning).
+    pub fn set_listening_notice(&self, session_id: &str, text: &str) -> Result<()> {
+        let mut current = self
+            .overlay_payload
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
+        if current.session_id.as_deref() != Some(session_id)
+            || current.phase != OverlayPhase::Listening
+        {
+            return Ok(());
+        }
+        current.status_text = Some(text.into());
+        current.revision = current.revision.wrapping_add(1);
+        let payload = current.clone();
+        drop(current);
+        self.dispatch_overlay(payload)
+    }
     pub fn update_level(&self, session_id: &str, audio_level: f32) -> Result<()> {
         let mut current = self
             .overlay_payload
@@ -166,39 +254,32 @@ impl DesktopShellController {
         drop(current);
         self.dispatch_overlay(payload)
     }
-    pub fn update_stream(
+    pub(crate) fn update_stream(
         &self,
         session_id: &str,
         state: StreamingState,
-        text: Option<String>,
+        text: Option<StreamingText>,
         lag_ms: u64,
     ) -> Result<()> {
         let mut current = self
             .overlay_payload
             .lock()
             .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
-        if current.session_id.as_deref() != Some(session_id)
-            || !matches!(
-                current.phase,
-                OverlayPhase::Listening | OverlayPhase::Processing
-            )
-        {
+        if !current.apply_stream(session_id, state, text, lag_ms) {
             return Ok(());
         }
-        if let Some(text) = text {
-            current.live_text = text;
+        let payload = current.clone();
+        drop(current);
+        self.dispatch_overlay(payload)
+    }
+    pub fn finalize_stream_text(&self, session_id: &str, text: String) -> Result<()> {
+        let mut current = self
+            .overlay_payload
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
+        if !current.finalize_stream_text(session_id, text) {
+            return Ok(());
         }
-        current.streaming_state = Some(state);
-        current.status_text = Some(
-            if current.duration_limit_reached && state == StreamingState::Finishing {
-                "5-minute limit · Finishing"
-            } else {
-                state.label()
-            }
-            .into(),
-        );
-        current.lag_ms = lag_ms;
-        current.revision = current.revision.wrapping_add(1);
         let payload = current.clone();
         drop(current);
         self.dispatch_overlay(payload)
@@ -271,6 +352,10 @@ impl DesktopShellController {
             .into(),
         );
         if current.streaming_state.is_some() {
+            if translating {
+                current.tentative_text.clear();
+                current.stream_text_final = true;
+            }
             current.streaming_state = Some(if translating {
                 StreamingState::Translating
             } else {
@@ -537,6 +622,73 @@ pub(crate) fn show_main_window(app: &AppHandle) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_is_atomic_owned_and_cannot_return_after_finalization() {
+        let mut state = DictationOverlayPayload {
+            phase: OverlayPhase::Listening,
+            session_id: Some("live".into()),
+            streaming_state: Some(StreamingState::Listening),
+            ..Default::default()
+        };
+        let preview = || {
+            Some(StreamingText {
+                committed: "Größe".into(),
+                tentative: " über".into(),
+            })
+        };
+        assert!(!state.apply_stream("stale", StreamingState::Listening, preview(), 0));
+        assert_eq!(state.revision, 0);
+        assert!(state.apply_stream("live", StreamingState::Listening, preview(), 50));
+        assert_eq!(
+            (&*state.live_text, &*state.tentative_text, state.revision),
+            ("Größe", " über", 1)
+        );
+        assert!(state.apply_stream("live", StreamingState::CatchingUp, None, 2100));
+        assert_eq!(
+            (&*state.live_text, &*state.tentative_text, state.revision),
+            ("Größe", " über", 2)
+        );
+        state.phase = OverlayPhase::Processing;
+        assert!(state.apply_stream("live", StreamingState::Finishing, None, 0));
+        assert_eq!(state.tentative_text, " über");
+        assert!(state.finalize_stream_text("live", "Größe über die Straße.".into()));
+        assert!(state.tentative_text.is_empty());
+        let revision = state.revision;
+        assert!(!state.apply_stream("live", StreamingState::Listening, preview(), 0));
+        assert_eq!(state.revision, revision);
+        // Vocabulary corrections can replace only the completed source display.
+        assert!(state.finalize_stream_text("live", "Corrected source.".into()));
+        assert_eq!(state.live_text, "Corrected source.");
+        assert!(!state.finalize_stream_text("stale", "old".into()));
+    }
+    #[test]
+    fn failed_hidden_and_new_sessions_cannot_retain_tentative_text() {
+        let mut state = DictationOverlayPayload {
+            phase: OverlayPhase::Listening,
+            session_id: Some("live".into()),
+            streaming_state: Some(StreamingState::Listening),
+            tentative_text: "draft".into(),
+            ..Default::default()
+        };
+        assert!(state.apply_stream("live", StreamingState::Failed, None, 0));
+        assert!(state.tentative_text.is_empty());
+        assert!(!state.apply_stream(
+            "live",
+            StreamingState::Listening,
+            Some(StreamingText {
+                committed: "".into(),
+                tentative: "late".into()
+            }),
+            0
+        ));
+        state = Default::default();
+        assert!(state.tentative_text.is_empty());
+        assert!(!state.apply_stream("live", StreamingState::Listening, None, 0));
+        let json = serde_json::to_value(&state).unwrap();
+        assert_eq!(json["tentativeText"], "");
+        assert!(json.get("streamTextFinal").is_none());
+    }
 
     #[test]
     fn tray_is_invisible_only_for_linux_gnome_without_appindicator() {

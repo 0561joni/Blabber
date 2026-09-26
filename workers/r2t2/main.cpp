@@ -35,7 +35,7 @@ struct Worker {
     audiocpp_registry * registry = nullptr;
     audiocpp_model * model = nullptr;
     audiocpp_session * session = nullptr;
-    std::string model_path, session_id, committed;
+    std::string model_path, session_id, committed, tentative;
     int chunk_ms = 320, rollback = 1;
     int64_t input_sequence = 0, output_sequence = 0, consumed = 0;
     bool active = false, received_tail = false;
@@ -44,7 +44,7 @@ struct Worker {
     void unload() {
         audiocpp_session_free(session); session = nullptr;
         audiocpp_model_free(model); model = nullptr;
-        model_path.clear(); active = false;
+        model_path.clear(); tentative.clear(); active = false;
     }
     void emit(const char * type, const std::string & text = "", const std::string & code = "") {
         Json j(cJSON_CreateObject(), cJSON_Delete);
@@ -53,6 +53,7 @@ struct Worker {
         cJSON_AddNumberToObject(j.get(), "sequence", ++output_sequence);
         cJSON_AddStringToObject(j.get(), "type", type);
         cJSON_AddStringToObject(j.get(), "text", text.c_str());
+        cJSON_AddStringToObject(j.get(), "tentativeText", tentative.c_str());
         cJSON_AddStringToObject(j.get(), "code", code.c_str());
         cJSON_AddNumberToObject(j.get(), "processedSamples", consumed);
         cJSON_AddNumberToObject(j.get(), "elapsedMs", std::chrono::duration<double, std::milli>(Clock::now() - began).count());
@@ -69,7 +70,7 @@ struct Worker {
         if (session_id.empty() || session_id.size() > 128) throw std::runtime_error("R2T2_PROTOCOL: invalid session id");
         input_sequence = integer(j, "sequence"); output_sequence = 0;
         if (input_sequence != 0) throw std::runtime_error("R2T2_PROTOCOL: start sequence must be zero");
-        consumed = 0; received_tail = false; committed.clear(); began = Clock::now();
+        consumed = 0; received_tail = false; committed.clear(); tentative.clear(); began = Clock::now();
         const auto path = string(j, "modelPath");
         const auto ms = integer(j, "chunkMs", 320);
         const auto tokens = integer(j, "rollbackTokens", 1);
@@ -128,6 +129,12 @@ struct Worker {
                 const auto status = audiocpp_result_text(audiocpp_event_as_result(event), &delta, nullptr);
                 if (status != AUDIOCPP_ERR_NOT_AVAILABLE) check(status);
                 if (delta) committed += delta;
+                const char * preview = nullptr;
+                const auto preview_status = audiocpp_event_tentative_text(event, &preview);
+                if (preview_status != AUDIOCPP_ERR_NOT_AVAILABLE) {
+                    check(preview_status);
+                    tentative = preview ? preview : "";
+                }
             }
             emit("progress", committed);
         } else if (type == "finish") {
@@ -142,10 +149,10 @@ struct Worker {
             if (final_text.compare(0, committed.size(), committed) != 0)
                 throw std::runtime_error("R2T2_PREFIX_MISMATCH: final text changed committed text");
             check(audiocpp_stream_reset(session));
-            active = false;
+            active = false; tentative.clear();
             emit("result", final_text);
         } else if (type == "cancel" || type == "reset") {
-            check(audiocpp_stream_reset(session)); active = false; emit("canceled");
+            check(audiocpp_stream_reset(session)); active = false; tentative.clear(); emit("canceled");
         } else throw std::runtime_error("R2T2_PROTOCOL: unknown request");
     }
 };
@@ -175,6 +182,7 @@ int main() {
         const std::string detail(error.what());
         const auto colon = detail.find(':');
         const std::string code = detail.rfind("R2T2_", 0) == 0 ? detail.substr(0, colon) : "R2T2_RUNTIME_ERROR";
+        worker.tentative.clear();
         worker.emit("error", "", code);
         std::cerr << code << '\n';
         if (std::getenv("BLABBER_R2T2_PROBE")) std::cerr << detail << '\n';

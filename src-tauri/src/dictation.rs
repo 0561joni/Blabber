@@ -13,7 +13,9 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use crate::asr::{FileTranscriptionRequest, TranscriptionEngine};
 use crate::audio_capture::RecordingController;
 use crate::desktop_shell::{DesktopShellController, DictationOverlayPayload, OverlayPhase};
-use crate::insertion::{detect_frontmost_paste_target, InsertionOutcome, PasteTarget};
+use crate::insertion::{
+    detect_frontmost_paste_target, InsertionOutcome, InsertionReport, PasteTarget,
+};
 use crate::settings::{AppSettings, ShortcutMode};
 use crate::sound::SoundPlayer;
 use crate::storage;
@@ -21,6 +23,10 @@ use crate::system_volume::{self, VolumeSnapshot};
 use crate::vocabulary;
 
 const QUICK_DICTATE_STATUS_EVENT: &str = "quick-dictate-status";
+/// Shortcut dictation stops and transcribes automatically at five minutes,
+/// matching the live R2T2 limit. The overlay warns 30 seconds before.
+pub(crate) const DICTATION_CAPTURE_LIMIT_MS: u64 = 300_000;
+const DICTATION_LIMIT_WARNING_MS: u64 = 270_000;
 
 fn shortcut_pair(primary: &str, secondary: Option<&str>) -> Result<Vec<String>> {
     let first = Shortcut::from_str(primary)?;
@@ -43,6 +49,18 @@ fn cycle_key_transition(pressed: &AtomicBool, event: ShortcutState) -> bool {
             false
         }
         ShortcutState::Pressed => !pressed.swap(true, Ordering::SeqCst),
+    }
+}
+
+fn insertion_behavior_for_session(
+    configured: crate::settings::InsertBehavior,
+    session_id: &str,
+    clipboard_only_session: Option<&str>,
+) -> crate::settings::InsertBehavior {
+    if clipboard_only_session == Some(session_id) {
+        crate::settings::InsertBehavior::ClipboardOnly
+    } else {
+        configured
     }
 }
 
@@ -70,6 +88,7 @@ pub struct QuickDictationStatusResponse {
     pub last_error_message: Option<String>,
     pub last_model_name: Option<String>,
     pub last_insert_outcome: Option<InsertionOutcome>,
+    pub last_insert_warning: Option<String>,
     pub last_duration_ms: Option<i64>,
     pub can_retry_streaming: bool,
 }
@@ -87,6 +106,7 @@ impl Default for QuickDictationStatusResponse {
             last_error_message: None,
             last_model_name: None,
             last_insert_outcome: None,
+            last_insert_warning: None,
             last_duration_ms: None,
             can_retry_streaming: false,
         }
@@ -106,10 +126,10 @@ pub struct QuickDictationController {
     registered_shortcut: Arc<Mutex<Option<String>>>,
     paste_target: Arc<Mutex<Option<PasteTarget>>>,
     volume_snapshot: Arc<Mutex<Option<VolumeSnapshot>>>,
-    // Set when the next dictation was triggered from the in-app PTT button
-    // instead of the global shortcut. Forces ClipboardOnly because Blabber
-    // itself has focus, so auto-paste would target our own window.
-    force_clipboard_only: Arc<AtomicBool>,
+    // The in-app PTT session must copy because Blabber itself has focus.
+    // Bind the override to that session so failed UI attempts cannot change
+    // insertion behavior for an active or later global-shortcut recording.
+    clipboard_only_session: Arc<Mutex<Option<String>>>,
     // Bumped on every `begin_listening`. The overlay-level poller captures the
     // generation it was spawned for and exits as soon as it is superseded, so
     // exactly one poller runs at a time (no zombie threads on intensive use).
@@ -165,7 +185,7 @@ impl QuickDictationController {
             registered_shortcut: Arc::new(Mutex::new(None)),
             paste_target: Arc::new(Mutex::new(None)),
             volume_snapshot: Arc::new(Mutex::new(None)),
-            force_clipboard_only: Arc::new(AtomicBool::new(false)),
+            clipboard_only_session: Default::default(),
             poller_generation: Arc::new(AtomicU64::new(0)),
             state_since_ms: Arc::new(AtomicI64::new(now_ms())),
         }
@@ -321,7 +341,7 @@ impl QuickDictationController {
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
         match settings.shortcut_mode {
             ShortcutMode::PushToTalk => match shortcut_state {
-                ShortcutState::Pressed => self.begin_listening(),
+                ShortcutState::Pressed => self.begin_listening(false),
                 ShortcutState::Released => self.finish_dictation(),
             },
             ShortcutMode::Toggle => {
@@ -329,7 +349,7 @@ impl QuickDictationController {
                     if self.status().state == QuickDictationState::Listening {
                         self.finish_dictation()
                     } else {
-                        self.begin_listening()
+                        self.begin_listening(false)
                     }
                 } else {
                     Ok(())
@@ -343,8 +363,7 @@ impl QuickDictationController {
     /// because Blabber's window is focused (so auto-paste would target
     /// Blabber itself instead of the user's previous app).
     pub fn ui_press(&self) -> Result<()> {
-        self.force_clipboard_only.store(true, Ordering::SeqCst);
-        self.begin_listening()
+        self.begin_listening(true)
     }
 
     /// Release counterpart for `ui_press`.
@@ -357,18 +376,18 @@ impl QuickDictationController {
     ///
     /// Behaves like a Toggle-mode shortcut press: starts listening if idle,
     /// stops if already listening.  Unlike [`Self::ui_press`], this does NOT
-    /// set `force_clipboard_only` because the trigger always originates from
+    /// force clipboard-only insertion because the trigger always originates from
     /// outside Blabber (the user has focus in another app), so auto-paste is
     /// the right behaviour.
     pub fn ui_toggle(&self) -> Result<()> {
         if self.status().state == QuickDictationState::Listening {
             self.finish_dictation()
         } else {
-            self.begin_listening()
+            self.begin_listening(false)
         }
     }
 
-    fn begin_listening(&self) -> Result<()> {
+    fn begin_listening(&self, from_ui: bool) -> Result<()> {
         let _work = crate::shutdown::begin_work(true)?;
         match self.status().state {
             QuickDictationState::Listening => return Ok(()),
@@ -453,6 +472,11 @@ impl QuickDictationController {
             }
         };
         session.recording_id = capture.current_session_id.clone();
+        *self
+            .clipboard_only_session
+            .lock()
+            .map_err(|_| anyhow!("Dictation insertion state unavailable"))? =
+            from_ui.then(|| session.id.clone());
         if let Some(id) = &session.recording_id {
             self.translation.bind_recording(id.clone(), None);
         }
@@ -481,6 +505,7 @@ impl QuickDictationController {
             status.last_transcript_text = None;
             status.last_transcript_id = None;
             status.last_insert_outcome = None;
+            status.last_insert_warning = None;
             status.can_retry_streaming = false;
         })?;
         // Bump the generation so any previous poller exits, then start the one
@@ -689,7 +714,8 @@ impl QuickDictationController {
                 crate::r2t2::transcript(&session.id, text, recording.duration_ms, language),
             )?
         } else {
-            _permit = self.translation.acquire(&session)?;
+            let (permit, warm_worker) = self.translation.acquire_for_asr(&session)?;
+            _permit = permit;
             let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&self.db_path)?;
             if let Some(prompt) = &vocabulary_prompt {
                 eprintln!(
@@ -714,6 +740,8 @@ impl QuickDictationController {
                         .map(|prompt| prompt.terms.clone())
                         .unwrap_or_default(),
                 },
+                &_permit,
+                warm_worker,
             ) {
                 Ok(result) => result,
                 Err(error) => {
@@ -732,13 +760,25 @@ impl QuickDictationController {
         if self.poller_generation.load(Ordering::SeqCst) != generation {
             return Ok(());
         }
+        self.translation.with_active(&session, || {
+            self.desktop_shell
+                .finalize_stream_text(&session.id, corrected.plain_text.clone())
+        })?;
         let output = self
             .translation
             .process(&session, &corrected, recording.duration_ms)?;
         self.translation.ensure_active(&session)?;
         let translated = session.mode != crate::translation::OutputMode::Original;
         let mut saved_transcript_id = output.transcript_id.clone();
-        if output.status != "completed" {
+        // A translation that failed its checks twice falls back to the original.
+        let fallback_warning = (output.status != "completed" && output.fallback_to_original)
+            .then(|| {
+                output
+                    .error_message
+                    .clone()
+                    .unwrap_or_else(|| "Translation check failed. The original was used.".into())
+            });
+        if output.status != "completed" && fallback_warning.is_none() {
             self.translation.with_active(&session, || {
                 self.update_status(|status| {
                     status.last_transcript_text = Some(corrected.plain_text.clone());
@@ -749,7 +789,11 @@ impl QuickDictationController {
                 .error_message
                 .unwrap_or_else(|| "Translation failed.".into())));
         }
-        let output_text = output.output_text.unwrap_or_default();
+        let output_text = if fallback_warning.is_some() {
+            corrected.plain_text.clone()
+        } else {
+            output.output_text.unwrap_or_default()
+        };
         if output_text.trim().is_empty() {
             self.translation.with_active(&session, || {
                 self.update_status(|status| status.state = QuickDictationState::Idle)?;
@@ -772,14 +816,16 @@ impl QuickDictationController {
                 .map(|s| s.id);
         }
 
-        let force_clipboard = self.force_clipboard_only.swap(false, Ordering::SeqCst);
-        let effective_behavior = if force_clipboard {
-            crate::settings::InsertBehavior::ClipboardOnly
-        } else {
-            settings.insert_behavior
-        };
+        let effective_behavior = insertion_behavior_for_session(
+            settings.insert_behavior,
+            &session.id,
+            self.clipboard_only_session
+                .lock()
+                .map_err(|_| anyhow!("Dictation insertion state unavailable"))?
+                .as_deref(),
+        );
 
-        let insert_outcome = match self.perform_insertion_on_main_thread(
+        let insert_report = match self.perform_insertion_on_main_thread(
             output_text.clone(),
             effective_behavior,
             generation,
@@ -816,6 +862,7 @@ impl QuickDictationController {
                 return Err(error);
             }
         };
+        let insert_outcome = insert_report.outcome;
 
         if self.poller_generation.load(Ordering::SeqCst) != generation {
             return Ok(());
@@ -855,6 +902,10 @@ impl QuickDictationController {
                 status.last_error_message = None;
                 status.last_model_name = resolved_model_name.clone();
                 status.last_insert_outcome = Some(insert_outcome);
+                status.last_insert_warning = insert_report
+                    .warning
+                    .map(|warning| warning.message().to_string())
+                    .or_else(|| fallback_warning.clone());
                 status.last_duration_ms = Some(recording.duration_ms);
             })
         })?;
@@ -866,9 +917,16 @@ impl QuickDictationController {
                 .set_overlay_payload(DictationOverlayPayload {
                     phase: result_phase,
                     audio_level: 0.0,
-                    duration_limit_reached: resolved_model_name.as_deref()
-                        == Some(crate::r2t2::MODEL_NAME)
-                        && recording.duration_ms >= 300_000,
+                    status_text: insert_report
+                        .warning
+                        .map(|warning| warning.overlay_label().to_string())
+                        .or_else(|| {
+                            fallback_warning
+                                .as_ref()
+                                .map(|_| "Original pasted · translation check failed".to_string())
+                        }),
+                    duration_limit_reached: recording.duration_ms as u64
+                        >= DICTATION_CAPTURE_LIMIT_MS - 1_000,
                     ..Default::default()
                 })
         })?;
@@ -887,7 +945,7 @@ impl QuickDictationController {
         behavior: crate::settings::InsertBehavior,
         generation: u64,
         session: &crate::translation::DictationSession,
-    ) -> Result<InsertionOutcome> {
+    ) -> Result<InsertionReport> {
         let app = self.app.clone();
         let desktop_shell = self.desktop_shell.clone();
         let paste_target = self
@@ -1044,6 +1102,7 @@ impl QuickDictationController {
                     status.last_model_name = Some(crate::r2t2::MODEL_NAME.into());
                     status.last_error_message = None;
                     status.last_insert_outcome = None;
+                    status.last_insert_warning = None;
                     status.can_retry_streaming = false;
                 })?;
                 *self
@@ -1064,6 +1123,8 @@ impl QuickDictationController {
     fn spawn_overlay_level_poller(&self, generation: u64, session_id: String) {
         let controller = self.clone();
         thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let mut warned = false;
             // Exit as soon as this poller is superseded by a newer listening
             // session OR the state leaves Listening. Both guards together make
             // it impossible to accumulate zombie pollers under intensive use.
@@ -1072,6 +1133,26 @@ impl QuickDictationController {
             {
                 let level = controller.recording_controller.input_level().unwrap_or(0.0);
                 let _ = controller.desktop_shell.update_level(&session_id, level);
+                // Live R2T2 sessions enforce the same limit in their own stream.
+                let live = controller
+                    .live
+                    .lock()
+                    .map(|live| live.is_some())
+                    .unwrap_or(false);
+                let elapsed_ms = started.elapsed().as_millis() as u64;
+                if !live && !warned && elapsed_ms >= DICTATION_LIMIT_WARNING_MS {
+                    warned = true;
+                    let _ = controller
+                        .desktop_shell
+                        .set_listening_notice(&session_id, "30 s left · 5-minute limit");
+                }
+                if !live && elapsed_ms >= DICTATION_CAPTURE_LIMIT_MS {
+                    controller.desktop_shell.stream_duration_limit(&session_id);
+                    if let Err(error) = controller.finish_dictation() {
+                        eprintln!("[dictation] limit finish failed: {error:?}");
+                    }
+                    break;
+                }
                 thread::sleep(Duration::from_millis(100));
             }
         });
@@ -1265,7 +1346,9 @@ impl QuickDictationController {
             player.finish_capture(false, true);
         }
         self.restore_system_volume();
-        self.force_clipboard_only.store(false, Ordering::SeqCst);
+        if let Ok(mut session) = self.clipboard_only_session.lock() {
+            *session = None;
+        }
         let _ = self
             .desktop_shell
             .set_overlay_payload(DictationOverlayPayload::default());
@@ -1311,8 +1394,15 @@ impl QuickDictationController {
             if !is_active {
                 continue;
             }
+            // Listening ends by itself at the five-minute limit; only treat it
+            // as stuck well after that, so long dictations are never discarded.
+            let threshold = if state == QuickDictationState::Listening {
+                DICTATION_CAPTURE_LIMIT_MS as i64 + 30_000
+            } else {
+                STUCK_THRESHOLD_MS
+            };
             let since = controller.state_since_ms.load(Ordering::SeqCst);
-            if now_ms() - since >= STUCK_THRESHOLD_MS {
+            if now_ms() - since >= threshold {
                 eprintln!(
                     "[dictation] watchdog: stuck in {:?} for too long — forcing reset",
                     state
@@ -1362,6 +1452,28 @@ fn resolve_model_name(
 #[cfg(test)]
 mod translation_shortcut_tests {
     use super::*;
+    #[test]
+    fn in_app_copy_override_cannot_leak_into_a_later_shortcut_session() {
+        use crate::settings::InsertBehavior;
+        assert!(matches!(
+            insertion_behavior_for_session(InsertBehavior::Paste, "ui", Some("ui")),
+            InsertBehavior::ClipboardOnly
+        ));
+        // Failed, empty, and canceled UI recordings may leave an old identity,
+        // but they must never consume the next shortcut's paste behavior.
+        assert!(matches!(
+            insertion_behavior_for_session(InsertBehavior::Paste, "shortcut", Some("ui")),
+            InsertBehavior::Paste
+        ));
+        assert!(matches!(
+            insertion_behavior_for_session(InsertBehavior::Paste, "shortcut", None),
+            InsertBehavior::Paste
+        ));
+        assert!(matches!(
+            insertion_behavior_for_session(InsertBehavior::ClipboardOnly, "shortcut", None),
+            InsertBehavior::ClipboardOnly
+        ));
+    }
     #[test]
     fn parsed_shortcut_conflicts_ignore_modifier_order() {
         assert!(shortcut_pair("CmdOrCtrl+Shift+Right", Some("Shift+CmdOrCtrl+Right")).is_err());

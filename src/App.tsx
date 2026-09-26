@@ -63,6 +63,7 @@ import type {
   HealthCheckResponse,
   InstalledModel,
   ManualTranscriptionUiState,
+  ModelDownloadStatus,
   QuickDictationStatusResponse,
   RecordingStatusResponse,
   SettingsPatch,
@@ -123,6 +124,8 @@ export function App() {
     null,
   );
   const [installedModels, setInstalledModels] = useState<InstalledModel[]>([]);
+  const modelRefreshInFlight = useRef<Promise<void> | null>(null);
+  const modelRefreshRevision = useRef(0);
   const [transcripts, setTranscripts] = useState<TranscriptSummary[]>([]);
   const [vocabularyTerms, setVocabularyTerms] = useState<VocabularyTerm[]>([]);
   const [preview, setPreview] = useState<TranscriptionPreviewResponse | null>(
@@ -371,8 +374,8 @@ export function App() {
             pushToast({
               kind: "info",
               message: "Copied to clipboard",
-              hint: `Press ${formatPasteShortcutForDisplay(health?.platform ?? null)} to paste`,
-              durationMs: 3500,
+              hint: nextStatus.lastInsertWarning ?? `Press ${formatPasteShortcutForDisplay(health?.platform ?? null)} to paste`,
+              durationMs: nextStatus.lastInsertWarning ? 7000 : 3500,
             });
             break;
           case "error":
@@ -572,23 +575,14 @@ export function App() {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    const liveStatuses = new Set<string>();
     const updateCount = () =>
       setDownloadCount(
         [...downloadStages.current.values()].filter(
           (stage) => stage === "downloading",
         ).length,
       );
-    void getModelDownloadStatuses()
-      .then((statuses) => {
-        if (disposed) return;
-        statuses.forEach((status) => {
-          if (!downloadStages.current.has(status.modelId))
-            downloadStages.current.set(status.modelId, status.state);
-        });
-        updateCount();
-      })
-      .catch(() => undefined);
-    void listenModelDownloadStatus((status) => {
+    const acceptStatus = (status: ModelDownloadStatus) => {
       if (disposed) return;
       const previous = downloadStages.current.get(status.modelId);
       downloadStages.current.set(status.modelId, status.state);
@@ -609,11 +603,33 @@ export function App() {
           durationMs: status.state === "failed" ? 0 : 4000,
         });
       }
-      if (status.state === "completed") void reloadModelState();
+      if (status.state === "completed" && previous !== "completed") {
+        void reloadModelState().catch((error) => {
+          if (disposed || currentScreenRef.current === "settings") return;
+          pushToast({
+            kind: "error",
+            message: "Model installed; list refresh needs attention",
+            hint: errorMessage(
+              error,
+              "Open Settings → Models to refresh the model list.",
+            ),
+            durationMs: 0,
+          });
+        });
+      }
+    };
+    void listenModelDownloadStatus((status) => {
+      liveStatuses.add(status.modelId);
+      acceptStatus(status);
     })
-      .then((cleanup) => {
+      .then(async (cleanup) => {
         if (disposed) cleanup();
-        else unlisten = cleanup;
+        else {
+          unlisten = cleanup;
+          const statuses = await getModelDownloadStatuses();
+          statuses.filter((status) => !liveStatuses.has(status.modelId))
+            .forEach(acceptStatus);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -719,14 +735,33 @@ export function App() {
     void refreshReadiness();
   }
 
-  const reloadModelState = useCallback(async () => {
-    const [nextSettings, nextInstalledModels] = await Promise.all([
-      getSettings(),
-      listInstalledModels(),
-    ]);
-    setSettings(nextSettings);
-    setInstalledModels(nextInstalledModels);
-    void refreshReadiness();
+  const reloadModelState = useCallback((): Promise<void> => {
+    // The workspace and Models view observe the same completion event. Share
+    // simultaneous requests, but read again if another completion arrives while
+    // the read is pending so its models cannot be lost to an older snapshot.
+    modelRefreshRevision.current += 1;
+    if (modelRefreshInFlight.current) return modelRefreshInFlight.current;
+    const refresh = (async () => {
+      await Promise.resolve();
+      try {
+        while (true) {
+          const revision = modelRefreshRevision.current;
+          const results = await Promise.allSettled([
+            getSettings().then(setSettings),
+            listInstalledModels().then(setInstalledModels),
+          ]);
+          if (revision !== modelRefreshRevision.current) continue;
+          void refreshReadiness();
+          const failed = results.find((result) => result.status === "rejected");
+          if (failed?.status === "rejected") throw failed.reason;
+          return;
+        }
+      } finally {
+        modelRefreshInFlight.current = null;
+      }
+    })();
+    modelRefreshInFlight.current = refresh;
+    return refresh;
   }, [refreshReadiness]);
 
   const handleResolveReadiness = useCallback(

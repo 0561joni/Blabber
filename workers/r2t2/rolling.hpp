@@ -6,6 +6,19 @@
 #include <string>
 
 namespace blabber {
+// Auto-language output can contain transcript text with `language None`.
+// Preserve its separator too: without it, the next decode treats the forced
+// transcript prefix as language metadata and discards the final result.
+inline std::string stream_prompt_prefix(const std::string & prefix,
+                                       const std::string & detected_language,
+                                       bool auto_language) {
+    if (auto_language && (!detected_language.empty() || !prefix.empty())) {
+        return "language " + (detected_language.empty() ? "None" : detected_language) +
+               "<asr_text>" + prefix;
+    }
+    return prefix;
+}
+
 // Sample positions identify decode steps, not acoustic word timestamps. This
 // fixes cadence-dependent bookkeeping; real-audio continuity is a release gate.
 class RollingTranscript {
@@ -16,6 +29,13 @@ public:
     std::deque<Entry> entries;
     int64_t window_start = 0;
     int64_t last_sample = 0;
+
+    // Presentation only: a complete replacement, derived after commit from
+    // this window's prefix. Never use this value as a decoding prompt.
+    std::string tentative(const std::string & hypothesis) const {
+        return hypothesis.compare(0, prefix.size(), prefix) == 0
+            ? hypothesis.substr(prefix.size()) : std::string();
+    }
 
     void advance(int64_t start) {
         if (start < window_start || start > last_sample)

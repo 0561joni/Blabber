@@ -3,7 +3,7 @@
 @@ -9,6 +9,7 @@
  #include "engine/community_models/confucius4_r2t2/tokenizer_text.h"
  #include "engine/community_models/confucius4_r2t2/types.h"
- 
+
 +#include "blabber_rolling.hpp"
  #include <chrono>
  #include <cstdint>
@@ -28,10 +28,10 @@
 +    }
      return tokenizer_.decode(tokens.token_ids);
  }
- 
-@@ -302,22 +305,12 @@
+
+@@ -302,22 +305,8 @@
  }
- 
+
  std::string R2T2ASRSession::build_stream_prefix(bool final_flush) const {
 -    if (chunk_id_ < stream_config_.unfixed_chunk_num) {
 -        return {};
@@ -50,15 +50,11 @@
 -    }
 -    return truncate_at_pipe(decode_rollback_prefix(ids, k));
 +    (void) final_flush;
-+    const auto & prefix = rolling_.prefix;
-+    if (force_language_.empty() && !language_.empty()) {
-+        return "language " + language_ + kAsrTextTag + prefix;
-+    }
-+    return prefix;
++    return blabber::stream_prompt_prefix(rolling_.prefix, language_, force_language_.empty());
  }
- 
+
  R2T2ASRSession::StreamOutcome R2T2ASRSession::decode_stream_chunk(bool final_flush) {
-@@ -389,7 +382,7 @@
+@@ -389,7 +378,7 @@
      text_ = truncate_at_pipe(parsed.text);
      ++chunk_id_;
      outcome.text = text_;
@@ -67,9 +63,9 @@
      debug::trace_log_scalar("confucius4_r2t2.stream.final_flush", final_flush ? 1 : 0);
      debug::trace_log_scalar("confucius4_r2t2.stream.chunk_id", chunk_id_);
      debug::trace_log_scalar("confucius4_r2t2.stream.raw_decoded", raw_decoded_);
-@@ -399,21 +392,9 @@
+@@ -399,21 +388,9 @@
  }
- 
+
  void R2T2ASRSession::publish_stream_delta(const std::string & fixed_text, runtime::StreamEvent & event) {
 -    // fixed_text contains transcript text only; metadata must never advance
 -    // this code-point offset. Stable transcript prefixes may still shrink
@@ -90,9 +86,9 @@
 +        rolling_.window_start + static_cast<int64_t>(audio_accum_.size()), fixed_text);
 +    if (!delta.empty()) event.partial_text = runtime::Transcript{delta, language_};
  }
- 
+
  runtime::StreamingPolicy R2T2ASRSession::streaming_policy() const {
-@@ -469,6 +450,7 @@
+@@ -469,6 +446,7 @@
      chunk_size_samples_ = 0;
      chunk_id_ = 0;
      published_codepoints_ = 0;
@@ -100,7 +96,7 @@
      stream_sample_rate_ = 0;
      stream_channels_ = 1;
      stream_started_ = false;
-@@ -508,10 +490,9 @@
+@@ -508,10 +486,10 @@
          const size_t take_values = static_cast<size_t>(chunk_size_samples_) * channel_stride;
          audio_accum_.insert(audio_accum_.end(), buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(take_values));
          buffer_.erase(buffer_.begin(), buffer_.begin() + static_cast<std::ptrdiff_t>(take_values));
@@ -110,13 +106,32 @@
 -            publish_stream_delta(outcome.fixed_text, event);
 -        }
 +        publish_stream_delta(outcome.fixed_text, event);
++        event.tentative_text = rolling_.tentative(outcome.text);
          if (!streaming_result_.text_output.has_value()) {
              streaming_result_.text_output = runtime::Transcript{outcome.text, language_};
          } else {
-@@ -532,6 +513,16 @@
+@@ -520,16 +498,28 @@
+                 streaming_result_.text_output->language = language_;
+             }
+         }
+-        if (stream_event_sink_ != nullptr && event.partial_text.has_value()) {
++        if (stream_event_sink_ != nullptr && (event.partial_text.has_value() || event.tentative_text.has_value())) {
+             stream_event_sink_(event);
+             event.partial_text.reset();
+-        }
+-    }
+-    if (stream_event_sink_ != nullptr && event.partial_text.has_value()) {
++            event.tentative_text.reset();
++        }
++    }
++    if (stream_event_sink_ != nullptr && (event.partial_text.has_value() || event.tentative_text.has_value())) {
+         stream_event_sink_(event);
+         event.partial_text.reset();
++        event.tentative_text.reset();
+     }
      return event;
- }
- 
++}
++
 +void R2T2ASRSession::roll_audio_window() {
 +    if (stream_sample_rate_ != 16000 || stream_channels_ != 1) {
 +        throw std::runtime_error("R2T2_FORMAT: normalize to 16 kHz mono before streaming");
@@ -125,12 +140,10 @@
 +        rolling_.advance(rolling_.window_start + 8 * 16000);
 +        audio_accum_.erase(audio_accum_.begin(), audio_accum_.begin() + 8 * 16000);
 +    }
-+}
-+
- runtime::TaskResult R2T2ASRSession::finish_stream() {
-     return finalize();
  }
-@@ -545,10 +536,12 @@
+
+ runtime::TaskResult R2T2ASRSession::finish_stream() {
+@@ -545,10 +535,12 @@
      if (!stream_started_) {
          throw std::runtime_error("R2T2 ASR finalize() requires start_stream");
      }
@@ -144,7 +157,7 @@
          if (!streaming_result_.text_output.has_value()) {
              streaming_result_.text_output = runtime::Transcript{outcome.text, language_};
          } else {
-@@ -561,6 +554,7 @@
+@@ -561,6 +553,7 @@
      if (!streaming_result_.text_output.has_value()) {
          streaming_result_.text_output = runtime::Transcript{text_, language_};
      }
@@ -152,3 +165,61 @@
      if (stream_event_sink_ != nullptr) {
          // The final transcript travels in the task result (the server emits it
          // as transcript.text.done); the reference integrator adds no final
+--- a/include/engine/framework/runtime/session.h
++++ b/include/engine/framework/runtime/session.h
+@@ -210,6 +210,8 @@
+ };
+
+ struct StreamEvent {
++    // Display-only replacement; nullopt means no decode, empty means clear.
++    std::optional<std::string> tentative_text = std::nullopt;
+     std::vector<VoiceActivityEvent> voice_activity;
+     std::optional<Transcript> partial_text = std::nullopt;
+     std::optional<AudioBuffer> audio_output = std::nullopt;
+--- a/include/audiocpp.h
++++ b/include/audiocpp.h
+@@ -512,6 +512,11 @@
+ AUDIOCPP_API void audiocpp_event_free(audiocpp_event * event);
+ AUDIOCPP_API int  audiocpp_event_is_final(const audiocpp_event * event);
+
++/* Display-only replacement, borrowed until event_free. NOT_AVAILABLE means no
++ * decode occurred; OK with an empty string explicitly clears the preview. */
++AUDIOCPP_API audiocpp_status audiocpp_event_tentative_text(const audiocpp_event * event,
++                                                          const char ** out_text);
++
+ /* An event carries the same shapes a result does, so it is read through the
+  * result accessors. Borrowed — valid until the event is freed. */
+ AUDIOCPP_API const audiocpp_result * audiocpp_event_as_result(const audiocpp_event * event);
+--- a/src/capi/audiocpp.cpp
++++ b/src/capi/audiocpp.cpp
+@@ -199,6 +199,7 @@
+ };
+
+ struct audiocpp_event {
++    std::optional<std::string> tentative_text;
+     audiocpp_result view;
+     std::vector<rt::VoiceActivityEvent> voice_activity;
+     bool is_final = false;
+@@ -219,6 +220,7 @@
+     wrapped->view.owned = false;
+     wrapped->is_final = event.is_final;
+     wrapped->voice_activity = event.voice_activity;
++    wrapped->tentative_text = std::move(event.tentative_text);
+
+     auto & result = wrapped->view.result;
+     result.audio_output = std::move(event.audio_output);
+@@ -1189,6 +1191,14 @@
+     return event != nullptr && event->is_final ? 1 : 0;
+ }
+
++audiocpp_status audiocpp_event_tentative_text(const audiocpp_event * event, const char ** out_text) {
++    if (out_text != nullptr) *out_text = nullptr;
++    if (event == nullptr) return fail(AUDIOCPP_ERR_INVALID_ARGUMENT, "event must be non-null");
++    if (!event->tentative_text.has_value()) return AUDIOCPP_ERR_NOT_AVAILABLE;
++    if (out_text != nullptr) *out_text = event->tentative_text->c_str();
++    return AUDIOCPP_OK;
++}
++
+ const audiocpp_result * audiocpp_event_as_result(const audiocpp_event * event) {
+     return event != nullptr ? &event->view : nullptr;
+ }

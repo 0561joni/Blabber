@@ -79,7 +79,11 @@ pub fn export_variant_blocking(
         TranscriptExportFormat::Vtt => ("vtt", "WebVTT subtitles"),
         TranscriptExportFormat::Json => ("json", "JSON"),
     };
-    let file_name = format!("{}.{}", safe_file_stem(&detail.summary.title), extension);
+    let file_name = format!(
+        "{}.{}",
+        safe_file_stem(&crate::output_format::file_display_title(&detail.summary.title)),
+        extension
+    );
     let selected = app
         .dialog()
         .file()
@@ -128,7 +132,78 @@ fn format_transcript(detail: &TranscriptDetail, format: TranscriptExportFormat) 
         TranscriptExportFormat::Md => format_speaker_text(detail, true),
         TranscriptExportFormat::Srt => format_subtitles(detail, false),
         TranscriptExportFormat::Vtt => format!("WEBVTT\n\n{}", format_subtitles(detail, true)),
-        TranscriptExportFormat::Json => serde_json::to_string_pretty(detail)?,
+        TranscriptExportFormat::Json => serde_json::to_string_pretty(&json_export(detail))?,
+    })
+}
+
+/// Version of the JSON export layout. Bump it when a field changes meaning or
+/// is removed; adding fields is backwards compatible.
+pub const JSON_EXPORT_SCHEMA_VERSION: u32 = 1;
+
+/// Stable, documented JSON export instead of the app's internal structures.
+fn json_export(detail: &TranscriptDetail) -> serde_json::Value {
+    let names = speaker_names(detail);
+    let manual: HashSet<_> = detail
+        .manual_segment_ids
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let summary = &detail.summary;
+    let segments: Vec<serde_json::Value> = detail
+        .segments
+        .iter()
+        .map(|segment| {
+            serde_json::json!({
+                "startMs": segment.start_ms,
+                "endMs": segment.end_ms,
+                "start": crate::output_format::clock_ms(segment.start_ms),
+                "end": crate::output_format::clock_ms(segment.end_ms),
+                "speaker": segment_label(
+                    segment.speaker_attribution,
+                    segment.speaker_id.as_deref(),
+                    segment.speaker_ids.as_deref(),
+                    &names,
+                    manual.contains(segment.id.as_str()),
+                ),
+                "language": crate::output_format::normalize_language_code(Some(&segment.language_code)),
+                "text": segment.text.trim(),
+            })
+        })
+        .collect();
+    let speakers: Vec<serde_json::Value> = detail
+        .speakers
+        .iter()
+        .map(|speaker| serde_json::json!({"id": speaker.speaker_id, "name": speaker.display_name}))
+        .collect();
+    let translation = detail.translation.as_ref().map(|translation| {
+        serde_json::json!({
+            "targetLanguage": translation.target_language,
+            "status": translation.status,
+            "text": translation.output_text,
+            "model": translation.model_id,
+            "promptVersion": translation.prompt_version,
+        })
+    });
+    serde_json::json!({
+        "schemaVersion": JSON_EXPORT_SCHEMA_VERSION,
+        "app": "Blabber",
+        "transcript": {
+            "id": summary.id,
+            "title": summary.title,
+            "createdAt": summary.created_at,
+            "source": summary.source_type,
+            "durationMs": summary.duration_ms,
+            "languages": summary
+                .detected_languages
+                .iter()
+                .map(|language| crate::output_format::normalize_language_code(Some(language)))
+                .collect::<Vec<_>>(),
+            "model": summary.model_name,
+            "text": summary.plain_text,
+        },
+        "speakers": speakers,
+        "segments": segments,
+        "translation": translation,
     })
 }
 
@@ -338,6 +413,19 @@ mod tests {
     }
 
     #[test]
+    fn json_export_uses_the_versioned_schema() {
+        let detail = detail();
+        let value: serde_json::Value =
+            serde_json::from_str(&format_transcript(&detail, TranscriptExportFormat::Json).unwrap())
+                .unwrap();
+        assert_eq!(value["schemaVersion"], JSON_EXPORT_SCHEMA_VERSION);
+        assert_eq!(value["transcript"]["id"], detail.summary.id.as_str());
+        assert_eq!(value["segments"].as_array().unwrap().len(), detail.segments.len());
+        assert!(value["segments"][0]["start"].is_string());
+        assert!(value.get("diarizationTurns").is_none());
+    }
+
+    #[test]
     fn every_export_uses_effective_names_without_changing_passage_text_or_times() {
         let mut detail = detail();
         detail.speakers[0].display_name = "Maya".into();
@@ -358,10 +446,11 @@ mod tests {
         let srt = format_transcript(&detail, TranscriptExportFormat::Srt).unwrap();
         assert!(srt.contains("00:00:00,000 --> 00:00:10,000"));
         let json = format_transcript(&detail, TranscriptExportFormat::Json).unwrap();
-        let roundtrip: TranscriptDetail = serde_json::from_str(&json).unwrap();
-        assert_eq!(roundtrip.segments[0].text, detail.segments[0].text);
-        assert_eq!(roundtrip.segments[1].start_ms, 10000);
-        assert_eq!(roundtrip.speakers[0].display_name, "Maya");
+        let exported: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(exported["segments"][0]["text"], detail.segments[0].text.trim());
+        assert_eq!(exported["segments"][1]["startMs"], 10000);
+        assert_eq!(exported["speakers"][0]["name"], "Maya");
+        assert_eq!(exported["segments"][0]["speaker"], "Maya (likely)");
     }
 
     #[test]

@@ -571,10 +571,10 @@ struct DecodeOptions {
 }
 
 impl DecodeOptions {
-    fn direct() -> Self {
+    fn direct(initial_prompt: Option<String>) -> Self {
         Self {
             temperature: 0.0,
-            initial_prompt: None,
+            initial_prompt,
             repetition_watchdog: false,
         }
     }
@@ -655,6 +655,7 @@ fn run_resilient_whisper(
     let mut accepted_segments = Vec::new();
     let mut warnings = Vec::new();
     let mut prompt_allowed = true;
+    let dictionary_prompt = whisper_dictionary_prompt(&request.context_terms);
 
     for chunk in chunks {
         let start_percent = chunk.start_sample as f32 / total_samples * 100.0;
@@ -662,11 +663,12 @@ fn run_resilient_whisper(
         let reporter = progress
             .clone()
             .map(|progress| ProgressReporter::for_range(progress, start_percent, end_percent));
-        let prompt = if prompt_allowed && matches!(request.language_mode, LanguageMode::Fixed) {
+        let continuity = if prompt_allowed && matches!(request.language_mode, LanguageMode::Fixed) {
             controlled_prompt(&accepted_segments, chunk.start_ms(prepared.sample_rate_hz))
         } else {
             None
         };
+        let prompt = combine_whisper_prompts(dictionary_prompt.as_deref(), continuity);
 
         match decode_audio_chunk(
             context,
@@ -764,7 +766,7 @@ fn run_resilient_whisper(
 }
 
 fn decode_audio_chunk(
-    context: &WhisperContext,
+    _context: &WhisperContext,
     decoder_state: &mut WhisperState,
     model: &InstalledModel,
     prepared: &audio_preprocess::PreparedAudio,
@@ -780,40 +782,9 @@ fn decode_audio_chunk(
         samples: prepared.samples[chunk.start_sample..chunk.end_sample].to_vec(),
     };
 
-    if matches!(request.language_mode, LanguageMode::Auto) {
-        let mut detection_options = options.clone();
-        detection_options.initial_prompt = None;
-        detection_options.repetition_watchdog = false;
-        let language = {
-            let mut detection_state = context
-                .create_state()
-                .context("failed to create whisper language-detection state")?;
-            let detection = run_whisper_with_state(
-                &mut detection_state,
-                model,
-                &chunk_audio,
-                request,
-                None,
-                reporter,
-                detection_options,
-            )?;
-            detection
-                .detected_languages
-                .into_iter()
-                .find(|language| language != "unknown")
-                .ok_or_else(|| anyhow!("failed to detect a language for the audio chunk"))?
-        };
-        return run_whisper_with_state(
-            decoder_state,
-            model,
-            &chunk_audio,
-            request,
-            Some(language),
-            reporter,
-            options,
-        );
-    }
-
+    // Auto language: whisper.cpp detects the language of this (<30 s) chunk
+    // and transcribes it in the same call, so no separate detection pass or
+    // extra decoder state is needed.
     run_whisper_with_state(
         decoder_state,
         model,
@@ -958,8 +929,8 @@ fn add_gap_segment(
         end_ms,
         text: format!(
             "[Unclear audio {}–{}]",
-            format_ms(start_ms),
-            format_ms(end_ms)
+            crate::output_format::clock_ms(start_ms),
+            crate::output_format::clock_ms(end_ms)
         ),
         language_code: "und".to_string(),
         segment_order: 0,
@@ -989,6 +960,55 @@ fn controlled_prompt(segments: &[TranscriptSegment], chunk_start_ms: i64) -> Opt
     let start = chars.len().saturating_sub(CONTROLLED_PROMPT_MAX_CHARS);
     let prompt = chars[start..].iter().collect::<String>().trim().to_string();
     (!prompt.is_empty()).then_some(prompt)
+}
+
+/// whisper.cpp keeps at most `n_max_text_ctx` (64) prompt tokens, taken from
+/// the end. Keep the dictionary short and put the highest-priority terms last
+/// so they survive truncation.
+const WHISPER_DICTIONARY_PROMPT_MAX_CHARS: usize = 150;
+const WHISPER_COMBINED_PROMPT_MAX_CHARS: usize = 200;
+
+pub(crate) fn whisper_dictionary_prompt(terms: &[String]) -> Option<String> {
+    let mut included: Vec<&str> = Vec::new();
+    let mut length = 0usize;
+    for term in terms {
+        let term = term.trim();
+        if term.is_empty() {
+            continue;
+        }
+        let added = term.chars().count() + if included.is_empty() { 0 } else { 2 };
+        if length + added + 1 > WHISPER_DICTIONARY_PROMPT_MAX_CHARS {
+            continue;
+        }
+        length += added;
+        included.push(term);
+    }
+    if included.is_empty() {
+        return None;
+    }
+    included.reverse();
+    Some(format!("{}.", included.join(", ")))
+}
+
+fn combine_whisper_prompts(dictionary: Option<&str>, continuity: Option<String>) -> Option<String> {
+    match (dictionary, continuity) {
+        (None, continuity) => continuity,
+        (Some(dictionary), None) => Some(dictionary.to_string()),
+        (Some(dictionary), Some(continuity)) => {
+            let budget = WHISPER_COMBINED_PROMPT_MAX_CHARS
+                .saturating_sub(dictionary.chars().count() + 1);
+            let chars = continuity.chars().collect::<Vec<_>>();
+            let tail = chars[chars.len().saturating_sub(budget)..]
+                .iter()
+                .collect::<String>();
+            let tail = tail.trim();
+            if tail.is_empty() {
+                Some(dictionary.to_string())
+            } else {
+                Some(format!("{dictionary} {tail}"))
+            }
+        }
+    }
 }
 
 fn is_recoverable_decode_error(error: &anyhow::Error) -> bool {
@@ -1025,8 +1045,8 @@ pub(crate) fn build_transcript_result(
         .map(|segment| {
             format!(
                 "[{} - {}] {}: {}",
-                format_ms(segment.start_ms),
-                format_ms(segment.end_ms),
+                crate::output_format::clock_ms(segment.start_ms),
+                crate::output_format::clock_ms(segment.end_ms),
                 segment.language_code,
                 segment.text
             )
@@ -1093,6 +1113,7 @@ fn run_whisper(
     }
 
     let reporter = progress.clone().map(ProgressReporter::full);
+    let dictionary_prompt = whisper_dictionary_prompt(&request.context_terms);
     let first_attempt = run_whisper_once(
         context,
         model,
@@ -1100,7 +1121,7 @@ fn run_whisper(
         request,
         None,
         reporter.as_ref(),
-        DecodeOptions::direct(),
+        DecodeOptions::direct(dictionary_prompt.clone()),
     )?;
     if !first_attempt.segments.is_empty() {
         if request.timestamps
@@ -1128,7 +1149,7 @@ fn run_whisper(
         .detected_languages
         .first()
         .cloned()
-        .filter(|language| language != "unknown");
+        .filter(|language| language != "und" && language != "unknown");
 
     if matches!(request.language_mode, LanguageMode::Auto) {
         if let Some(language) = detected_language.clone() {
@@ -1139,7 +1160,7 @@ fn run_whisper(
                 request,
                 Some(language),
                 reporter.as_ref(),
-                DecodeOptions::direct(),
+                DecodeOptions::direct(dictionary_prompt.clone()),
             )?;
             if !retry.segments.is_empty() {
                 if request.timestamps
@@ -1174,7 +1195,7 @@ fn run_whisper(
             &timestamp_retry_request,
             detected_language.clone(),
             reporter.as_ref(),
-            DecodeOptions::direct(),
+            DecodeOptions::direct(dictionary_prompt.clone()),
         )?;
         if !retry.segments.is_empty() {
             return Ok(retry);
@@ -1236,9 +1257,22 @@ fn run_whisper_with_state(
     options: DecodeOptions,
 ) -> Result<TranscriptResult> {
     crate::shutdown::ensure_running()?;
-    let mut params = FullParams::new(SamplingStrategy::BeamSearch {
-        beam_size: 5,
-        patience: -1.0,
+    let is_dictation = matches!(
+        request.use_context,
+        Some(
+            crate::model_metadata::ModelUseContext::ShortcutDictation
+                | crate::model_metadata::ModelUseContext::QuickDictate
+        )
+    );
+    // Dictation favours latency: greedy decoding (with whisper's temperature
+    // fallback) instead of a five-way beam search. Files keep beam search.
+    let mut params = FullParams::new(if is_dictation {
+        SamplingStrategy::Greedy { best_of: 1 }
+    } else {
+        SamplingStrategy::BeamSearch {
+            beam_size: 5,
+            patience: -1.0,
+        }
     });
     let threads = std::thread::available_parallelism()
         .map(|value| value.get().min(8) as i32)
@@ -1281,8 +1315,10 @@ fn run_whisper_with_state(
                 params.set_language(Some(language));
                 params.set_detect_language(false);
             } else {
-                params.set_language(None);
-                params.set_detect_language(true);
+                // `detect_language(true)` would make whisper.cpp stop after
+                // detection. "auto" detects and then transcribes in one pass.
+                params.set_language(Some("auto"));
+                params.set_detect_language(false);
             }
         }
         LanguageMode::Fixed => {
@@ -1305,7 +1341,8 @@ fn run_whisper_with_state(
         .or_else(|| {
             whisper_rs::get_lang_str(state.full_lang_id_from_state()).map(ToString::to_string)
         })
-        .unwrap_or_else(|| "unknown".to_string());
+        .map(|language| crate::output_format::normalize_language_code(Some(&language)))
+        .unwrap_or_else(|| "und".to_string());
 
     let job_id = Uuid::new_v4().to_string();
     let mut segments = Vec::new();
@@ -1362,15 +1399,19 @@ fn run_whisper_with_state(
         .map(|s| {
             format!(
                 "[{} - {}] {}: {}",
-                format_ms(s.start_ms),
-                format_ms(s.end_ms),
+                crate::output_format::clock_ms(s.start_ms),
+                crate::output_format::clock_ms(s.end_ms),
                 s.language_code,
                 s.text
             )
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let detected_languages = vec![detected_language];
+    let detected_languages = if detected_language == "und" {
+        Vec::new()
+    } else {
+        vec![detected_language]
+    };
 
     Ok(TranscriptResult {
         job_id,
@@ -1445,16 +1486,31 @@ fn timestamp_units_to_ms(value: i64) -> i64 {
     value * 10
 }
 
-fn format_ms(ms: i64) -> String {
-    let total_seconds = ms.max(0) / 1000;
-    let minutes = total_seconds / 60;
-    let seconds = total_seconds % 60;
-    format!("{minutes:02}:{seconds:02}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn whisper_dictionary_prompt_is_short_and_keeps_priority_terms_last() {
+        let terms: Vec<String> = (0..100).map(|i| format!("Fachbegriff{i}")).collect();
+        let prompt = whisper_dictionary_prompt(&terms).unwrap();
+        assert!(prompt.chars().count() <= WHISPER_DICTIONARY_PROMPT_MAX_CHARS);
+        assert!(prompt.ends_with("Fachbegriff0."));
+        assert!(whisper_dictionary_prompt(&[]).is_none());
+        assert_eq!(
+            whisper_dictionary_prompt(&["Savencia".into(), "Bella Italia".into()]).as_deref(),
+            Some("Bella Italia, Savencia.")
+        );
+    }
+
+    #[test]
+    fn combined_whisper_prompt_keeps_dictionary_and_recent_context() {
+        let combined =
+            combine_whisper_prompts(Some("Savencia."), Some("x".repeat(400))).unwrap();
+        assert!(combined.starts_with("Savencia. "));
+        assert!(combined.chars().count() <= WHISPER_COMBINED_PROMPT_MAX_CHARS);
+        assert_eq!(combine_whisper_prompts(None, None), None);
+    }
 
     /// Runs in a dedicated process so C++ static destructors are exercised.
     /// Set BLABBER_WHISPER_SMOKE_MODEL to an installed Whisper .bin model.

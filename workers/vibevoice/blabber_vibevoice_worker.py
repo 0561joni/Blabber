@@ -45,6 +45,10 @@ def handle(request):
             verbose=False,
             max_tokens=max_tokens,
             context=request.get("prompt") or None,
+            # Pin decoding so results do not depend on library defaults:
+            # greedy (temperature 0, no nucleus filtering) unless asked otherwise.
+            temperature=0.0 if request.get("greedy", True) else 0.7,
+            top_p=1.0,
         )
     raw_segments = value(transcription, "sentences", "segments", default=[]) or []
     segments = []

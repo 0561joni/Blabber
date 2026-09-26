@@ -940,7 +940,7 @@ fn session_detail(id: &str, session: &Session) -> TranscriptDetail {
             id: id.into(),
             created_at: session.created_at.clone(),
             source_type: storage::SourceType::FileUpload,
-            title: session.source.original_name.clone(),
+            title: crate::output_format::file_display_title(&session.source.original_name),
             plain_text: r.plain_text.clone(),
             status: storage::TranscriptStatus::Completed,
             detected_languages: r.detected_languages.clone(),

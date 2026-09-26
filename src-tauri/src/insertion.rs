@@ -1,11 +1,7 @@
 #[cfg(target_os = "macos")]
 use std::ffi::c_void;
 #[cfg(target_os = "macos")]
-use std::path::PathBuf;
-#[cfg(target_os = "macos")]
 use std::process::Command;
-#[cfg(target_os = "macos")]
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -41,8 +37,6 @@ const KCG_HID_EVENT_TAP: u32 = 0;
 const KCG_EVENT_FLAG_MASK_COMMAND: u64 = 1 << 20;
 #[cfg(target_os = "macos")]
 const MACOS_KEYCODE_V: u16 = 0x09;
-#[cfg(target_os = "macos")]
-static ACCESSIBILITY_SETTINGS_OPENED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
@@ -70,6 +64,60 @@ pub enum InsertionOutcome {
     ClipboardOnly,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertionWarning {
+    AccessibilityRequired,
+    PasteUnavailable,
+}
+
+impl InsertionWarning {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::AccessibilityRequired => "Text copied. Auto-paste needs Accessibility access for this Blabber app. Use Grant access, then enable Blabber in System Settings. If it is already enabled, remove the old entry and add the current Blabber app again.",
+            Self::PasteUnavailable => "Text copied, but Blabber could not paste into the target app. Use the paste shortcut to insert it.",
+        }
+    }
+
+    pub fn overlay_label(self) -> &'static str {
+        match self {
+            Self::AccessibilityRequired => "Copied · Enable auto-paste",
+            Self::PasteUnavailable => "Copied · Paste manually",
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InsertionReport {
+    pub outcome: InsertionOutcome,
+    pub warning: Option<InsertionWarning>,
+}
+
+impl InsertionReport {
+    fn copied(warning: Option<InsertionWarning>) -> Self {
+        Self {
+            outcome: InsertionOutcome::ClipboardOnly,
+            warning,
+        }
+    }
+
+    fn pasted() -> Self {
+        Self {
+            outcome: InsertionOutcome::Pasted,
+            warning: None,
+        }
+    }
+}
+
+fn paste_warning(supported: bool, trusted: bool) -> Option<InsertionWarning> {
+    if !supported {
+        Some(InsertionWarning::PasteUnavailable)
+    } else if !trusted {
+        Some(InsertionWarning::AccessibilityRequired)
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum PasteTarget {
     #[cfg(target_os = "macos")]
@@ -84,24 +132,26 @@ pub fn insert_text(
     behavior: InsertBehavior,
     paste_target: Option<&PasteTarget>,
     check_active: impl Fn() -> Result<()>,
-) -> Result<InsertionOutcome> {
+) -> Result<InsertionReport> {
     check_active()?;
+    let warning = paste_warning(auto_paste_allowed(), accessibility_trusted());
+    let can_paste = should_attempt_paste(behavior, warning.is_none());
     #[cfg(target_os = "macos")]
-    let clipboard_snapshot = if should_attempt_paste(behavior, auto_paste_allowed()) {
+    let clipboard_snapshot = if can_paste {
         Some(ClipboardSnapshot::capture())
     } else {
         None
     };
 
     #[cfg(target_os = "windows")]
-    let windows_clipboard_snapshot = if should_attempt_paste(behavior, auto_paste_allowed()) {
+    let windows_clipboard_snapshot = if can_paste {
         Some(windows_clipboard_restore::ClipboardSnapshot::capture()?)
     } else {
         None
     };
 
     #[cfg(target_os = "windows")]
-    let windows_clipboard_owner = if should_attempt_paste(behavior, auto_paste_allowed()) {
+    let windows_clipboard_owner = if can_paste {
         windows_clipboard_owner(app)?
     } else {
         std::ptr::null_mut()
@@ -138,10 +188,10 @@ pub fn insert_text(
     }
 
     match behavior {
-        InsertBehavior::ClipboardOnly => Ok(InsertionOutcome::ClipboardOnly),
+        InsertBehavior::ClipboardOnly => Ok(InsertionReport::copied(None)),
         InsertBehavior::Paste => {
-            if !should_attempt_paste(behavior, auto_paste_allowed()) {
-                return Ok(InsertionOutcome::ClipboardOnly);
+            if !can_paste {
+                return Ok(InsertionReport::copied(warning));
             }
 
             // Give the system clipboard a moment to propagate before sending Cmd/Ctrl+V.
@@ -153,12 +203,16 @@ pub fn insert_text(
                 let focus = refocus_paste_target(paste_target);
                 ensure_current!();
                 if focus.is_err() {
-                    return Ok(InsertionOutcome::ClipboardOnly);
+                    return Ok(InsertionReport::copied(Some(
+                        InsertionWarning::PasteUnavailable,
+                    )));
                 }
 
                 if simulate_paste_with_retry(3, &check_active, simulate_paste).is_err() {
                     ensure_current!();
-                    return Ok(InsertionOutcome::ClipboardOnly);
+                    return Ok(InsertionReport::copied(Some(
+                        InsertionWarning::PasteUnavailable,
+                    )));
                 }
 
                 restore_windows_clipboard_after_paste(
@@ -166,14 +220,18 @@ pub fn insert_text(
                     dictated_clipboard_sequence_number,
                     windows_clipboard_owner,
                 );
-                Ok(InsertionOutcome::Pasted)
+                Ok(InsertionReport::pasted())
             }
 
             #[cfg(not(target_os = "windows"))]
             {
                 let focus = refocus_paste_target(paste_target);
                 ensure_current!();
-                focus?;
+                if focus.is_err() {
+                    return Ok(InsertionReport::copied(Some(
+                        InsertionWarning::PasteUnavailable,
+                    )));
+                }
 
                 match simulate_paste_with_retry(3, &check_active, simulate_paste) {
                     Ok(()) => {
@@ -182,12 +240,15 @@ pub fn insert_text(
                             clipboard_snapshot,
                             dictated_clipboard_change_count,
                         );
-                        Ok(InsertionOutcome::Pasted)
+                        Ok(InsertionReport::pasted())
                     }
                     Err(error) => {
                         ensure_current!();
                         let _ = error;
-                        Ok(InsertionOutcome::ClipboardOnly)
+                        Ok(InsertionReport::copied(Some(
+                            paste_warning(auto_paste_allowed(), accessibility_trusted())
+                                .unwrap_or(InsertionWarning::PasteUnavailable),
+                        )))
                     }
                 }
             }
@@ -425,14 +486,7 @@ fn simulate_paste() -> Result<()> {
 fn simulate_native_macos_paste() -> Result<()> {
     unsafe {
         if !AXIsProcessTrusted() {
-            open_accessibility_settings_once();
-            let bundle_path = current_app_bundle_path()
-                .map(|path| path.display().to_string())
-                .unwrap_or_else(|| "this Blabber app bundle".to_string());
-            return Err(anyhow!(
-                "Auto paste needs Accessibility access for this exact Blabber app bundle. If Blabber is already enabled, remove the old entry and add this one again: {}",
-                bundle_path
-            ));
+            return Err(anyhow!(InsertionWarning::AccessibilityRequired.message()));
         }
 
         let key_down = CGEventCreateKeyboardEvent(std::ptr::null(), MACOS_KEYCODE_V, true);
@@ -459,31 +513,6 @@ fn simulate_native_macos_paste() -> Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn open_accessibility_settings_once() {
-    if ACCESSIBILITY_SETTINGS_OPENED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_ok()
-    {
-        let _ = Command::new("open")
-            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-            .spawn();
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn current_app_bundle_path() -> Option<PathBuf> {
-    let executable = std::env::current_exe().ok()?;
-    let macos_dir = executable.parent()?;
-    let contents_dir = macos_dir.parent()?;
-    let app_dir = contents_dir.parent()?;
-    if app_dir.extension().and_then(|value| value.to_str()) == Some("app") {
-        Some(app_dir.to_path_buf())
-    } else {
-        None
-    }
 }
 
 #[cfg(target_os = "macos")]
@@ -551,6 +580,28 @@ fn focus_window_handle(handle: isize) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_accessibility_keeps_a_copy_and_explains_why_paste_was_skipped() {
+        let warning = paste_warning(true, false);
+        assert!(!should_attempt_paste(
+            InsertBehavior::Paste,
+            warning.is_none()
+        ));
+        let report = InsertionReport::copied(warning);
+        assert!(matches!(report.outcome, InsertionOutcome::ClipboardOnly));
+        assert_eq!(
+            report.warning,
+            Some(InsertionWarning::AccessibilityRequired)
+        );
+        assert!(report.warning.unwrap().message().contains("Grant access"));
+        assert_eq!(paste_warning(true, true), None);
+        assert_eq!(
+            paste_warning(false, true),
+            Some(InsertionWarning::PasteUnavailable)
+        );
+        assert!(InsertionReport::copied(None).warning.is_none());
+    }
 
     #[test]
     fn cancellation_before_a_paste_or_retry_never_sends_another_key_event() {

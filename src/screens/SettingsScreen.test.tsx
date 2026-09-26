@@ -388,6 +388,67 @@ describe("Settings speaker identification", () => {
     expect(within(dialog).getByText("488 MB")).toBeTruthy();
   });
 
+  it("removes the download button immediately even when the installed-model refresh fails", async () => {
+    apiMocks.listDownloadableModels.mockResolvedValue([{ ...asrModel, installed: false }]);
+    let rejectRefresh!: (error: Error) => void;
+    const onReload = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectRefresh = reject; }));
+    render(<Harness onSave={vi.fn()} onReload={onReload} />);
+    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+    await screen.findByRole("button", { name: "Download Whisper Balanced" });
+
+    act(() => { downloadListener?.({ ...status("completed", 100), modelId: asrModel.id }); });
+    expect(screen.queryByRole("button", { name: "Download Whisper Balanced" })).toBeNull();
+    expect(screen.getByText("Installed")).toBeTruthy();
+    expect(screen.getByText("1 of 1 installed")).toBeTruthy();
+
+    await act(async () => { rejectRefresh(new Error("failed to read installed models")); });
+    expect(screen.getByRole("alert").textContent).toContain("model list could not be refreshed");
+    expect(screen.getByRole("alert").textContent).toContain("failed to read installed models");
+    expect(screen.queryByText("Downloaded")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download Whisper Balanced" })).toBeNull();
+  });
+
+  it("does not replace a live completion with an older catalog or status snapshot", async () => {
+    let resolveCatalog!: (models: DownloadableModel[]) => void;
+    let resolveStatuses!: (statuses: ModelDownloadStatus[]) => void;
+    apiMocks.listDownloadableModels
+      .mockImplementationOnce(() => new Promise<DownloadableModel[]>((resolve) => { resolveCatalog = resolve; }))
+      .mockResolvedValue([{ ...asrModel, installed: true }]);
+    apiMocks.getModelDownloadStatuses.mockImplementation(() =>
+      new Promise<ModelDownloadStatus[]>((resolve) => { resolveStatuses = resolve; }),
+    );
+    const onReload = vi.fn().mockResolvedValue(undefined);
+    render(<Harness onSave={vi.fn()} onReload={onReload} />);
+    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+    await waitFor(() => expect(apiMocks.getModelDownloadStatuses).toHaveBeenCalledTimes(1));
+    await act(async () => { downloadListener?.({ ...status("completed", 100), modelId: asrModel.id }); });
+    expect(screen.getByText("Installed")).toBeTruthy();
+
+    await act(async () => {
+      resolveCatalog([{ ...asrModel, installed: false }]);
+      resolveStatuses([{ ...status("downloading", 42), modelId: asrModel.id }]);
+    });
+    expect(screen.getByText("1 of 1 installed")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Cancel download|Download Whisper Balanced/ })).toBeNull();
+    expect(screen.queryByText("42%")).toBeNull();
+    expect(onReload).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleans up a subscription that finishes registering after the Models view unmounts", async () => {
+    let resolveSubscription!: (cleanup: () => void) => void;
+    apiMocks.listenModelDownloadStatus.mockImplementation(() =>
+      new Promise<() => void>((resolve) => { resolveSubscription = resolve; }),
+    );
+    const cleanup = vi.fn();
+    const { unmount } = render(<Harness onSave={vi.fn()} onReload={vi.fn()} />);
+    unmount();
+    await act(async () => { resolveSubscription(cleanup); });
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(apiMocks.getModelDownloadStatuses).not.toHaveBeenCalled();
+  });
+
   it("offers a retry without turning off the desired setting", async () => {
     render(
       <Harness
@@ -425,6 +486,7 @@ describe("Settings speaker identification", () => {
     const row = await screen.findByText("Speaker identification");
     const settingRow = row.closest(".setting-row") as HTMLElement;
     const switchButton = within(settingRow).getByRole("button");
+    await waitFor(() => expect(switchButton).toHaveProperty("disabled", false));
     fireEvent.click(switchButton);
 
     await act(async () => {

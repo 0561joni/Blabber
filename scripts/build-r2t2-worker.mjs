@@ -3,6 +3,7 @@ import { createReadStream, copyFileSync, existsSync, mkdirSync, readFileSync, rm
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { resolveSigningIdentity } from "./local-signing.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const manifest = JSON.parse(readFileSync(join(root, "workers/r2t2/manifest.json"), "utf8"));
@@ -43,11 +44,11 @@ if (!existsSync(stampPath) || readFileSync(stampPath, "utf8") !== stamp) {
   writeFileSync(stampPath, stamp);
 }
 run("cmake", ["-S", "workers/r2t2", "-B", build, `-DAUDIOCPP_SOURCE=${source}`, "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0", "-DENGINE_ENABLE_METAL=ON"]);
-run("cmake", ["--build", build, "--target", "blabber-r2t2-worker", "blabber-r2t2-rolling-test", "audiocpp_cli", "-j", "6"]);
-run("ctest", ["--test-dir", build, "-R", "^rolling-transcript$", "--output-on-failure"]);
+run("cmake", ["--build", build, "--target", "blabber-r2t2-worker", "blabber-r2t2-rolling-test", "blabber-r2t2-event-test", "audiocpp_cli", "-j", "6"]);
+run("ctest", ["--test-dir", build, "-R", "^(rolling-transcript|tentative-event)$", "--output-on-failure"]);
 mkdirSync(bundle, { recursive: true });
 copyFileSync(join(build, "blabber-r2t2-worker"), join(bundle, "blabber-r2t2-worker"));
-run("codesign", ["--force", "--sign", process.env.APPLE_SIGNING_IDENTITY || "-", join(bundle, "blabber-r2t2-worker")]);
+run("codesign", ["--force", "--sign", resolveSigningIdentity(), join(bundle, "blabber-r2t2-worker")]);
 copyFileSync(join(source, "LICENSE"), join(bundle, "audio.cpp-LICENSE"));
 for (const license of ["ggml/LICENSE", "cJSON/LICENSE", "sentencepiece/LICENSE", "sentencepiece/third_party/protobuf-lite/LICENSE", "sentencepiece/third_party/absl/LICENSE", "sentencepiece/third_party/esaxx/LICENSE", "sentencepiece/third_party/darts_clone/LICENSE"]) {
   copyFileSync(join(source, "external", license), join(bundle, license.replaceAll("/", "-")));

@@ -15,7 +15,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::audio_capture::CaptureTap;
 use crate::audio_preprocess::StreamingNormalizer;
-use crate::desktop_shell::{DesktopShellController, StreamingState};
+use crate::desktop_shell::{DesktopShellController, StreamingState, StreamingText};
 use crate::managed_process::ManagedChild;
 use crate::review_jobs::{ProcessingPermit, ProcessingQueue};
 
@@ -109,12 +109,19 @@ pub(crate) fn transcript(
     language: Option<String>,
 ) -> crate::asr::TranscriptResult {
     use crate::asr::{TranscriptQualityStatus, TranscriptResult, TranscriptSegment};
+    let language = language.map(|value| crate::output_format::normalize_language_code(Some(&value)));
+    let timestamped_text = crate::output_format::timestamped_line(
+        0,
+        duration_ms,
+        language.as_deref().unwrap_or("und"),
+        &text,
+    );
     TranscriptResult {
         job_id: id.into(),
         model_name: MODEL_NAME.into(),
         full_text: text.clone(),
         plain_text: text.clone(),
-        timestamped_text: text.clone(),
+        timestamped_text,
         detected_languages: language.iter().cloned().collect(),
         segments: vec![TranscriptSegment {
             id: format!("{id}:0"),
@@ -194,6 +201,8 @@ struct Message {
     #[serde(rename = "type")]
     kind: String,
     text: String,
+    #[serde(default)]
+    tentative_text: String,
     code: String,
     processed_samples: usize,
     #[serde(default)]
@@ -206,7 +215,12 @@ struct Protocol {
     text: String,
 }
 impl Protocol {
-    fn accept(&mut self, message: Message, expected: &str, samples: usize) -> Result<String> {
+    fn accept(
+        &mut self,
+        message: Message,
+        expected: &str,
+        samples: usize,
+    ) -> Result<StreamingText> {
         if message.version != 1
             || message.session_id != self.id
             || message.sequence != self.sequence + 1
@@ -233,11 +247,15 @@ impl Protocol {
         if message.kind != expected
             || message.processed_samples != samples
             || !message.text.starts_with(&self.text)
+            || (message.kind != "progress" && !message.tentative_text.is_empty())
         {
             bail!("R2T2_PROTOCOL: Incomplete or inconsistent worker response. Nothing was pasted.");
         }
         self.text = message.text;
-        Ok(self.text.clone())
+        Ok(StreamingText {
+            committed: self.text.clone(),
+            tentative: message.tentative_text,
+        })
     }
 }
 enum IoEvent {
@@ -377,7 +395,7 @@ impl NativeWorker {
         samples: usize,
         timeout: Duration,
         check: impl Fn() -> Result<()>,
-    ) -> Result<String> {
+    ) -> Result<StreamingText> {
         check()?;
         request["version"] = json!(1);
         request["sessionId"] = json!(self.protocol.id);
@@ -733,6 +751,8 @@ pub(crate) fn start(
                 || run.check(),
             )?;
             run.check()?;
+            let text = text.committed;
+            let _ = shell.finalize_stream_text(&run.id, text.clone());
             let state = run
                 .state
                 .lock()
@@ -754,6 +774,7 @@ pub(crate) fn start(
         let failed = outcome.is_err();
         let _ = tx.send(outcome);
         if failed && !run.cancelled.load(Ordering::SeqCst) {
+            let _ = shell.update_stream(&run.id, StreamingState::Failed, None, 0);
             stop_capture();
         }
     });
@@ -770,10 +791,63 @@ mod tests {
             sequence,
             kind: "progress".into(),
             text: text.into(),
+            tentative_text: String::new(),
             code: String::new(),
             processed_samples: samples,
             peak_rss_bytes: None,
         }
+    }
+    #[test]
+    fn tentative_replacements_do_not_enter_committed_or_final_results() {
+        let mut protocol = Protocol {
+            id: "current".into(),
+            ..Default::default()
+        };
+        for (sequence, committed, draft) in [
+            (1, "", "Grö"),
+            (2, "", "Größe über"),
+            (3, "Größe", " über"),
+            (4, "Größe", ""),
+            (5, "Größe", " Straße"),
+        ] {
+            let mut input = message(sequence, committed, sequence as usize * 10240);
+            input.tentative_text = draft.into();
+            let update = protocol
+                .accept(input, "progress", sequence as usize * 10240)
+                .unwrap();
+            assert_eq!(update.committed, committed);
+            assert_eq!(update.tentative, draft);
+            assert_eq!(protocol.text, committed);
+        }
+        let mut result = message(6, "Größe über die Straße.", 51200);
+        result.kind = "result".into();
+        let final_text = protocol.accept(result, "result", 51200).unwrap();
+        assert_eq!(final_text.committed, "Größe über die Straße.");
+        assert!(final_text.tentative.is_empty());
+
+        let mut result = message(7, "Größe über die Straße.", 51200);
+        result.kind = "result".into();
+        result.tentative_text = "unverified".into();
+        assert!(protocol.accept(result, "result", 51200).is_err());
+    }
+    #[test]
+    fn preview_wire_field_is_optional_but_malformed_values_are_rejected() {
+        let mut old = json!({"version":1,"sessionId":"current","sequence":1,"type":"progress","text":"stable","code":"","processedSamples":10240});
+        assert!(serde_json::from_value::<Message>(old.clone())
+            .unwrap()
+            .tentative_text
+            .is_empty());
+        for invalid in [json!(null), json!(123), json!(["draft"])] {
+            old["tentativeText"] = invalid;
+            assert!(serde_json::from_value::<Message>(old.clone()).is_err());
+        }
+        old["tentativeText"] = json!("über\u{0301}");
+        assert_eq!(
+            serde_json::from_value::<Message>(old)
+                .unwrap()
+                .tentative_text,
+            "über\u{0301}"
+        );
     }
     #[test]
     fn protocol_rejects_stale_duplicate_missing_audio_and_rewritten_text() {
@@ -784,7 +858,8 @@ mod tests {
         assert_eq!(
             protocol
                 .accept(message(1, "Größe", 10240), "progress", 10240)
-                .unwrap(),
+                .unwrap()
+                .committed,
             "Größe"
         );
         assert!(protocol
@@ -937,7 +1012,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(
-                text.trim(),
+                text.committed.trim(),
                 "Please send the updated invoice to Dr. Miller tomorrow."
             );
             assert_eq!(worker.child.id(), pid);

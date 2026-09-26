@@ -60,6 +60,19 @@ configured inference chunk is passed to each native streaming call. Only the
 last audio frame can be shorter than a chunk; it must be followed by finish or
 cancellation. Five minutes (4,800,000 samples) is the maximum accepted input.
 
+Progress responses also contain `tentativeText`, a complete display-only suffix
+that may change or disappear. `text` retains its cumulative committed semantics.
+The native event's separate optional preview accessor distinguishes no decode
+(preserve the previous preview for a buffered audio tail) from an empty preview
+(clear it). Final results and session lifecycle responses carry an empty preview.
+Older v1 helpers without this additive field fall back to stable-only rendering.
+
+The overlay renders tentative text in a secondary color, including unfinished
+words, without another inference call or an additional delay. Stable and draft
+text share one owned, revisioned snapshot. Draft text never enters prompts,
+history, translation, the clipboard, or the final transcript. Finalization clears
+the draft before vocabulary-corrected source text is shown during translation.
+
 The helper reuses loaded weights only after finish/reset has succeeded. The
 parent must own admission, the 60-second idle timeout, cancellation during a
 native call, memory-pressure eviction and process-group termination/reaping.
@@ -85,6 +98,13 @@ always decodes the withheld suffix, including when there is no partial audio
 chunk. The final C-API result is consumed and checked against committed output.
 There are no guessed sentence cuts or fuzzy transcript deduplication.
 
+Automatic language detection may return speech with `language None`. The
+streaming prompt retains that metadata separator whenever committed text
+exists, even if the language is unknown. Otherwise the next decode mistakes
+the transcript for metadata and finalization fails with `R2T2_PREFIX_MISMATCH`.
+The native parser/ledger regression covers this case without relaxing prefix
+validation. Initial empty sessions still allow language detection.
+
 Emission sample positions are not acoustic word timestamps. A ledger unit test
 cannot prove recognition at an audio seam: real recordings remain essential.
 
@@ -106,6 +126,25 @@ one-sample tail, an exact chunk, 32 seconds of silence, cancel and reset.
 opening the app or modifying settings. Its basic WER normalization folds case
 and punctuation, but does not equate spoken numbers and written numerals.
 Synthetic comparisons are engineering probes, not the human release gate.
+
+`verify_preview.py --worker PATH --output REPORT` records hashes of every
+committed update and final result across the short and five-minute fixtures.
+Repeat with `--baseline REPORT` and the new packaged helper to require exact
+recognition parity and nonempty tentative updates. These reports contain only
+hashes, counts, and timings. Run old and new helpers sequentially to avoid GPU
+and memory contention; keep the baseline executable before rebuilding.
+`--lifecycle-only` separately exercises silence, exact and short tails, repeated
+cancel/reset with active previews, and clearing a draft on a protocol failure.
+
+The tentative-preview comparison in
+[`benchmark-results/r2t2-tentative-parity.json`](../../benchmark-results/r2t2-tentative-parity.json)
+passed all 40 short clips and three five-minute fixtures: every committed update
+and final transcript matched the previous helper. All short clips showed draft
+text earlier, with a median first-preview lead of 1,280 ms of input audio. This
+is not a measurement of acoustic word latency. The actual overlay component's
+local browser checks rendered updates in approximately 9–17 ms after receipt;
+the backend retains its existing 100 ms publication cycle. Physical multi-monitor
+and microphone-to-paste acceptance remain manual checks.
 
 ## Attribution and terms
 

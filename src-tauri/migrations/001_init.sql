@@ -104,7 +104,8 @@ CREATE TABLE IF NOT EXISTS installed_models (
   variant TEXT NOT NULL,
   local_path TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,
-  is_default INTEGER NOT NULL DEFAULT 0
+  is_default INTEGER NOT NULL DEFAULT 0,
+  profile TEXT NOT NULL DEFAULT 'accurate'
 );
 
 CREATE TABLE IF NOT EXISTS custom_vocabulary_terms (

@@ -93,7 +93,7 @@ static std::vector<Chunk> split(const llama_vocab * vocab, const std::string & i
     return chunks;
 }
 
-static std::vector<llama_token> prompt(const llama_vocab * vocab, const Chunk & chunk, const std::string & target, const std::vector<std::string> & hints) {
+static std::vector<llama_token> prompt(const llama_vocab * vocab, const Chunk & chunk, const std::string & target, const std::vector<std::string> & hints, const std::string & strict) {
     std::string instruction =
         "You are a professional translator. Translate the following German, English, or mixed German and English text into ";
     instruction += target == "fr" ? "French (fr), using informal singular tu by default. " : "Argentinian Spanish (es-AR). ";
@@ -127,6 +127,8 @@ static std::vector<llama_token> prompt(const llama_vocab * vocab, const Chunk & 
     if (german != english) instruction += german
         ? "ASR detected mainly German; some content may still be English. "
         : "ASR detected mainly English; some content may still be German. ";
+    // Optional stricter rules for the single retry after a failed output check.
+    if (!strict.empty()) instruction += strict + " ";
     instruction += "\n\nSource text:\n";
     auto tokens = tokenize(vocab, "<start_of_turn>user\n" + instruction, true, true);
     auto source = tokenize(vocab, chunk.text); // Control-token-like source text is literal data.
@@ -145,6 +147,8 @@ int main() {
         const auto request = json::parse(line);
         id = request.at("requestId");
         const std::string target = request.at("targetLanguage");
+        const auto & strict_value = request.contains("strictInstruction") ? request.at("strictInstruction") : json();
+        const std::string strict = strict_value.is_string() ? strict_value.get<std::string>().substr(0, 600) : std::string();
         if (request.at("version") != protocol_version || (target != "fr" && target != "es-AR"))
             throw std::runtime_error("INVALID_REQUEST");
         if (!std::getenv("BLABBER_TRANSLATION_DEBUG"))
@@ -171,7 +175,7 @@ int main() {
         for (size_t index = 0; index < chunks.size(); ++index) {
             emit({{"type", "progress"}, {"requestId", id}, {"chunkIndex", index}, {"chunkCount", chunks.size()}});
             llama_memory_clear(llama_get_memory(context.get()), true);
-            auto tokens = prompt(vocab, chunks[index], target, request.value("sourceLanguages", std::vector<std::string>{}));
+            auto tokens = prompt(vocab, chunks[index], target, request.value("sourceLanguages", std::vector<std::string>{}), strict);
             for (size_t pos = 0; pos < tokens.size(); pos += 512) {
                 auto batch = llama_batch_get_one(tokens.data() + pos, int(std::min(size_t(512), tokens.size() - pos)));
                 if (llama_decode(context.get(), batch)) throw std::runtime_error("DECODE_FAILED");

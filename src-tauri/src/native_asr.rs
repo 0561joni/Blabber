@@ -347,13 +347,8 @@ pub fn normalize_native_result(
             incomplete = true;
         }
         let order = segments.len() as i32;
-        let language_code = raw
-            .language_code
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("und")
-            .to_string();
+        let language_code =
+            crate::output_format::normalize_language_code(raw.language_code.as_deref());
         if let Some(speaker_id) = &normalized_speaker {
             turns.push(DiarizationTurn {
                 id: format!("turn_{order}"),
@@ -409,8 +404,8 @@ pub fn normalize_native_result(
                 .unwrap_or("Unknown speaker");
             format!(
                 "[{} - {}] {}: {}",
-                format_ms(segment.start_ms),
-                format_ms(segment.end_ms),
+                crate::output_format::clock_ms(segment.start_ms),
+                crate::output_format::clock_ms(segment.end_ms),
                 speaker,
                 segment.text
             )
@@ -465,11 +460,6 @@ pub fn normalize_native_result(
         speakers,
         diarization_turns: turns,
     }
-}
-
-fn format_ms(ms: i64) -> String {
-    let total_seconds = ms.max(0) / 1_000;
-    format!("{:02}:{:02}", total_seconds / 60, total_seconds % 60)
 }
 
 #[cfg(test)]

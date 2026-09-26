@@ -363,12 +363,18 @@ pub(crate) fn correct_transcript_with_terms(
         Some(build_matcher(&terms))
     };
 
+    // Whisper segments often split mid-sentence; only capitalize a segment's
+    // first word when the previous segment ended a sentence.
+    let mut sentence_start = true;
     for segment in transcript.segments {
         let (corrected_text, decisions) = matcher
             .as_ref()
             .map(|matcher| correct_segment_text_with_decisions(&segment.text, matcher))
             .unwrap_or_else(|| (segment.text.clone(), Vec::new()));
-        let postprocessed_text = clean_punctuation_text(&corrected_text);
+        let postprocessed_text = clean_punctuation_text_from(&corrected_text, sentence_start);
+        if !postprocessed_text.is_empty() {
+            sentence_start = ends_sentence(&postprocessed_text);
+        }
         _correction_decisions.extend(decisions);
         segments.push(TranscriptSegment {
             text: postprocessed_text,
@@ -401,8 +407,8 @@ fn rebuild_transcript_text(segments: &[TranscriptSegment]) -> (String, String, S
         .map(|segment| {
             format!(
                 "[{} - {}] {}: {}",
-                format_timestamp(segment.start_ms),
-                format_timestamp(segment.end_ms),
+                crate::output_format::clock_ms(segment.start_ms),
+                crate::output_format::clock_ms(segment.end_ms),
                 segment.language_code,
                 segment.text
             )
@@ -413,7 +419,17 @@ fn rebuild_transcript_text(segments: &[TranscriptSegment]) -> (String, String, S
     (plain_text.clone(), plain_text, timestamped_text)
 }
 
+fn ends_sentence(text: &str) -> bool {
+    text.trim_end()
+        .trim_end_matches(|ch: char| is_quote_mark(ch) || matches!(ch, ')' | ']' | '’' | '\''))
+        .ends_with(['.', '!', '?', '…'])
+}
+
 fn clean_punctuation_text(input: &str) -> String {
+    clean_punctuation_text_from(input, true)
+}
+
+fn clean_punctuation_text_from(input: &str, sentence_start: bool) -> String {
     let mut output = String::with_capacity(input.len());
     let mut pending_space = false;
     let mut chars = input.chars().peekable();
@@ -425,9 +441,34 @@ fn clean_punctuation_text(input: &str) -> String {
         }
 
         if is_closing_punctuation(ch) {
+            // Keep "10:30", "3.5", "1,5", "example.com" and "https://…" intact:
+            // punctuation directly followed by a letter or digit is part of a
+            // number, time, URL or abbreviation, so its spacing is preserved.
+            let embedded = matches!(ch, '.' | ',' | ':')
+                && output.chars().last().is_some_and(|prev| !prev.is_whitespace())
+                && chars
+                    .peek()
+                    .is_some_and(|next| next.is_alphanumeric() || *next == '/');
+            if embedded && !pending_space {
+                output.push(ch);
+                continue;
+            }
             trim_trailing_spaces(&mut output);
             output.push(ch);
-            pending_space = true;
+            // `„Komm!“` — a quote right after the punctuation closes it.
+            pending_space = !chars.peek().is_some_and(|next| is_quote_mark(*next));
+            continue;
+        }
+
+        if is_spacing_preserved_punctuation(ch) {
+            // Quotes and dashes keep the spacing the transcript already has:
+            // `sagte „Hallo“ und`, `He said "hi" and`, `this - not that`,
+            // `state-of-the-art`.
+            if pending_space && !output.is_empty() {
+                output.push(' ');
+            }
+            output.push(ch);
+            pending_space = false;
             continue;
         }
 
@@ -458,7 +499,7 @@ fn clean_punctuation_text(input: &str) -> String {
         pending_space = false;
     }
 
-    capitalize_sentences(output.trim())
+    capitalize_sentences(output.trim(), sentence_start)
 }
 
 fn trim_trailing_spaces(output: &mut String) {
@@ -470,7 +511,7 @@ fn trim_trailing_spaces(output: &mut String) {
 fn ends_with_spacing_suppressed_char(output: &str) -> bool {
     matches!(
         output.chars().last(),
-        Some(' ' | '(' | '[' | '{' | '"' | '“' | '‘')
+        Some(' ' | '(' | '[' | '{' | '‘')
     )
 }
 
@@ -482,31 +523,51 @@ fn is_closing_punctuation(ch: char) -> bool {
 }
 
 fn is_opening_punctuation(ch: char) -> bool {
-    matches!(ch, '(' | '[' | '{' | '“' | '‘')
+    matches!(ch, '(' | '[' | '{' | '‘')
 }
 
 fn is_connector_punctuation(ch: char) -> bool {
-    matches!(ch, '\'' | '’' | '"' | '”' | '-' | '–' | '—' | '/')
+    matches!(ch, '\'' | '’' | '/')
 }
 
-fn capitalize_sentences(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut capitalize_next = true;
+fn is_quote_mark(ch: char) -> bool {
+    matches!(ch, '"' | '“' | '”' | '„' | '«' | '»')
+}
 
-    for ch in input.chars() {
+fn is_spacing_preserved_punctuation(ch: char) -> bool {
+    is_quote_mark(ch) || matches!(ch, '-' | '–' | '—')
+}
+
+fn capitalize_sentences(input: &str, capitalize_first: bool) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut output = String::with_capacity(input.len());
+    let mut capitalize_next = capitalize_first;
+
+    for (index, &ch) in chars.iter().enumerate() {
         if capitalize_next && ch.is_alphabetic() {
-            for uppercase in ch.to_uppercase() {
-                output.push(uppercase);
-            }
             capitalize_next = false;
+            // Keep deliberate mixed-case spellings ("iPhone", "eBay", "macOS").
+            let word_has_inner_capital = chars[index + 1..]
+                .iter()
+                .take_while(|next| next.is_alphanumeric())
+                .any(|next| next.is_uppercase());
+            if word_has_inner_capital {
+                output.push(ch);
+            } else {
+                output.extend(ch.to_uppercase());
+            }
             continue;
         }
 
         output.push(ch);
 
-        if matches!(ch, '.' | '!' | '?') {
+        // Only a terminator followed by whitespace ends a sentence, so
+        // "e.g.", "3.5" and "example.com" do not trigger capitals.
+        if matches!(ch, '.' | '!' | '?')
+            && chars.get(index + 1).is_none_or(|next| next.is_whitespace())
+        {
             capitalize_next = true;
-        } else if !ch.is_whitespace() && !matches!(ch, '"' | '”' | '“' | '\'' | '’') {
+        } else if !ch.is_whitespace() && !matches!(ch, '"' | '”' | '“' | '„' | '«' | '\'' | '’') {
             capitalize_next = false;
         }
     }
@@ -1023,13 +1084,6 @@ fn alias_id(term_id: &str, alias: &str) -> String {
     format!("{term_id}-{}", normalize_for_match(alias).replace(' ', "-"))
 }
 
-fn format_timestamp(total_ms: i64) -> String {
-    let total_seconds = (total_ms / 1000).max(0);
-    let minutes = total_seconds / 60;
-    let seconds = total_seconds % 60;
-    format!("{minutes:02}:{seconds:02}")
-}
-
 struct BuiltinSeedSpec<'a> {
     id: &'a str,
     canonical: &'a str,
@@ -1218,5 +1272,75 @@ mod tests {
         assert!(prompt.text.chars().count() <= DICTIONARY_PROMPT_MAX_CHARS);
         assert!(prompt.truncated_count > 0);
         assert_eq!(prompt.included_count + prompt.truncated_count, 100);
+    }
+
+    #[test]
+    fn punctuation_cleanup_preserves_numbers_times_and_urls() {
+        for (input, expected) in [
+            ("Das Meeting ist um 10:30 Uhr.", "Das Meeting ist um 10:30 Uhr."),
+            ("Der Wert ist 3.5 Prozent, also 1,5 Punkte.", "Der Wert ist 3.5 Prozent, also 1,5 Punkte."),
+            ("Das kostet 1.000.000 Euro.", "Das kostet 1.000.000 Euro."),
+            ("Visit example.com for details.", "Visit example.com for details."),
+            ("Siehe https://example.com/a dazu.", "Siehe https://example.com/a dazu."),
+            ("Hallo , wie geht es ?", "Hallo, wie geht es?"),
+        ] {
+            assert_eq!(clean_punctuation_text(input), expected, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn punctuation_cleanup_preserves_quote_and_dash_spacing() {
+        for (input, expected) in [
+            ("He said \"hello\" and left.", "He said \"hello\" and left."),
+            ("Er sagte „Hallo“ und ging.", "Er sagte „Hallo“ und ging."),
+            ("Er rief: „Komm!“ Dann ging er.", "Er rief: „Komm!“ Dann ging er."),
+            ("We need this - not that.", "We need this - not that."),
+            ("A state-of-the-art tool.", "A state-of-the-art tool."),
+            ("Es ist 2024–2026 geplant.", "Es ist 2024–2026 geplant."),
+        ] {
+            assert_eq!(clean_punctuation_text(input), expected, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn segments_split_mid_sentence_are_not_capitalized() {
+        let segment = |text: &str, order: i32| TranscriptSegment {
+            id: format!("s{order}"),
+            start_ms: order as i64 * 1_000,
+            end_ms: order as i64 * 1_000 + 900,
+            text: text.into(),
+            language_code: "en".into(),
+            segment_order: order,
+            confidence: None,
+            speaker_id: None,
+            speaker_ids: None,
+            speaker_attribution: crate::speaker_reconciliation::SpeakerAttribution::None,
+            speaker_confidence: None,
+        };
+        let segments = vec![
+            segment("so we went to the", 0),
+            segment("store and then", 1),
+            segment("we bought milk.", 2),
+            segment("then we left.", 3),
+        ];
+        let texts: Vec<String> = {
+            let mut start = true;
+            segments
+                .iter()
+                .map(|s| {
+                    let cleaned = clean_punctuation_text_from(&s.text, start);
+                    start = ends_sentence(&cleaned);
+                    cleaned
+                })
+                .collect()
+        };
+        assert_eq!(texts, ["So we went to the", "store and then", "we bought milk.", "Then we left."]);
+    }
+
+    #[test]
+    fn mixed_case_brand_names_keep_their_spelling_at_sentence_start() {
+        assert_eq!(clean_punctuation_text("iPhone und eBay sind Marken."), "iPhone und eBay sind Marken.");
+        assert_eq!(clean_punctuation_text("gut. macOS ist da."), "Gut. macOS ist da.");
+        assert_eq!(clean_punctuation_text("hello world."), "Hello world.");
     }
 }

@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symli
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { resolveSigningIdentity } from "./local-signing.mjs";
 
 const rootDir = process.cwd();
 const tauriConfigPath = join(rootDir, "src-tauri", "tauri.conf.json");
@@ -36,8 +37,23 @@ if (process.platform !== "darwin") {
 mkdirSync(macosBundleDir, { recursive: true });
 mkdirSync(dmgBundleDir, { recursive: true });
 
-if (!existsSync(signatureResourcesPath)) {
+const signingIdentity = resolveSigningIdentity();
+if (signingIdentity !== "-") {
+  // Same flags as the ad-hoc signature, but with a stable identity so macOS
+  // keeps Microphone and Accessibility permissions across rebuilds.
+  console.log(`Signing ${productName}.app with "${signingIdentity}".`);
+  run("codesign", [
+    "--force",
+    "--deep",
+    "--sign",
+    signingIdentity,
+    "--entitlements",
+    entitlementsPath,
+    appPath,
+  ]);
+} else if (!existsSync(signatureResourcesPath)) {
   console.log("No macOS signing identity detected; applying an ad-hoc bundle signature.");
+  console.log("Run scripts/setup-local-signing.sh once to keep permissions across rebuilds.");
   run("codesign", [
     "--force",
     "--deep",

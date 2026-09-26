@@ -1,3 +1,4 @@
+import { formatBytes } from "./formatting";
 import type { ModelCapabilities, ModelProfile } from "../types/domain";
 
 export type ModelPickerContext =
@@ -189,10 +190,7 @@ export function formatRatingLine(presentation: Pick<ModelPresentation, "speed" |
 }
 
 export function formatModelSize(sizeBytes: number) {
-  if (sizeBytes >= 1_000_000_000) {
-    return `${(sizeBytes / 1_000_000_000).toFixed(1)} GB`;
-  }
-  return `${Math.round(sizeBytes / 1_000_000)} MB`;
+  return formatBytes(sizeBytes);
 }
 
 export function recommendationLabel(context: ModelPickerContext) {

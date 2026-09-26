@@ -3,6 +3,7 @@ import { createReadStream, existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { resolveSigningIdentity } from "./local-signing.mjs";
 
 // Reproducible native dependency, fetched only while building the application.
 const revision = "972d2313bc0bf0a45f634f77d95c9fb03aeab12c";
@@ -33,5 +34,5 @@ run("cmake", ["-S", "workers/translation", "-B", build, `-DLLAMA_SOURCE=${source
 run("cmake", ["--build", build, "--config", "Release", "--target", "blabber-translation-worker", "-j", "6"]);
 mkdirSync(bundle, { recursive: true });
 copyFileSync(join(build, "blabber-translation-worker"), join(bundle, "blabber-translation-worker"));
-run("codesign", ["--force", "--sign", process.env.APPLE_SIGNING_IDENTITY || "-", join(bundle, "blabber-translation-worker")]);
+run("codesign", ["--force", "--sign", resolveSigningIdentity(), join(bundle, "blabber-translation-worker")]);
 copyFileSync(join(source, "LICENSE"), join(root, "src-tauri/licenses/llama.cpp-MIT.txt"));

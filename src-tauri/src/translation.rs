@@ -17,6 +17,72 @@ use crate::desktop_shell::{DesktopShellController, DictationOverlayPayload, Over
 use crate::review_jobs::{ProcessingPermit, ProcessingQueue};
 use crate::storage;
 
+const WARM_ASR_OWNER: &str = "dictation-asr";
+
+/// A persistent `--transcribe-worker-persistent` child that keeps its model
+/// loaded between dictations. Dropping it kills and reaps its process group.
+pub struct WarmAsrWorker {
+    child: crate::managed_process::ManagedChild,
+    input: std::process::ChildStdin,
+    output: mpsc::Receiver<Result<crate::transcription_worker::WorkerOutput, String>>,
+}
+
+impl WarmAsrWorker {
+    fn spawn() -> Result<Self> {
+        let mut command = Command::new(std::env::current_exe()?);
+        command
+            .arg(crate::transcription_worker::PERSISTENT_WORKER_ARG)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        crate::managed_process::isolate(&mut command);
+        let mut child = crate::managed_process::ManagedChild::new(command.spawn()?);
+        let input = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow!("ASR input unavailable"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow!("ASR output unavailable"))?;
+        let (tx, output) = mpsc::channel();
+        crate::transcription_worker::read_worker_output_lines(stdout, tx);
+        Ok(Self {
+            child,
+            input,
+            output,
+        })
+    }
+
+    /// Alive, and nothing left over from an earlier request.
+    fn is_reusable(&mut self) -> bool {
+        if !matches!(self.child.try_wait(), Ok(None)) {
+            return false;
+        }
+        loop {
+            match self.output.try_recv() {
+                Ok(_) => return false,
+                Err(mpsc::TryRecvError::Empty) => return true,
+                Err(mpsc::TryRecvError::Disconnected) => return false,
+            }
+        }
+    }
+
+    fn send(&mut self, request: &crate::transcription_worker::WorkerRequest) -> Result<()> {
+        serde_json::to_writer(&mut self.input, request)?;
+        self.input.write_all(b"\n")?;
+        self.input.flush()?;
+        Ok(())
+    }
+}
+
+fn wav_duration_seconds(path: &Path) -> Option<u64> {
+    let reader = hound::WavReader::open(path).ok()?;
+    let spec = reader.spec();
+    let frames = reader.duration() as u64;
+    (spec.sample_rate > 0).then(|| frames / spec.sample_rate as u64)
+}
+
 pub const MODEL_ID: &str = "translategemma-12b-q6-k";
 pub const MODEL_FILE: &str = "translategemma-12b-it.Q6_K.gguf";
 pub const MODEL_REVISION: &str = "1076826a801dbc6cc8ad4ff4689a3272dcb8a378";
@@ -71,6 +137,10 @@ pub struct DictationOutput {
     pub error_code: Option<String>,
     #[serde(default)]
     pub source_languages: Vec<String>,
+    /// The translation failed its checks twice; dictation pastes the
+    /// original text with a warning instead.
+    #[serde(default)]
+    pub fallback_to_original: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -547,68 +617,77 @@ impl TranslationService {
         }
         self.publish();
     }
+    /// Admission for dictation ASR. Also returns the warm ASR worker left by
+    /// the previous Original-mode dictation, if it is still cached. Any other
+    /// workload's admission evicts that worker first (see `ProcessingQueue`).
+    pub fn acquire_for_asr(
+        &self,
+        session: &DictationSession,
+    ) -> Result<(ProcessingPermit, Option<WarmAsrWorker>)> {
+        self.phase(session, "waiting", "Waiting for local processing…")?;
+        self.queue.enqueue_priority(&session.id);
+        let (permit, retained) = self.queue.acquire_with_idle(
+            &session.id,
+            &session.cancelled,
+            Some(WARM_ASR_OWNER),
+        )?;
+        self.phase(session, "transcribing", "Transcribing")?;
+        let warm = retained.and_then(|value| value.downcast::<WarmAsrWorker>().ok().map(|w| *w));
+        Ok((permit, warm))
+    }
+
     /// The parent holds the inference permit. A child process makes every ASR
     /// backend cancellable and guarantees its memory is gone before translation.
+    /// In Original mode the child (with its loaded model) is cached for 60 s so
+    /// back-to-back dictations skip process start and model loading.
     pub fn transcribe(
         &self,
         session: &DictationSession,
         request: FileTranscriptionRequest,
+        permit: &ProcessingPermit,
+        warm: Option<WarmAsrWorker>,
     ) -> Result<TranscriptResult> {
-        use crate::transcription_worker::{WorkerOutput, WorkerRequest, WORKER_ARG};
+        use crate::transcription_worker::{WorkerOutput, WorkerRequest};
         self.ensure_active(session)?;
         self.engine.release_resources();
-        let mut command = Command::new(std::env::current_exe()?);
-        command
-            .arg(WORKER_ARG)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        crate::managed_process::isolate(&mut command);
-        let mut child = crate::managed_process::ManagedChild::new(command.spawn()?);
-        let mut input = child
-            .stdin
-            .take()
-            .ok_or_else(|| anyhow!("ASR input unavailable"))?;
-        serde_json::to_writer(
-            &mut input,
-            &WorkerRequest {
-                models_dir: self.models_dir.clone(),
-                request,
-            },
-        )?;
-        drop(input);
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| anyhow!("ASR output unavailable"))?;
-        let (tx, rx) = mpsc::channel();
-        crate::transcription_worker::read_worker_output_lines(stdout, tx);
-        let mut deadline = Instant::now() + Duration::from_secs(90);
-        let mut result = None;
+        let audio_seconds = wav_duration_seconds(Path::new(&request.file_path)).unwrap_or(0);
+        let mut worker = match warm {
+            Some(mut worker) => {
+                if worker.is_reusable() {
+                    worker
+                } else {
+                    drop(worker);
+                    WarmAsrWorker::spawn()?
+                }
+            }
+            None => WarmAsrWorker::spawn()?,
+        };
+        worker.send(&WorkerRequest {
+            models_dir: self.models_dir.clone(),
+            request,
+        })?;
+        // 90 s for start-up and model loading, plus real time for long
+        // (up to five-minute) dictations on slower CPU models.
+        let deadline = Instant::now() + Duration::from_secs(90 + audio_seconds);
         loop {
             self.ensure_active(session)?;
             if Instant::now() > deadline {
                 bail!("Dictation transcription timed out.");
             }
-            match rx.recv_timeout(Duration::from_millis(100)) {
-                Ok(Ok(WorkerOutput::Result { result: value })) => {
-                    if result.is_some() {
-                        bail!("Duplicate ASR result.");
+            match worker.output.recv_timeout(Duration::from_millis(100)) {
+                Ok(Ok(WorkerOutput::Result { result })) => {
+                    if session.mode == OutputMode::Original {
+                        self.queue.cache_idle(permit, WARM_ASR_OWNER, worker);
                     }
-                    result = Some(value);
-                    deadline = Instant::now() + Duration::from_secs(10);
+                    // Otherwise `worker` drops here: the process group is
+                    // killed and reaped before translation loads its model.
+                    return Ok(result);
                 }
                 Ok(Ok(WorkerOutput::Error { message })) => bail!("{message}"),
                 Ok(Ok(WorkerOutput::Progress { .. } | WorkerOutput::Heartbeat { .. })) => {}
                 Ok(Err(error)) => bail!("{error}"),
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    if let Some(status) = child.try_wait()? {
-                        if !status.success() {
-                            bail!("Dictation transcription runtime exited unexpectedly.");
-                        }
-                        return result.ok_or_else(|| anyhow!("ASR runtime returned no result."));
-                    }
-                    std::thread::sleep(Duration::from_millis(20));
+                    bail!("Dictation transcription runtime exited unexpectedly.");
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
@@ -642,6 +721,7 @@ impl TranslationService {
             error_message: None,
             error_code: None,
             source_languages: original.detected_languages.clone(),
+            fallback_to_original: false,
         };
         if session.mode == OutputMode::Original || original.plain_text.trim().is_empty() {
             output.output_text = Some(original.plain_text.clone());
@@ -680,11 +760,52 @@ impl TranslationService {
         mut output: DictationOutput,
     ) -> Result<DictationOutput> {
         self.engine.release_resources();
-        let result = self.run_worker(session, &output.source_text, &output.source_languages);
+        let target = serde_json::to_value(session.mode)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_default();
+        let checked = |text: String| {
+            let issues = crate::translation_check::check_translation(
+                &output.source_text,
+                &text,
+                &target,
+            );
+            (text, issues)
+        };
+        // One stricter retry when the first result fails its checks.
+        let result = self
+            .run_worker(session, &output.source_text, &output.source_languages, None)
+            .map(checked)
+            .and_then(|(text, issues)| {
+                if issues.is_empty() {
+                    return Ok((text, issues));
+                }
+                eprintln!(
+                    "[translation] check failed ({}); retrying once",
+                    crate::translation_check::describe(&issues)
+                );
+                let instruction = crate::translation_check::retry_instruction(&issues);
+                self.run_worker(
+                    session,
+                    &output.source_text,
+                    &output.source_languages,
+                    Some(&instruction),
+                )
+                .map(checked)
+            });
         match result {
-            Ok(text) => {
+            Ok((text, issues)) if issues.is_empty() => {
                 output.output_text = Some(text);
                 output.status = "completed".into();
+            }
+            Ok((_, issues)) => {
+                output.status = "failed".into();
+                output.error_code = Some("translation_check_failed".into());
+                output.error_message = Some(format!(
+                    "The translation did not pass its checks ({}). The original was used instead.",
+                    crate::translation_check::describe(&issues)
+                ));
+                output.fallback_to_original = true;
             }
             Err(error) => {
                 let canceled = session.cancelled.load(Ordering::SeqCst);
@@ -760,6 +881,7 @@ impl TranslationService {
         output.session_id = session.id.clone();
         output.error_message = None;
         output.error_code = None;
+        output.fallback_to_original = false;
         output.status = "pending".into();
         output.output_text = None;
         output.model_id = Some(MODEL_ID.into());
@@ -819,6 +941,7 @@ impl TranslationService {
         session: &DictationSession,
         text: &str,
         source_languages: &[String],
+        strict_instruction: Option<&str>,
     ) -> Result<String> {
         self.phase(session, "loading", "Loading translation model…")?;
         let mut deadline = Instant::now() + Duration::from_secs(90);
@@ -847,7 +970,8 @@ impl TranslationService {
             &mut input,
             &serde_json::json!({"version": 1, "requestId": session.id,
             "modelPath": model, "text": text, "sourceLanguages": source_languages,
-            "targetLanguage": session.mode, "preferGpu": session.prefer_gpu}),
+            "targetLanguage": session.mode, "preferGpu": session.prefer_gpu,
+            "strictInstruction": strict_instruction}),
         )?;
         input.write_all(b"\n")?;
         drop(input);

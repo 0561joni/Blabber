@@ -1,3 +1,4 @@
+import { formatBytes, formatClock, formatDuration, formatDurationMs } from "../lib/formatting";
 import { useEffect, useState } from "react";
 import { copyTextToClipboard } from "../lib/api";
 import { getFriendlyModelName } from "../lib/modelPresentation";
@@ -113,10 +114,10 @@ export function FileTranscribePanel({
             />
           </div>
           <div className="progress-meta">
-            <span>Elapsed {formatDuration(elapsedMs)}</span>
+            <span>Elapsed {formatDurationMs(elapsedMs ?? 0)}</span>
             <span>
               ETA{" "}
-              {jobStatus.etaSeconds != null ? formatEta(jobStatus.etaSeconds) : "Estimating..."}
+              {jobStatus.etaSeconds != null ? formatDuration(jobStatus.etaSeconds) : "Estimating..."}
             </span>
             <span>
               {jobStatus.progressPercent != null
@@ -239,7 +240,7 @@ export function FileTranscribePanel({
                 <dt>Duration</dt>
                 <dd>
                   {transcription.sourceFile.durationMs
-                    ? `${(transcription.sourceFile.durationMs / 1000).toFixed(1)}s`
+                    ? formatDurationMs(transcription.sourceFile.durationMs)
                     : "Unknown"}
                 </dd>
               </div>
@@ -263,15 +264,6 @@ export function FileTranscribePanel({
   );
 }
 
-function formatBytes(value: number) {
-  if (value < 1024) {
-    return `${value} B`;
-  }
-  if (value < 1024 * 1024) {
-    return `${(value / 1024).toFixed(1)} KB`;
-  }
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function resolvedProgress(jobStatus: FileTranscriptionStatusEvent) {
   if (jobStatus.stage === "saving" || jobStatus.stage === "completed") {
@@ -300,35 +292,9 @@ function stageLabel(stage: FileTranscriptionJobStage) {
   }
 }
 
-function formatDuration(value: number | null) {
-  if (!value || value <= 0) {
-    return "0s";
-  }
-  const totalSeconds = Math.max(1, Math.floor(value / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-}
 
-function formatEta(seconds: number) {
-  if (seconds <= 0) {
-    return "0s";
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  return minutes > 0 ? `${minutes}m ${remainder}s` : `${remainder}s`;
-}
 
 function formatTimestampRange(startMs: number, endMs: number) {
   return `${formatClock(startMs)}–${formatClock(endMs)}`;
 }
 
-function formatClock(valueMs: number) {
-  const totalSeconds = Math.max(0, Math.floor(valueMs / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return hours > 0
-    ? `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
-    : `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}

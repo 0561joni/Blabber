@@ -481,6 +481,7 @@ export interface QuickDictationStatusResponse {
   lastErrorMessage: string | null;
   lastModelName: string | null;
   lastInsertOutcome: InsertionOutcome | null;
+  lastInsertWarning?: string | null;
   lastDurationMs: number | null;
 }
 

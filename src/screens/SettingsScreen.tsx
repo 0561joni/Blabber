@@ -82,14 +82,10 @@ export function SettingsScreen({
   >(null);
   const microphoneTestPollerRef = useRef<number | null>(null);
   const isTestingMicrophoneRef = useRef(false);
+  const reloadModelStateRef = useRef(onReloadModelState);
+  reloadModelStateRef.current = onReloadModelState;
   const dictateToggleCommand =
     platformInfo?.dictateToggleCommand ?? "blabber --dictate-toggle";
-
-  useEffect(() => {
-    void listDownloadableModels()
-      .then(setDownloadableModels)
-      .catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     void getPlatformInfo()
@@ -104,39 +100,93 @@ export function SettingsScreen({
   }, []);
 
   useEffect(() => {
-    void getModelDownloadStatuses()
-      .then((statuses) => {
-        setModelDownloadStatuses(
-          Object.fromEntries(
-            statuses.map((status) => [status.modelId, status]),
-          ),
-        );
-      })
-      .catch(() => undefined);
-
+    let disposed = false;
     let unlisten: (() => void) | null = null;
-    void listenModelDownloadStatus(async (status) => {
+    let catalogRevision = 0;
+    const liveStatuses = new Set<string>();
+    const completedModels = new Set<string>();
+    const downloadStages = new Map<string, ModelDownloadStatus["state"]>();
+
+    const refreshCatalog = async () => {
+      const revision = ++catalogRevision;
+      const models = await listDownloadableModels();
+      if (!disposed && revision === catalogRevision) {
+        setDownloadableModels(
+          models.map((model) => ({
+            ...model,
+            installed: model.installed || completedModels.has(model.id),
+          })),
+        );
+      }
+    };
+
+    const acceptStatus = async (status: ModelDownloadStatus, live = false) => {
+      if (disposed) return;
+      const previous = downloadStages.get(status.modelId);
+      downloadStages.set(status.modelId, status.state);
       setModelDownloadStatuses((current) => ({
         ...current,
         [status.modelId]: status,
       }));
-      if (status.state === "completed") {
-        const [models] = await Promise.all([
-          listDownloadableModels(),
-          onReloadModelState(),
-        ]);
-        setDownloadableModels(models);
+      if (status.state !== "completed" || previous === "completed") return;
+
+      // A live completion follows verified installation. Historical statuses
+      // need a fresh catalog check in case the files were removed meanwhile.
+      if (live) {
+        completedModels.add(status.modelId);
+        setDownloadableModels((models) =>
+          models.map((model) =>
+            model.id === status.modelId ? { ...model, installed: true } : model,
+          ),
+        );
       }
-    }).then((cleanup) => {
+      const results = await Promise.allSettled([
+        refreshCatalog(),
+        reloadModelStateRef.current(),
+      ]);
+      const failed = results.find((result) => result.status === "rejected");
+      if (!disposed && failed?.status === "rejected") {
+        const detail = failed.reason instanceof Error
+          ? failed.reason.message
+          : String(failed.reason);
+        setErrorMessage(
+          `The model was downloaded, but the model list could not be refreshed. ${detail}`,
+        );
+      }
+    };
+
+    void refreshCatalog().catch((error) => {
+      if (!disposed) {
+        setErrorMessage(error instanceof Error ? error.message : "Failed to read available models.");
+      }
+    });
+    // Subscribe before taking the snapshot. A slower snapshot must never
+    // overwrite a newer completion/progress event.
+    void listenModelDownloadStatus((status) => {
+      liveStatuses.add(status.modelId);
+      void acceptStatus(status, true);
+    }).then(async (cleanup) => {
+      if (disposed) {
+        cleanup();
+        return;
+      }
       unlisten = cleanup;
+      const statuses = await getModelDownloadStatuses();
+      await Promise.all(
+        statuses.filter((status) => !liveStatuses.has(status.modelId))
+          .map((status) => acceptStatus(status)),
+      );
+    }).catch((error) => {
+      if (!disposed) {
+        setErrorMessage(error instanceof Error ? error.message : "Failed to follow model downloads.");
+      }
     });
 
     return () => {
-      if (unlisten) {
-        unlisten();
-      }
+      disposed = true;
+      unlisten?.();
     };
-  }, [onReloadModelState]);
+  }, []);
 
   async function persist(patch: SettingsPatch, field: string) {
     setSavedField(null);

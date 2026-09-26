@@ -14,6 +14,9 @@ use crate::asr::{
 };
 
 pub const WORKER_ARG: &str = "--transcribe-worker";
+/// Same protocol, but one request per stdin line and the process stays alive
+/// (with its loaded model) until stdin closes. Used for warm dictation reuse.
+pub const PERSISTENT_WORKER_ARG: &str = "--transcribe-worker-persistent";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +72,76 @@ fn run_stdio_worker_inner() -> Result<()> {
 
     let result = result?;
     emit_output_to(&stdout, &WorkerOutput::Result { result })
+}
+
+pub fn run_persistent_stdio_worker() -> i32 {
+    let stdout = Arc::new(Mutex::new(io::stdout()));
+    let mut engine: Option<(PathBuf, LocalTranscriptionEngine)> = None;
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        let line = match line {
+            Ok(line) => line,
+            Err(_) => return 1,
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
+        let outcome = handle_persistent_request(&line, &mut engine, &stdout);
+        if let Err(error) = outcome {
+            if emit_output_to(
+                &stdout,
+                &WorkerOutput::Error {
+                    message: error.to_string(),
+                },
+            )
+            .is_err()
+            {
+                return 1;
+            }
+        }
+    }
+    0
+}
+
+fn handle_persistent_request(
+    line: &str,
+    engine: &mut Option<(PathBuf, LocalTranscriptionEngine)>,
+    stdout: &Arc<Mutex<io::Stdout>>,
+) -> Result<()> {
+    let request: WorkerRequest =
+        serde_json::from_str(line).context("failed to parse transcription worker request")?;
+    if engine
+        .as_ref()
+        .is_none_or(|(models_dir, _)| *models_dir != request.models_dir)
+    {
+        *engine = None;
+        let models = discover_installed_models(&request.models_dir)?;
+        *engine = Some((
+            request.models_dir.clone(),
+            LocalTranscriptionEngine::new(request.models_dir.clone(), models),
+        ));
+    }
+    let (_, engine) = engine.as_ref().expect("engine initialized");
+    // Pick up newly installed models without dropping the warm context of the
+    // model that is already loaded.
+    if let Some(model_id) = request.request.selected_model_id.as_deref() {
+        if !engine.list_models()?.iter().any(|model| model.id == model_id) {
+            engine.refresh_from_disk()?;
+        }
+    }
+
+    let progress = Arc::new(AtomicI32::new(-1));
+    let finished = Arc::new(AtomicBool::new(false));
+    let progress_thread = spawn_progress_emitter(
+        Arc::clone(&progress),
+        Arc::clone(&finished),
+        Arc::clone(stdout),
+    );
+    let result = engine.transcribe_file(request.request, Some(progress));
+    finished.store(true, Ordering::SeqCst);
+    let _ = progress_thread.join();
+    let result = result?;
+    emit_output_to(stdout, &WorkerOutput::Result { result })
 }
 
 fn spawn_progress_emitter(
