@@ -2,7 +2,9 @@
   "bundle": {
     "resources": {
       "bundle/translation/": "workers/",
-      "bundle/r2t2/": "workers/r2t2/"
+      "bundle/r2t2/": "workers/r2t2/",
+      "bundle/vibevoice/": "workers/vibevoice/",
+      "bundle/moss/": "workers/moss/"
     }
   }
 }

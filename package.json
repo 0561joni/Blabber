@@ -18,7 +18,9 @@
     "tauri": "node scripts/run-tauri.mjs",
     "deploy:mac": "node scripts/deploy-macos.mjs",
     "build:translation": "node scripts/build-translation-worker.mjs",
-    "build:r2t2": "node scripts/build-r2t2-worker.mjs"
+    "build:r2t2": "node scripts/build-r2t2-worker.mjs",
+    "build:vibevoice": "node scripts/build-vibevoice-worker.mjs",
+    "build:moss": "node scripts/build-moss-worker.mjs"
   },
   "overrides": {
     "picomatch": "4.0.4"

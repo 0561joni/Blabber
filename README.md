@@ -228,4 +228,12 @@ their own timestamps, speakers, automatic language detection, and Blabber vocabu
 context. Their native speaker labels are preserved even when standalone speaker
 post-processing is off.
 
+VibeVoice and MOSS run in bundled, self-contained workers (VibeVoice: `mlx-audio`
+frozen with PyInstaller; MOSS: the native `moss-transcribe` runtime plus a frozen
+adapter). `npm run tauri dev` / `npm run tauri -- build` (and the Deploy script) build
+them automatically; `npm run build:vibevoice` and `npm run build:moss` build them on
+their own. Building needs an arm64 Python 3.10 or newer (Homebrew, python.org, pyenv
+or `uv`; set `BLABBER_PYTHON` to pick one), CMake, and network access the first time;
+the packaged app never uses the system `python3`.
+
 The active models directory is shown in the Home screen diagnostics once the Tauri app is running.

@@ -71,7 +71,25 @@ def handle(request):
     emit({"type": "result", "result": {"text": text, "segments": segments, "truncated": truncated}})
 
 
+def self_test():
+    """Import everything a transcription touches, so a broken build fails at build time."""
+    import miniaudio  # noqa: F401  (audio decoding)
+    import mlx.core  # noqa: F401
+    from mlx_audio.stt.generate import generate_transcription  # noqa: F401
+    from mlx_audio.stt.utils import load_model  # noqa: F401
+    import mlx_audio.stt.models.vibevoice_asr  # noqa: F401
+    from mlx_lm.models.qwen2 import Qwen2Model  # noqa: F401
+    from mlx_lm.generate import generate_step  # noqa: F401
+    from mlx_lm.sample_utils import make_sampler  # noqa: F401
+    from transformers import AutoTokenizer, Qwen2TokenizerFast  # noqa: F401
+    emit({"type": "selfTest", "ok": True})
+
+
 def main():
+    if "--self-test" in sys.argv[1:]:
+        self_test()
+        return
+
     def stop_if_parent_exits():
         while True:
             if os.getppid() != ORIGINAL_PARENT:

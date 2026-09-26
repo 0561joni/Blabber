@@ -8,3 +8,10 @@ process or conflict with whisper.cpp.
 The packaged directory contains `blabber-moss-worker` (the NDJSON adapter) and
 `moss-transcribe` (the native CPU runtime). The Blabber patch adds `--prompt` so
 the official diarization/timestamp prompt can receive `Hotwords: …`.
+
+Build it with `npm run build:moss` (`scripts/build-moss-worker.mjs`; `build.sh`
+just calls it). The script caches the patched source in
+`src-tauri/target/moss-runtime/`, builds `moss-transcribe` with CMake, freezes the
+adapter with PyInstaller so it does not need the Mac's Python, signs both with the
+local signing identity, smoke-tests them (`--self-test`) and stages the folder in
+`src-tauri/bundle/moss/`, packaged as `Contents/Resources/workers/moss/`.

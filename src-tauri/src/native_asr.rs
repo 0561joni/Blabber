@@ -75,8 +75,7 @@ pub fn transcribe_with_native_worker(
     request: &crate::asr::FileTranscriptionRequest,
     progress: Option<Arc<AtomicI32>>,
 ) -> anyhow::Result<TranscriptResult> {
-    let original_audio = Path::new(&request.file_path);
-    let prepared = audio_preprocess::decode_audio_file(original_audio)?;
+    let prepared = audio_preprocess::decode_audio_file(Path::new(&request.file_path))?;
     let duration_ms = prepared.samples.len() as i64 * 1_000 / prepared.sample_rate_hz as i64;
     if let Some(limit) = model.capabilities.maximum_audio_duration_ms {
         if duration_ms > limit {
@@ -88,17 +87,14 @@ pub fn transcribe_with_native_worker(
         }
     }
 
-    let mut temporary_wav = None;
-    let worker_audio = if model.id == model_metadata::MOSS_MODEL_ID {
-        let path = std::env::temp_dir().join(format!("blabber-moss-{}.wav", Uuid::new_v4()));
-        temporary_wav = Some(TemporaryAudio(path.clone()));
-        audio_preprocess::write_wav(&path, &prepared)?;
-        path
-    } else {
-        original_audio.to_path_buf()
-    };
+    // Always hand the worker the audio Blabber already decoded. The Python
+    // runtimes cannot open video containers (MP4/MOV/MKV/…) or every audio
+    // codec Blabber accepts, so passing the original file would fail there.
+    let path = std::env::temp_dir().join(format!("blabber-worker-{}.wav", Uuid::new_v4()));
+    let temporary_wav = TemporaryAudio(path.clone());
+    audio_preprocess::write_wav(&path, &prepared)?;
 
-    let result = run_worker_process(model, request, &worker_audio, progress, duration_ms);
+    let result = run_worker_process(model, request, &path, progress, duration_ms);
     drop(temporary_wav);
     result
 }
@@ -118,7 +114,7 @@ fn run_worker_process(
     progress: Option<Arc<AtomicI32>>,
     duration_ms: i64,
 ) -> anyhow::Result<TranscriptResult> {
-    let worker_path = resolve_worker_path(&model.id).ok_or_else(|| {
+    let worker = resolve_worker(&model.id).ok_or_else(|| {
         anyhow::anyhow!(
             "MODEL_RUNTIME_MISSING: the verified {} inference worker is not bundled",
             model.model_name
@@ -159,13 +155,8 @@ fn run_worker_process(
         offline: true,
     };
 
-    let mut command = if worker_path.extension().and_then(|value| value.to_str()) == Some("py") {
-        let mut command = Command::new("python3");
-        command.arg(&worker_path);
-        command
-    } else {
-        Command::new(&worker_path)
-    };
+    let worker_path = worker.display_path().to_path_buf();
+    let mut command = worker.command();
     crate::managed_process::isolate(&mut command);
     let child = command
         .stdin(Stdio::piped())
@@ -252,51 +243,149 @@ fn run_worker_process(
     })
 }
 
-fn resolve_worker_path(model_id: &str) -> Option<PathBuf> {
-    let (environment_key, executable_name, development_path) =
-        if model_id == model_metadata::MOSS_MODEL_ID {
-            (
-                "BLABBER_MOSS_WORKER",
-                "blabber-moss-worker",
-                "workers/moss/blabber_moss_worker.py",
-            )
-        } else {
-            (
-                "BLABBER_VIBEVOICE_WORKER",
-                "blabber-vibevoice-worker",
-                "workers/vibevoice/blabber_vibevoice_worker.py",
-            )
-        };
-    if let Some(path) = std::env::var_os(environment_key)
-        .map(PathBuf::from)
-        .filter(|path| path.is_file())
-    {
-        return Some(path);
-    }
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(directory) = executable.parent() {
-            for candidate in [
-                directory.join(executable_name),
-                directory.join("workers").join(executable_name),
-                directory
-                    .join("workers")
-                    .join(executable_name)
-                    .join(executable_name),
-            ] {
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
+/// How a native model worker is started.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WorkerLaunch {
+    /// A self-contained, frozen worker (the normal, bundled case).
+    Executable(PathBuf),
+    /// A worker script run by a specific interpreter that has the worker's
+    /// dependencies installed (development only).
+    Script {
+        interpreter: PathBuf,
+        script: PathBuf,
+    },
+}
+
+impl WorkerLaunch {
+    fn command(&self) -> Command {
+        match self {
+            Self::Executable(path) => Command::new(path),
+            Self::Script {
+                interpreter,
+                script,
+            } => {
+                let mut command = Command::new(interpreter);
+                command.arg(script);
+                command
             }
         }
     }
-    let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join(development_path);
-    development.is_file().then_some(development)
+
+    fn display_path(&self) -> &Path {
+        match self {
+            Self::Executable(path) => path,
+            Self::Script { script, .. } => script,
+        }
+    }
+}
+
+struct WorkerLayout {
+    environment_key: &'static str,
+    /// Folder under `workers/` (repository and app resources).
+    directory: &'static str,
+    executable_name: &'static str,
+    script_name: &'static str,
+}
+
+fn worker_layout(model_id: &str) -> WorkerLayout {
+    if model_id == model_metadata::MOSS_MODEL_ID {
+        WorkerLayout {
+            environment_key: "BLABBER_MOSS_WORKER",
+            directory: "moss",
+            executable_name: "blabber-moss-worker",
+            script_name: "blabber_moss_worker.py",
+        }
+    } else {
+        WorkerLayout {
+            environment_key: "BLABBER_VIBEVOICE_WORKER",
+            directory: "vibevoice",
+            executable_name: "blabber-vibevoice-worker",
+            script_name: "blabber_vibevoice_worker.py",
+        }
+    }
+}
+
+/// Locate the worker for a model.
+///
+/// A worker script is never run with the system `python3`: that interpreter
+/// does not have the model runtime (e.g. `mlx_audio`) installed, which made
+/// every VibeVoice transcription fail with "No module named 'mlx_audio'".
+/// Only the frozen worker bundled with the app (or built by
+/// `scripts/build-vibevoice-worker.mjs`) is used, plus — in debug builds —
+/// the worker script with the build script's private virtual environment.
+fn resolve_worker(model_id: &str) -> Option<WorkerLaunch> {
+    let layout = worker_layout(model_id);
+    if let Some(path) = std::env::var_os(layout.environment_key)
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+    {
+        return Some(WorkerLaunch::Executable(path));
+    }
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let executable_directory = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
+    for candidate in executable_candidates(executable_directory.as_deref(), &manifest_dir, &layout)
+    {
+        if candidate.is_file() {
+            return Some(WorkerLaunch::Executable(candidate));
+        }
+    }
+    if cfg!(debug_assertions) {
+        let interpreter = manifest_dir
+            .join("target")
+            .join(format!("{}-runtime", layout.directory))
+            .join("venv/bin/python");
+        let script = manifest_dir
+            .join("..")
+            .join("workers")
+            .join(layout.directory)
+            .join(layout.script_name);
+        if interpreter.is_file() && script.is_file() {
+            return Some(WorkerLaunch::Script {
+                interpreter,
+                script,
+            });
+        }
+    }
+    None
+}
+
+fn executable_candidates(
+    executable_directory: Option<&Path>,
+    manifest_dir: &Path,
+    layout: &WorkerLayout,
+) -> Vec<PathBuf> {
+    let name = layout.executable_name;
+    let mut candidates = Vec::new();
+    if let Some(directory) = executable_directory {
+        candidates.extend([
+            directory.join(name),
+            directory.join("workers").join(name),
+            directory.join("workers").join(name).join(name),
+            // Blabber.app/Contents/MacOS/../Resources/workers/<model>/<name>/<name>
+            directory
+                .join("../Resources/workers")
+                .join(layout.directory)
+                .join(name)
+                .join(name),
+        ]);
+    }
+    // Development build output of scripts/build-vibevoice-worker.mjs.
+    if cfg!(debug_assertions) {
+        candidates.push(
+            manifest_dir
+                .join("bundle")
+                .join(layout.directory)
+                .join(name)
+                .join(name),
+        );
+    }
+    candidates
 }
 
 pub fn worker_available(model_id: &str) -> bool {
-    resolve_worker_path(model_id).is_some()
+    resolve_worker(model_id).is_some()
 }
 
 /// Converts model-specific long-form output into Blabber's stable transcript schema.
@@ -465,6 +554,24 @@ pub fn normalize_native_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packaged_vibevoice_worker_is_found_in_app_resources() {
+        let layout = worker_layout(model_metadata::VIBEVOICE_MODEL_ID);
+        let candidates = executable_candidates(
+            Some(Path::new("/Applications/Blabber.app/Contents/MacOS")),
+            Path::new("/source/src-tauri"),
+            &layout,
+        );
+        assert!(candidates.contains(&PathBuf::from(
+            "/Applications/Blabber.app/Contents/MacOS/../Resources/workers/vibevoice/blabber-vibevoice-worker/blabber-vibevoice-worker"
+        )));
+        // A bare script is never a candidate: it would run under the system
+        // python3, which lacks mlx_audio.
+        assert!(candidates
+            .iter()
+            .all(|path| path.extension().and_then(|value| value.to_str()) != Some("py")));
+    }
 
     #[test]
     fn normalizes_speakers_by_first_appearance_and_clamps_timestamps() {

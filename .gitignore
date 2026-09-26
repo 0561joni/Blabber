@@ -17,3 +17,8 @@ src-tauri/bundle/translation/*
 
 src-tauri/bundle/r2t2/*
 !src-tauri/bundle/r2t2/.gitkeep
+
+src-tauri/bundle/vibevoice/*
+!src-tauri/bundle/vibevoice/.gitkeep
+src-tauri/bundle/moss/*
+!src-tauri/bundle/moss/.gitkeep

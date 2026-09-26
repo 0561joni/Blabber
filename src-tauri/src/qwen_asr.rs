@@ -22,7 +22,7 @@ use crate::audio_chunks::{
 };
 use crate::audio_preprocess::PreparedAudio;
 use crate::settings::{LanguageMode, ModelProfile};
-use crate::transcript_stitching::stitch_segments;
+use crate::transcript_stitching::{align_segments_to_sentences, stitch_segments};
 use crate::transcription_policy::{MAX_CHUNK_MS, MIN_SPLIT_RETRY_MS};
 use crate::transcription_quality::{normalize_text, repetition_reason};
 
@@ -318,7 +318,9 @@ impl QwenAsrEngine {
             progress.store(100, Ordering::Relaxed);
         }
         crate::shutdown::ensure_running()?;
-        let segments = stitch_segments(segments);
+        // Windows are cut at quiet points, not sentence ends; realign so a
+        // sentence is never split across two paragraphs.
+        let segments = align_segments_to_sentences(stitch_segments(segments));
         if segments.is_empty() {
             return Err(anyhow!("TRANSCRIPTION_EMPTY: Qwen3-ASR produced no text"));
         }

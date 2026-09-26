@@ -162,4 +162,8 @@ if (process.platform === "darwin" && process.arch === "arm64") {
   if (worker.status !== 0) throw new Error("Translation runtime build failed.");
   const streaming = spawnSync(process.execPath, ["scripts/build-r2t2-worker.mjs"], { stdio: "inherit" });
   if (streaming.status !== 0) throw new Error("R2T2 runtime build failed.");
+  const vibevoice = spawnSync(process.execPath, ["scripts/build-vibevoice-worker.mjs"], { stdio: "inherit" });
+  if (vibevoice.status !== 0) throw new Error("VibeVoice worker build failed.");
+  const moss = spawnSync(process.execPath, ["scripts/build-moss-worker.mjs"], { stdio: "inherit" });
+  if (moss.status !== 0) throw new Error("MOSS worker build failed.");
 }

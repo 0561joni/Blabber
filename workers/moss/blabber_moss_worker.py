@@ -23,7 +23,10 @@ def worker_cli():
     if override:
         return pathlib.Path(override)
     name = "moss-transcribe.exe" if sys.platform == "win32" else "moss-transcribe"
-    return pathlib.Path(__file__).resolve().parent / name
+    # Frozen (PyInstaller) builds: the native CLI sits next to the executable,
+    # while __file__ points into the bundle's internal folder.
+    anchor = sys.executable if getattr(sys, "frozen", False) else __file__
+    return pathlib.Path(anchor).resolve().parent / name
 
 
 def handle(request):
@@ -67,7 +70,22 @@ def handle(request):
     emit({"type": "result", "result": {"text": " ".join(item["text"] for item in segments), "segments": segments, "truncated": truncated}})
 
 
+def self_test():
+    """Check that the native CLI is present and runs, so a broken build fails at build time."""
+    cli = worker_cli()
+    if not cli.is_file() or not os.access(cli, os.X_OK):
+        raise SystemExit(f"MOSS native executable is missing: {cli}")
+    usage = subprocess.run([str(cli)], capture_output=True, text=True)
+    if "usage" not in (usage.stdout + usage.stderr).lower():
+        raise SystemExit(f"MOSS native executable did not start: {usage.stderr.strip()}")
+    emit({"type": "selfTest", "ok": True})
+
+
 def main():
+    if "--self-test" in sys.argv[1:]:
+        self_test()
+        return
+
     def stop_if_parent_exits():
         global ACTIVE_PROCESS
         while True:
