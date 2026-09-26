@@ -122,7 +122,10 @@ VibeVoice-ASR 8-bit MLX weights are downloaded separately from the pinned
 MIT-licensed.
 
 The Apple Silicon worker uses `mlx-audio` 0.4.8 and its MLX runtime in a signed,
-one-folder bundle. MLX and mlx-audio are MIT-licensed.
+one-folder bundle. MLX and mlx-audio are MIT-licensed. The worker also bundles
+the tokenizer files (`tokenizer.json`, `tokenizer_config.json`, `vocab.json`,
+`merges.txt`) of `Qwen/Qwen2.5-7B`, which VibeVoice-ASR uses and the MLX weights
+do not include; they are Apache-2.0 licensed and the license ships with them.
 
 Upstreams: https://github.com/ml-explore/mlx and https://github.com/Blaizzy/mlx-audio
 

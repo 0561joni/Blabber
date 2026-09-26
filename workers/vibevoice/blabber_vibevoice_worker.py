@@ -25,6 +25,54 @@ def value(item, *names, default=None):
     return default
 
 
+# The mlx-community VibeVoice-ASR weights ship without tokenizer files. mlx-audio
+# then falls back to downloading the "Qwen/Qwen2.5-7B" tokenizer from Hugging
+# Face, which can never work offline. Blabber bundles that tokenizer (pinned and
+# verified by scripts/build-vibevoice-worker.mjs) and serves it locally.
+UPSTREAM_TOKENIZER = "Qwen/Qwen2.5-7B"
+TOKENIZER_DIRECTORY = "qwen2.5-7b-tokenizer"
+TOKENIZER_FILES = ("tokenizer.json", "tokenizer_config.json", "vocab.json", "merges.txt")
+
+
+def bundled_tokenizer_dir():
+    candidates = []
+    if os.environ.get("BLABBER_VIBEVOICE_TOKENIZER"):
+        candidates.append(os.environ["BLABBER_VIBEVOICE_TOKENIZER"])
+    if getattr(sys, "frozen", False):
+        candidates.append(os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)), TOKENIZER_DIRECTORY))
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(here, "..", "..", "src-tauri", "target", "vibevoice-runtime", TOKENIZER_DIRECTORY))
+    for candidate in candidates:
+        if all(os.path.isfile(os.path.join(candidate, name)) for name in TOKENIZER_FILES):
+            return os.path.abspath(candidate)
+    raise RuntimeError("the bundled Qwen2.5 tokenizer for VibeVoice is missing; rebuild the VibeVoice worker")
+
+
+def has_tokenizer(directory):
+    return os.path.isfile(os.path.join(directory, "tokenizer_config.json")) and (
+        os.path.isfile(os.path.join(directory, "tokenizer.json"))
+        or os.path.isfile(os.path.join(directory, "vocab.json"))
+    )
+
+
+def use_bundled_tokenizer(model_path):
+    """Route mlx-audio's tokenizer lookup to local files only."""
+    from transformers import AutoTokenizer
+
+    original = AutoTokenizer.from_pretrained
+    if getattr(original, "_blabber_local", False):
+        return
+    local = model_path if has_tokenizer(model_path) else bundled_tokenizer_dir()
+
+    def from_pretrained(name, *args, **kwargs):
+        if str(name) in (UPSTREAM_TOKENIZER, str(model_path)):
+            name = local
+        return original(name, *args, **kwargs)
+
+    from_pretrained._blabber_local = True
+    AutoTokenizer.from_pretrained = from_pretrained
+
+
 def handle(request):
     if request.get("protocolVersion") != PROTOCOL_VERSION:
         raise ValueError("unsupported worker protocol version")
@@ -34,6 +82,7 @@ def handle(request):
     from mlx_audio.stt.utils import load_model
 
     emit({"type": "progress", "progress_percent": 1})
+    use_bundled_tokenizer(request["modelPath"])
     model = load_model(request["modelPath"])
     max_tokens = int(request.get("maxTokens", 32768))
     with tempfile.TemporaryDirectory(prefix="blabber-vibevoice-") as output_dir:
@@ -88,7 +137,16 @@ def self_test():
     from mlx_lm.models.qwen2 import Qwen2Model  # noqa: F401
     from mlx_lm.generate import generate_step  # noqa: F401
     from mlx_lm.sample_utils import make_sampler  # noqa: F401
-    from transformers import AutoTokenizer, Qwen2TokenizerFast  # noqa: F401
+    from transformers import AutoTokenizer
+
+    # Load the bundled tokenizer exactly as a transcription does (offline) and
+    # check the special tokens VibeVoice repurposes for speech.
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    tokenizer = AutoTokenizer.from_pretrained(bundled_tokenizer_dir(), trust_remote_code=True)
+    special = [tokenizer.convert_tokens_to_ids(token) for token in ("<|object_ref_start|>", "<|object_ref_end|>", "<|box_start|>")]
+    if any(not isinstance(token_id, int) or token_id == tokenizer.unk_token_id for token_id in special):
+        raise RuntimeError(f"bundled tokenizer lacks VibeVoice speech tokens: {special}")
     emit({"type": "selfTest", "ok": True})
 
 

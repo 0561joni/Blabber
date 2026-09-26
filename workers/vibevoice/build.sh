@@ -17,6 +17,8 @@ build_dir="${2:-build}"
   --collect-all mlx_lm \
   --collect-submodules transformers.models.qwen2 \
   --hidden-import miniaudio \
+  --collect-all tokenizers \
+  --add-data "${BLABBER_VIBEVOICE_TOKENIZER:?set BLABBER_VIBEVOICE_TOKENIZER to the verified tokenizer folder}:qwen2.5-7b-tokenizer" \
   "$(dirname "$0")/blabber_vibevoice_worker.py"
 
 bundle="$output_dir/blabber-vibevoice-worker"
