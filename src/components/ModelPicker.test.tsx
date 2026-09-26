@@ -5,12 +5,12 @@ import { ModelInfoButton, ModelPicker } from "./ModelPicker";
 
 const models: InstalledModel[] = [
   {
-    id: "ggml-large-v3-turbo-bin",
+    id: "ggml-medium-bin",
     engine: "whisper.cpp",
-    modelName: "ggml-large-v3-turbo.bin",
+    modelName: "ggml-medium.bin",
     variant: "accurate",
-    localPath: "/models/ggml-large-v3-turbo.bin",
-    sizeBytes: 1_624_555_275,
+    localPath: "/models/ggml-medium.bin",
+    sizeBytes: 1_533_763_059,
     isDefault: true,
     profile: "accurate",
   },
@@ -69,7 +69,7 @@ describe("ModelPicker", () => {
       />,
     );
     const trigger = screen.getByRole("button", { name: "Shortcut Dictation model" });
-    expect(within(trigger).getByText("Whisper Turbo")).toBeTruthy();
+    expect(within(trigger).getByText("Whisper Medium")).toBeTruthy();
     expect(within(trigger).getByLabelText(/Speed .* Accuracy/)).toBeTruthy();
 
     fireEvent.click(trigger);
@@ -171,9 +171,9 @@ describe("ModelPicker", () => {
 describe("ModelInfoButton", () => {
   it("opens from a download card and closes on backdrop click", () => {
     render(<ModelInfoButton model={models[0]} />);
-    const infoButton = screen.getByRole("button", { name: "About Whisper Turbo" });
+    const infoButton = screen.getByRole("button", { name: "About Whisper Medium" });
     fireEvent.click(infoButton);
-    const dialog = screen.getByRole("dialog", { name: "Whisper Turbo" });
+    const dialog = screen.getByRole("dialog", { name: "Whisper Medium" });
     fireEvent.mouseDown(dialog.parentElement as HTMLElement);
     expect(screen.queryByRole("dialog")).toBeNull();
   });

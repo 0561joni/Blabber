@@ -281,12 +281,12 @@ describe("Settings speaker identification", () => {
   it("uses friendly two-line pickers and saves all three model contexts", async () => {
     const installed: InstalledModel[] = [
       {
-        id: "ggml-large-v3-turbo-bin",
+        id: "ggml-medium-bin",
         engine: "whisper.cpp",
-        modelName: "ggml-large-v3-turbo.bin",
+        modelName: "ggml-medium.bin",
         variant: "accurate",
-        localPath: "/models/ggml-large-v3-turbo.bin",
-        sizeBytes: 1_624_555_275,
+        localPath: "/models/ggml-medium.bin",
+        sizeBytes: 1_533_763_059,
         isDefault: true,
         profile: "accurate",
       },
@@ -373,17 +373,17 @@ describe("Settings speaker identification", () => {
     fireEvent.click(screen.getByRole("button", { name: "Models" }));
     fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
 
-    expect(screen.getByText("Whisper Balanced")).toBeTruthy();
+    expect(screen.getByText("Whisper Small")).toBeTruthy();
     expect(screen.queryByText("ggml-small.bin")).toBeNull();
-    expect(screen.getByLabelText("Speed ●●●●○ Accuracy ●●●○○")).toBeTruthy();
+    expect(screen.getByLabelText("Speed 5 of 5, Accuracy 2 of 5")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Download Whisper Balanced" }),
+      screen.getByRole("button", { name: "Download Whisper Small" }),
     ).toBeTruthy();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "About Whisper Balanced" }),
+      screen.getByRole("button", { name: "About Whisper Small" }),
     );
-    const dialog = screen.getByRole("dialog", { name: "Whisper Balanced" });
+    const dialog = screen.getByRole("dialog", { name: "Whisper Small" });
     expect(within(dialog).getByText("ggml-small.bin")).toBeTruthy();
     expect(within(dialog).getByText("488 MB")).toBeTruthy();
   });
@@ -395,10 +395,10 @@ describe("Settings speaker identification", () => {
     render(<Harness onSave={vi.fn()} onReload={onReload} />);
     fireEvent.click(screen.getByRole("button", { name: "Models" }));
     fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
-    await screen.findByRole("button", { name: "Download Whisper Balanced" });
+    await screen.findByRole("button", { name: "Download Whisper Small" });
 
     act(() => { downloadListener?.({ ...status("completed", 100), modelId: asrModel.id }); });
-    expect(screen.queryByRole("button", { name: "Download Whisper Balanced" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download Whisper Small" })).toBeNull();
     expect(screen.getByText("Installed")).toBeTruthy();
     expect(screen.getByText("1 of 1 installed")).toBeTruthy();
 
@@ -406,7 +406,7 @@ describe("Settings speaker identification", () => {
     expect(screen.getByRole("alert").textContent).toContain("model list could not be refreshed");
     expect(screen.getByRole("alert").textContent).toContain("failed to read installed models");
     expect(screen.queryByText("Downloaded")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Download Whisper Balanced" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download Whisper Small" })).toBeNull();
   });
 
   it("does not replace a live completion with an older catalog or status snapshot", async () => {
@@ -431,7 +431,7 @@ describe("Settings speaker identification", () => {
       resolveStatuses([{ ...status("downloading", 42), modelId: asrModel.id }]);
     });
     expect(screen.getByText("1 of 1 installed")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Cancel download|Download Whisper Balanced/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Cancel download|Download Whisper Small/ })).toBeNull();
     expect(screen.queryByText("42%")).toBeNull();
     expect(onReload).toHaveBeenCalledTimes(1);
   });

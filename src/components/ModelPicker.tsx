@@ -10,8 +10,9 @@ import {
 import { createPortal } from "react-dom";
 import {
   formatModelSize,
-  formatRating,
   formatRatingLine,
+  formatRatingValue,
+  ratingCircles,
   getModelPresentation,
   isModelRecommended,
   recommendationLabel,
@@ -183,6 +184,17 @@ export function ModelPicker({
   );
 }
 
+function RatingCircles({ value }: { value: number }) {
+  if (value === 0) return <span className="rating-circles-unrated" aria-hidden="true">Not rated</span>;
+  return (
+    <span className="rating-circles" aria-hidden="true">
+      {ratingCircles(value).map((circle, index) => (
+        <span key={index} className={`rating-circle rating-circle-${circle}`} />
+      ))}
+    </span>
+  );
+}
+
 export function ModelSummary({
   presentation,
   recommendation = null,
@@ -197,8 +209,8 @@ export function ModelSummary({
         {recommendation ? <span className="model-recommendation">{recommendation}</span> : null}
       </span>
       <span className="model-rating-line" aria-label={formatRatingLine(presentation)}>
-        <span>Speed <span aria-hidden="true">{formatRating(presentation.speed)}</span></span>
-        <span>Accuracy <span aria-hidden="true">{formatRating(presentation.accuracy)}</span></span>
+        <span>Speed <RatingCircles value={presentation.speed} /></span>
+        <span>Accuracy <RatingCircles value={presentation.accuracy} /></span>
       </span>
     </span>
   );
@@ -292,8 +304,8 @@ export function ModelInfoDialog({
         </div>
         <dl className="model-info-facts">
           <div><dt>Size</dt><dd>{formatModelSize(presentation.sizeBytes)}</dd></div>
-          <div><dt>Speed</dt><dd aria-label={presentation.speed ? `Speed ${presentation.speed} of 5` : "Speed not rated"}>{formatRating(presentation.speed)}</dd></div>
-          <div><dt>Accuracy</dt><dd aria-label={presentation.accuracy ? `Accuracy ${presentation.accuracy} of 5` : "Accuracy not rated"}>{formatRating(presentation.accuracy)}</dd></div>
+          <div><dt>Speed</dt><dd aria-label={formatRatingValue("Speed", presentation.speed)}><RatingCircles value={presentation.speed} /></dd></div>
+          <div><dt>Accuracy</dt><dd aria-label={formatRatingValue("Accuracy", presentation.accuracy)}><RatingCircles value={presentation.accuracy} /></dd></div>
         </dl>
         <p className="model-info-description">{presentation.description}</p>
         <div className="model-info-technical">

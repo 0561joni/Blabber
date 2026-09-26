@@ -44,35 +44,34 @@ interface CatalogEntry {
 
 const MODEL_CATALOG: Record<string, CatalogEntry> = {
   "confucius4-r2t2-q8-0": {
-    friendlyName: "R2T2 · Experimental", speed: 0, accuracy: 0,
+    friendlyName: "R2T2 · Experimental", speed: 4.5, accuracy: 4,
     description: "Local live preview for German and English shortcut dictation. Text is pasted once after you stop. Acceptance testing is still in progress.",
     technicalDetails: "Confucius4-R2T2 · Q8_0 GGUF · Metal · five-minute limit · separate NetEase model license",
     recommendedFor: [], technicalNames: ["R2T2 Q8 · Experimental"],
   },
   "qwen3-asr-1.7b-bf16": {
     friendlyName: "Qwen ASR",
-    speed: 2,
-    accuracy: 5,
-    description:
-      "High-quality multilingual model optimized for accurate transcription of longer audio files and mixed-language speech.",
+    speed: 2.5,
+    accuracy: 4.5,
+    description: "Top accuracy in German, English and Spanish, and handles switching between them well. Runs on the CPU, so it is slower than Whisper.",
     technicalDetails: "Qwen3-ASR 1.7B · BF16 · CPU inference",
     recommendedFor: ["quick_dictate", "file_transcription"],
     technicalNames: ["Qwen3-ASR-1.7B", "qwen3-asr-1.7b-bf16"],
   },
   "moss-transcribe-diarize-0.9b-f16": {
     friendlyName: "MOSS Transcribe + Diarize",
-    speed: 3,
-    accuracy: 5,
-    description: "Long-form multilingual transcription with native speaker labels, timestamps, acoustic events, and vocabulary hotwords.",
+    speed: 2,
+    accuracy: 4,
+    description: "Long recordings with speaker labels, timestamps, sound events and vocabulary hotwords. Runs on the CPU at around twice real time, too slow for dictation.",
     technicalDetails: "MOSS Transcribe-Diarize 0.9B · F16 GGUF · isolated CPU worker",
-    recommendedFor: ["shortcut_dictation", "quick_dictate", "file_transcription"],
+    recommendedFor: [],
     technicalNames: ["MOSS Transcribe + Diarize 0.9B F16"],
   },
   "vibevoice-asr-8bit-mlx": {
     friendlyName: "VibeVoice ASR",
-    speed: 2,
+    speed: 1,
     accuracy: 5,
-    description: "Up to 60 minutes of multilingual and code-switched audio with native speakers, timestamps, and vocabulary context.",
+    description: "The most accurate model for mixed-language audio, with speaker labels, timestamps and vocabulary context for up to 60 minutes. Slow; best for files.",
     technicalDetails: "VibeVoice-ASR · 8-bit MLX · Apple Silicon",
     recommendedFor: ["file_transcription"],
     technicalNames: ["VibeVoice-ASR 8-bit MLX"],
@@ -80,36 +79,35 @@ const MODEL_CATALOG: Record<string, CatalogEntry> = {
   "ggml-large-v3-turbo-q5_0-bin": {
     friendlyName: "Whisper Turbo Compact",
     speed: 5,
-    accuracy: 4,
-    description:
-      "A smaller, quantized Turbo model with excellent speed and strong accuracy when storage or memory is limited.",
+    accuracy: 3,
+    description: "The smallest, fastest Turbo. Slightly less accurate than Whisper Turbo and also weak when you switch languages.",
     technicalDetails: "Whisper large-v3-turbo · Q5_0 quantized · whisper.cpp",
     recommendedFor: [],
     technicalNames: ["ggml-large-v3-turbo-q5_0.bin"],
   },
   "ggml-large-v3-turbo-bin": {
     friendlyName: "Whisper Turbo",
-    speed: 5,
-    accuracy: 5,
-    description: "Fast, high-quality multilingual transcription for everyday dictation.",
+    speed: 4.5,
+    accuracy: 3.5,
+    description: "Very fast and accurate for single-language dictation. Tends to drop or translate words when you switch languages mid-recording.",
     technicalDetails: "Whisper large-v3-turbo · F16 · whisper.cpp",
-    recommendedFor: ["shortcut_dictation"],
+    recommendedFor: [],
     technicalNames: ["ggml-large-v3-turbo.bin"],
   },
   "ggml-medium-bin": {
-    friendlyName: "Whisper Precision",
-    speed: 3,
-    accuracy: 4,
-    description: "A detailed multilingual model for users who favor accuracy over speed.",
+    friendlyName: "Whisper Medium",
+    speed: 4,
+    accuracy: 3.5,
+    description: "The best Whisper model when you mix languages, and still fast enough for everyday dictation.",
     technicalDetails: "Whisper medium · F16 · whisper.cpp",
-    recommendedFor: [],
+    recommendedFor: ["shortcut_dictation"],
     technicalNames: ["ggml-medium.bin"],
   },
   "ggml-small-bin": {
-    friendlyName: "Whisper Balanced",
-    speed: 4,
-    accuracy: 3,
-    description: "A practical middle ground for everyday transcription on modest hardware.",
+    friendlyName: "Whisper Small",
+    speed: 5,
+    accuracy: 2,
+    description: "Tiny and very fast, but noticeably less accurate, especially in German.",
     technicalDetails: "Whisper small · F16 · whisper.cpp",
     recommendedFor: [],
     technicalNames: ["ggml-small.bin"],
@@ -179,14 +177,36 @@ export function isModelRecommended(
   return presentation.recommendedFor.includes(context);
 }
 
+/** Ratings run 0–5 in half steps; 0 means "not rated". */
+export type RatingCircle = "full" | "half" | "empty";
+
+export function normalizeRating(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(5, Math.round(value * 2) / 2));
+}
+
+export function ratingCircles(value: number): RatingCircle[] {
+  const rating = normalizeRating(value);
+  return Array.from({ length: 5 }, (_, index) => {
+    if (rating >= index + 1) return "full";
+    if (rating >= index + 0.5) return "half";
+    return "empty";
+  });
+}
+
 export function formatRating(value: number): string {
   if (value === 0) return "Not rated";
-  const rating = Math.max(0, Math.min(5, Math.round(value)));
-  return `${"●".repeat(rating)}${"○".repeat(5 - rating)}`;
+  const glyphs: Record<RatingCircle, string> = { full: "●", half: "◐", empty: "○" };
+  return ratingCircles(value).map((circle) => glyphs[circle]).join("");
+}
+
+export function formatRatingValue(label: string, value: number): string {
+  if (value === 0) return `${label} not rated`;
+  return `${label} ${normalizeRating(value)} of 5`;
 }
 
 export function formatRatingLine(presentation: Pick<ModelPresentation, "speed" | "accuracy">) {
-  return `Speed ${formatRating(presentation.speed)} Accuracy ${formatRating(presentation.accuracy)}`;
+  return `${formatRatingValue("Speed", presentation.speed)}, ${formatRatingValue("Accuracy", presentation.accuracy)}`;
 }
 
 export function formatModelSize(sizeBytes: number) {

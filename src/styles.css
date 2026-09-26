@@ -1491,10 +1491,39 @@ summary {
   font-size: 10px;
   color: var(--text-muted);
 }
-.model-rating-line > span > span {
+.model-rating-line > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.rating-circles {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   color: var(--accent);
-  font-size: 9px;
-  letter-spacing: 1px;
+}
+.rating-circle {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  box-sizing: border-box;
+}
+.rating-circle-full {
+  background: currentColor;
+}
+.rating-circle-half {
+  background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+}
+.model-info-facts .rating-circles {
+  gap: 3px;
+}
+.model-info-facts .rating-circle {
+  width: 9px;
+  height: 9px;
+}
+.rating-circles-unrated {
+  color: var(--text-muted);
 }
 .model-picker-panel {
   width: 100%;
