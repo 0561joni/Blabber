@@ -7,8 +7,8 @@
 // (one-folder mode) and stages the result in src-tauri/bundle/vibevoice/, which
 // tauri.macos.conf.json packages into Blabber.app/Contents/Resources/workers/vibevoice/.
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { resolveSigningIdentity } from "./local-signing.mjs";
@@ -54,9 +54,37 @@ run("bash", [join(workerDir, "build.sh"), distDir, join(target, "build")], {
 rmSync(join(bundle, executableName), { recursive: true, force: true });
 mkdirSync(bundle, { recursive: true });
 cpSync(join(distDir, executableName), join(bundle, executableName), { recursive: true, dereference: true });
+colocateMetalLibraries(join(bundle, executableName, "_internal"));
 signMachO(join(bundle, executableName), bundledExecutable, resolveSigningIdentity());
 
-// Smoke test: the frozen worker must import its whole runtime on its own.
+// MLX loads its Metal kernels (mlx.metallib) from the directory of the
+// libmlx.dylib that was actually loaded. PyInstaller loads libmlx.dylib through
+// a top-level link in _internal/ that points to mlx/lib/, and dyld reports the
+// link's location — so the kernels next to the real file are never found
+// ("Failed to load the default metallib"). The staged copy has no links, so
+// keep a single copy of each such library at the top level, next to its
+// metallib, and drop the unreferenced duplicates in the package folder.
+function colocateMetalLibraries(internal) {
+  const walk = (dir) =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)],
+    );
+  for (const metallib of walk(internal).filter((path) => path.endsWith(".metallib"))) {
+    const directory = dirname(metallib);
+    if (directory === internal) continue;
+    const topLevelLibraries = readdirSync(directory).filter(
+      (name) => name.endsWith(".dylib") && existsSync(join(internal, name)),
+    );
+    if (topLevelLibraries.length === 0) continue;
+    for (const name of topLevelLibraries) rmSync(join(directory, name));
+    renameSync(metallib, join(internal, basename(metallib)));
+  }
+  if (!existsSync(join(internal, "mlx.metallib"))) {
+    throw new Error("mlx.metallib is not next to the libmlx.dylib the worker loads.");
+  }
+}
+
+// Smoke test: the frozen worker must import its runtime and run on the GPU.
 const smoke = spawnSync(bundledExecutable, ["--self-test"], { encoding: "utf8" });
 if (smoke.status !== 0 || !/"selfTest"/.test(smoke.stdout ?? "")) {
   throw new Error(`VibeVoice worker smoke test failed:\n${smoke.stdout}\n${smoke.stderr}`);

@@ -74,7 +74,14 @@ def handle(request):
 def self_test():
     """Import everything a transcription touches, so a broken build fails at build time."""
     import miniaudio  # noqa: F401  (audio decoding)
-    import mlx.core  # noqa: F401
+    import mlx.core as mx
+
+    # Run a real GPU computation: this loads MLX's Metal kernels (mlx.metallib),
+    # which a plain import does not.
+    result = mx.ones(4, stream=mx.gpu) * 2
+    mx.eval(result)
+    if result.sum().item() != 8:
+        raise RuntimeError("MLX Metal self-test returned a wrong result")
     from mlx_audio.stt.generate import generate_transcription  # noqa: F401
     from mlx_audio.stt.utils import load_model  # noqa: F401
     import mlx_audio.stt.models.vibevoice_asr  # noqa: F401
