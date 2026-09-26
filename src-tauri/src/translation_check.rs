@@ -24,7 +24,7 @@ pub fn check_translation(source: &str, output: &str, target: &str) -> Vec<&'stat
         issues.push("paragraphs_changed");
     }
     match target {
-        "fr" if mixes_french_address(output) => issues.push("mixed_address"),
+        "fr" if mixes_french_address(source, output) => issues.push("mixed_address"),
         "es-AR" if uses_tuteo(output) => issues.push("tuteo"),
         _ => {}
     }
@@ -142,13 +142,27 @@ fn words_of(sentence: &str) -> Vec<String> {
         .collect()
 }
 
-/// A sentence that addresses the reader both with tu and with vous.
-fn mixes_french_address(text: &str) -> bool {
-    const TU: &[&str] = &["tu", "toi", "ton", "ta", "tes", "t"];
-    const VOUS: &[&str] = &["vous", "votre", "vos", "veuillez"];
-    text.split(['.', '!', '?', '\n']).any(|sentence| {
+/// A sentence that addresses the reader with both tu and vous. Deliberately
+/// loose: only subject/object pronouns count (not ton/ta/tes/votre/vos), and
+/// sources that address a group or use formal German/English cues are skipped,
+/// because "tu" for one person and "vous" for a group can both be correct.
+fn mixes_french_address(source: &str, output: &str) -> bool {
+    const TU: &[&str] = &["tu", "toi", "te"];
+    const VOUS: &[&str] = &["vous", "veuillez"];
+    const GROUP_OR_FORMAL: &[&str] = &[
+        "ihr", "euch", "euer", "eure", "sie", "ihnen", "everyone", "everybody", "guys", "folks",
+        "team", "all",
+    ];
+    let source_words = words_of(source);
+    if source_words
+        .iter()
+        .any(|word| GROUP_OR_FORMAL.contains(&word.as_str()))
+    {
+        return false;
+    }
+    output.split(['.', '!', '?', '\n']).any(|sentence| {
         let words = words_of(sentence);
-        words.iter().any(|w| TU.contains(&w.as_str()) && w != "t")
+        words.iter().any(|w| TU.contains(&w.as_str()))
             && words.iter().any(|w| VOUS.contains(&w.as_str()))
     })
 }
@@ -206,6 +220,25 @@ mod tests {
             check_translation("Eins.\n\nZwei.", "Un. Deux.", "fr"),
             ["paragraphs_changed"]
         );
+    }
+
+    #[test]
+    fn french_address_check_allows_group_and_formal_sources() {
+        // One person informally plus a group: correct French, not flagged.
+        assert!(check_translation(
+            "Kannst du ihnen sagen, dass ihr morgen kommt?",
+            "Peux-tu leur dire que vous venez demain ?",
+            "fr"
+        )
+        .is_empty());
+        assert!(check_translation(
+            "Tell everyone you will send the report.",
+            "Dis à tout le monde que tu enverras le rapport, merci à vous.",
+            "fr"
+        )
+        .is_empty());
+        // Possessives alone no longer count.
+        assert!(check_translation("Your choice.", "Ton choix, comme vous voulez.", "fr").is_empty());
     }
 
     #[test]

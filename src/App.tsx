@@ -1,3 +1,4 @@
+import blabberLogo from "./assets/blabber-logo.png";
 import { useDictationTranslation } from "./hooks/useDictationTranslation";
 import { setDictationOutputMode, retryDictationTranslation, retryStreamingDictation, listenTranslationErrors } from "./lib/translationApi";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -93,8 +94,8 @@ const TERMINAL_DICTATION_STATES = new Set([
 
 const NAV_ITEMS: Array<{ id: ScreenId; label: string; icon: AppIconName }> = [
   { id: "dictate", label: "Dictate", icon: "microphone" },
-  { id: "files", label: "Transcribe files", icon: "folder" },
-  { id: "history", label: "Library", icon: "clock" },
+  { id: "files", label: "Transcribe files", icon: "fileAudio" },
+  { id: "history", label: "Library", icon: "library" },
   { id: "vocabulary", label: "Vocabulary", icon: "book" },
   { id: "settings", label: "Settings", icon: "gear" },
 ];
@@ -1146,20 +1147,17 @@ export function App() {
       >
         <aside className="sidebar">
           <div className="sidebar-brand">
-            <span className="brand-mark">
-              <AppIcon name="microphone" />
-            </span>
-            <span className="brand-wordmark">
-              blabber<span>Space for your words</span>
-            </span>
+            <img className="brand-mark" src={blabberLogo} alt="" width={20} height={20} />
+            <span className="brand-wordmark">Blabber</span>
+            <IconButton
+              className="sidebar-toggle"
+              size="compact"
+              icon={sidebarExpanded ? "chevronLeft" : "chevronRight"}
+              label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+              tooltipPlacement="bottom"
+              onClick={() => setSidebarExpanded((current) => !current)}
+            />
           </div>
-          <IconButton
-            className="sidebar-toggle"
-            icon={sidebarExpanded ? "chevronLeft" : "chevronRight"}
-            label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
-            tooltipPlacement="bottom"
-            onClick={() => setSidebarExpanded((current) => !current)}
-          />
 
           <nav className="nav-list" aria-label="Main navigation">
             {NAV_ITEMS.map((item) => (
@@ -1214,10 +1212,6 @@ export function App() {
               </button>
             ))}
           </nav>
-          <div className="sidebar-footer">
-            <span className="privacy-dot" />
-            <span>Local. Private. Yours.</span>
-          </div>
         </aside>
 
         <main className="main-content" ref={mainRef}>
@@ -1311,6 +1305,8 @@ export function App() {
                   isPollingAccessibility={isPollingAccessibility}
                   onResolveReadiness={handleResolveReadiness}
                   onStartRecording={beginManualRecording}
+                  recentDictations={settings?.saveHistory ? transcripts : []}
+                  onOpenTranscript={(id) => openReview({ kind: "saved", id }, "Dictate")}
                   onStopAndTranscribeRecording={stopAndPreviewManualRecording}
                   onCancelRecording={cancelManualRecording}
                   onResetDictation={resetDictation}
@@ -1339,13 +1335,17 @@ export function App() {
                   onToggle={toggleQueuedFile}
                   speakerMode={
                     resolvedFileModel?.capabilities?.nativeDiarization
-                      ? "Built into the selected speech model"
+                      ? "Speakers: built into model"
                       : settings?.fileDiarizationEnabled
                         ? speakerModelReady === false
-                          ? "Speaker identification enabled · model installing or unavailable"
-                          : "Speaker identification enabled"
-                        : "Speaker identification off"
+                          ? "Speakers: on · model not ready"
+                          : "Speakers: on"
+                        : "Speakers: off"
                   }
+                  onOpenSpeakerSettings={() => {
+                    setSettingsSection("models");
+                    setScreen("settings");
+                  }}
                   onReview={(item) =>
                     openReview(
                       item.reviewRef ??

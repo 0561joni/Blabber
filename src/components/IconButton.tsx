@@ -33,7 +33,14 @@ export type AppIconName =
   | "personCount"
   | "disclosure"
   | "power"
-  | "window";
+  | "window"
+  | "library"
+  | "fileAudio"
+  | "search"
+  | "play"
+  | "pause"
+  | "more"
+  | "languages";
 
 interface AppIconProps {
   name: AppIconName;
@@ -109,72 +116,87 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
 });
 
 function iconPaths(name: AppIconName) {
+  // Lucide icons (ISC license, lucide.dev), inlined so the app needs no network or extra package.
   switch (name) {
     case "home":
-      return <><path d="M4 11.5 12 5l8 6.5" /><path d="M6.5 10.5V19h11v-8.5" /></>;
+      return <><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></>;
     case "book":
-      return <><path d="M6 5.5A2.5 2.5 0 0 1 8.5 3H18v16H8.5A2.5 2.5 0 0 0 6 21.5Z" /><path d="M6 5.5v16" /><path d="M9.5 7.5H15M9.5 11H15" /></>;
+      return <><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20" /><path d="m8 13 4-7 4 7" /><path d="M9.1 11h5.7" /></>;
     case "gear":
-      return <><path d="m12 4 1.2 2.2 2.5.5.7 2.4 2 1.6-.8 2.4.8 2.4-2 1.6-.7 2.4-2.5.5L12 20l-1.2-2.2-2.5-.5-.7-2.4-2-1.6.8-2.4-.8-2.4 2-1.6.7-2.4 2.5-.5Z" /><circle cx="12" cy="12" r="3.1" /></>;
+      return <><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /><circle cx="12" cy="12" r="3" /></>;
     case "clock":
-      return <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.8v4.6l3 1.8" /></>;
+      return <><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></>;
     case "chevronLeft":
-      return <path d="m14.5 6-6 6 6 6" />;
+      return <><path d="m15 18-6-6 6-6" /></>;
     case "chevronRight":
-      return <path d="m9.5 6 6 6-6 6" />;
+      return <><path d="m9 18 6-6-6-6" /></>;
     case "trash":
-      return <><path d="M4 7h16M9 4h6l1 3M6.5 7l.7 13h9.6l.7-13" /><path d="M10 11v5M14 11v5" /></>;
+      return <><path d="M10 11v6" /><path d="M14 11v6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></>;
     case "trashMultiple":
-      return <><path d="M3.5 8h13M7 5h6l1 3M5.5 8l.6 12h7.8l.6-12M9 11v5M12 11v5" /><path d="M16 5h3v13h-2M14 2h7v13" /></>;
+      return <><path d="M10 11v6" /><path d="M14 11v6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></>;
     case "pencil":
-      return <><path d="m4 20 4.3-1 10.9-10.9a2.2 2.2 0 0 0-3.1-3.1L5.2 15.9Z" /><path d="m14.7 6.4 3 3M5.2 15.9l3.1 3.1" /></>;
+      return <><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" /></>;
     case "copy":
-      return <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>;
+      return <><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></>;
     case "copyPlain":
-      return <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2M11 12h6M11 15h6M11 18h4" /></>;
+      return <><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /><path d="M14 2v5a1 1 0 0 0 1 1h5" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" /></>;
     case "copySpeakers":
-      return <><path d="M15.5 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2" /><rect x="8" y="8" width="12" height="12" rx="2" /><circle cx="13" cy="12" r="1.5" /><circle cx="17" cy="13" r="1.2" /><path d="M10.7 17c.4-1.5 1.2-2.3 2.3-2.3s2 .8 2.4 2.3M15.5 16c.4-.9.9-1.4 1.6-1.4.8 0 1.4.6 1.7 1.7" /></>;
+      return <><path d="M17 5H3" /><path d="M21 12H8" /><path d="M21 19H8" /><path d="M3 12v7" /></>;
     case "share":
-      return <><path d="M12 15V3M8 7l4-4 4 4" /><path d="M6 10H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1" /></>;
+      return <><path d="M12 2v13" /><path d="m16 6-4-4-4 4" /><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /></>;
     case "retry":
-      return <><path d="M19.5 8.5V4.8l-3.7.1" /><path d="M19 9a8 8 0 1 0 .7 5" /></>;
+      return <><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /></>;
     case "retrySpeakers":
-      return <><path d="M19.5 8V4.5L16 5M19 8.5A8 8 0 0 0 5.2 6" /><circle cx="10" cy="12" r="2" /><circle cx="15" cy="13" r="1.5" /><path d="M6.8 18c.5-2.1 1.6-3.2 3.2-3.2s2.8 1.1 3.3 3.2M13.5 17.5c.4-1.5 1-2.2 2-2.2 1.1 0 1.9.8 2.3 2.3" /></>;
+      return <><circle cx="10" cy="8" r="5" /><path d="M2 21a8 8 0 0 1 10.434-7.62" /><circle cx="18" cy="18" r="3" /><path d="m22 22-1.9-1.9" /></>;
     case "check":
-      return <path d="m5 12.5 4.3 4.3L19.5 6.5" />;
+      return <><path d="M20 6 9 17l-5-5" /></>;
     case "xmark":
-      return <path d="m6 6 12 12M18 6 6 18" />;
+      return <><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>;
     case "xCircle":
-      return <><circle cx="12" cy="12" r="9" /><path d="m8.5 8.5 7 7M15.5 8.5l-7 7" /></>;
+      return <><circle cx="12" cy="12" r="10" /><path d="m15 9-6 6" /><path d="m9 9 6 6" /></>;
     case "plus":
-      return <path d="M12 5v14M5 12h14" />;
+      return <><path d="M5 12h14" /><path d="M12 5v14" /></>;
     case "folder":
-      return <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5Z" />;
+      return <><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></>;
     case "download":
-      return <><path d="M12 3v11M8 10l4 4 4-4" /><path d="M4 16v3h16v-3" /></>;
+      return <><path d="M12 15V3" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /></>;
     case "info":
-      return <><circle cx="12" cy="12" r="9" /><path d="M12 10.5V17" /><path d="M12 7h.01" /></>;
+      return <><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></>;
     case "keyboardEdit":
-      return <><rect x="2.5" y="5" width="16" height="12" rx="2" /><path d="M5.5 9h1M9 9h1M12.5 9h1M5.5 12h1M9 12h1M6 15h6" /><path d="m14.5 18.8.7-2.7 4.9-4.9a1.3 1.3 0 0 1 1.8 1.8L17 17.9Z" /></>;
+      return <><path d="M10 8h.01" /><path d="M12 12h.01" /><path d="M14 8h.01" /><path d="M16 12h.01" /><path d="M18 8h.01" /><path d="M6 8h.01" /><path d="M7 16h10" /><path d="M8 12h.01" /><rect width="20" height="16" x="2" y="4" rx="2" /></>;
     case "reset":
-      return <><path d="M4.5 8.5V4.8l3.7.1" /><path d="M5 9a8 8 0 1 1-.7 5" /></>;
+      return <><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></>;
     case "microphone":
-      return <><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6" /></>;
+      return <><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></>;
     case "microphoneActive":
-      return <><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6M2.5 9v3M21.5 8v5" /></>;
+      return <><path d="M2 10v3" /><path d="M6 6v11" /><path d="M10 3v18" /><path d="M14 8v7" /><path d="M18 5v13" /><path d="M22 10v3" /></>;
     case "stop":
-      return <rect x="6" y="6" width="12" height="12" rx="2.5" />;
+      return <><rect width="18" height="18" x="3" y="3" rx="2" /></>;
     case "upload":
-      return <><path d="M12 15V3M8 7l4-4 4 4" /><path d="M4 16v4h16v-4" /></>;
+      return <><path d="M12 3v12" /><path d="m17 8-5-5-5 5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></>;
     case "personAutomatic":
-      return <><circle cx="9" cy="9" r="2.5" /><circle cx="16" cy="10" r="2" /><path d="M4.5 18c.6-3 2.1-4.5 4.5-4.5s4 1.5 4.6 4.5M14 14.5c1.8-.7 3.7.2 4.5 2.5" /><path d="m18.5 3 .5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5Z" /></>;
+      return <><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72" /><path d="m14 7 3 3" /><path d="M5 6v4" /><path d="M19 14v4" /><path d="M10 2v2" /><path d="M7 8H3" /><path d="M21 16h-4" /><path d="M11 3H9" /></>;
     case "personCount":
-      return <><circle cx="9" cy="9" r="2.5" /><circle cx="16" cy="10" r="2" /><path d="M4.5 18c.6-3 2.1-4.5 4.5-4.5s4 1.5 4.6 4.5M14 14.5c1.8-.7 3.7.2 4.5 2.5" /></>;
+      return <><path d="M18 21a8 8 0 0 0-16 0" /><circle cx="10" cy="8" r="5" /><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3" /></>;
     case "disclosure":
-      return <path d="m9 6 7 6-7 6Z" fill="currentColor" stroke="none" />;
+      return <><path d="m9 18 6-6-6-6" /></>;
     case "power":
-      return <><path d="M12 3v8" /><path d="M7.2 6.2a8 8 0 1 0 9.6 0" /></>;
+      return <><path d="M12 2v10" /><path d="M18.4 6.6a9 9 0 1 1-12.77.04" /></>;
     case "window":
-      return <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 8h18M7 6h.1M10 6h.1" /></>;
+      return <><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M10 4v4" /><path d="M2 8h20" /><path d="M6 4v4" /></>;
+    case "library":
+      return <><path d="m16 6 4 14" /><path d="M12 6v14" /><path d="M8 8v12" /><path d="M4 4v16" /></>;
+    case "fileAudio":
+      return <><path d="M4 6.835V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-.343" /><path d="M14 2v5a1 1 0 0 0 1 1h5" /><path d="M2 19a2 2 0 0 1 4 0v1a2 2 0 0 1-4 0v-4a6 6 0 0 1 12 0v4a2 2 0 0 1-4 0v-1a2 2 0 0 1 4 0" /></>;
+    case "search":
+      return <><path d="m21 21-4.34-4.34" /><circle cx="11" cy="11" r="8" /></>;
+    case "play":
+      return <><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></>;
+    case "pause":
+      return <><rect x="14" y="3" width="5" height="18" rx="1" /><rect x="5" y="3" width="5" height="18" rx="1" /></>;
+    case "more":
+      return <><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" /></>;
+    case "languages":
+      return <><path d="m5 8 6 6" /><path d="m4 14 6-6 2-3" /><path d="M2 5h12" /><path d="M7 2h1" /><path d="m22 22-5-10-5 10" /><path d="M14 18h6" /></>;
   }
 }

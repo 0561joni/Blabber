@@ -82,3 +82,22 @@ export function formatShortDate(iso: string) {
 export function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString(DATE_LOCALE, { dateStyle: "medium", timeStyle: "short" });
 }
+
+/** "23:04" */
+export function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString(DATE_LOCALE, { hour: "2-digit", minute: "2-digit" });
+}
+
+/** Clock-style duration for lists: "0:32", "8:13", "1:15:03". */
+export function formatListDuration(ms: number) {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = String(seconds % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+/** Drops an internal error code prefix such as "mic_denied: " so people see the sentence only. */
+export function readableError(message: string) {
+  return message.replace(/^[a-z][a-z0-9_]*:\s+/, "");
+}

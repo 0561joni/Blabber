@@ -6,8 +6,8 @@ import {
   Button,
   PageHeader,
   Progress,
+  ShortcutKeys,
 } from "../components/Feedback";
-import { AppIcon } from "../components/IconButton";
 import {
   TranscriptReader,
   formatTimestamp,
@@ -16,6 +16,9 @@ import { getRecordingInputLevel, copyTextToClipboard } from "../lib/api";
 import {
   formatShortcutForDisplay,
   formatPasteShortcutForDisplay,
+  formatListDuration,
+  formatTime,
+  readableError,
 } from "../lib/formatting";
 import type {
   AppSettings,
@@ -26,6 +29,7 @@ import type {
   QuickDictationStatusResponse,
   RecordingStatusResponse,
   TranscriptionPreviewResponse,
+  TranscriptSummary,
 } from "../types/domain";
 
 interface Props {
@@ -47,6 +51,8 @@ interface Props {
   onStopAndTranscribeRecording: () => Promise<void>;
   onCancelRecording: () => Promise<void>;
   onResetDictation: () => Promise<void>;
+  recentDictations?: TranscriptSummary[];
+  onOpenTranscript?: (id: string) => void;
 }
 
 export function DictateScreen(props: Props) {
@@ -103,8 +109,8 @@ export function DictateScreen(props: Props) {
     : processing
       ? props.outputState?.statusText || "Transcribing"
       : error
-        ? "Needs attention"
-        : manual.statusText || "Ready to dictate";
+        ? "Failed"
+        : manual.statusText || "Ready";
 
   useEffect(() => {
     if (!listening) {
@@ -166,40 +172,53 @@ export function DictateScreen(props: Props) {
     setActionError("");
   }
 
+  const holdOrPress = settings?.shortcutMode === "toggle" ? "Press" : "Hold";
+  const lastId = quick?.lastTranscriptId ?? null;
+  const today = new Date().toDateString();
+  const earlier = (props.recentDictations ?? [])
+    .filter(
+      (item) =>
+        item.sourceType === "quick_dictate" &&
+        item.id !== lastId &&
+        new Date(item.createdAt).toDateString() === today,
+    )
+    .slice(0, 5);
+  const hasResult = Boolean(result || quickText || translatedOutput) && !listening && !processing;
+  const outcomeTone = result && !result.plainText.trim() ? "warning" : "success";
+
   return (
     <section className="screen dictate-screen">
-      <PageHeader
-        eyebrow="YOUR VOICE, IN WORDS"
-        title="Dictate"
-        description="A thought, a message, a little more momentum."
-      >
-        <span className="local-badge">
-          <span /> On-device transcription
-        </span>
+      <PageHeader title="Dictate">
+        {props.outputState ? (
+          <div className="output-picker">
+            <label htmlFor="dictation-output-language">Output language</label>
+            <select
+              id="dictation-output-language"
+              value={props.outputState.outputMode}
+              disabled={props.outputState.busy || pending}
+              title={`${formatShortcutForDisplay(settings?.translationCycleShortcut ?? "CmdOrCtrl+Shift+Right", props.platform)} switches language from any app`}
+              onChange={(event) => void act(() => props.onOutputModeChange?.(event.target.value as OutputMode) ?? Promise.resolve())}
+            >
+              {OUTPUT_MODES.map((item) => <option key={item.value} value={item.value} disabled={item.value !== "original" && !props.outputState?.ready}>{item.label}</option>)}
+            </select>
+            {!props.outputState.ready ? (
+              <Button variant="ghost" onClick={() => props.onResolveReadiness("model")}>Set up translation</Button>
+            ) : props.outputState.outputMode !== "original" ? (
+              <span className="output-picker-note">Back to Original after 1 min idle</span>
+            ) : null}
+          </div>
+        ) : null}
       </PageHeader>
-      {props.outputState ? <div className="surface translation-controls">
-        <label htmlFor="dictation-output-language">Output language</label>
-        <select id="dictation-output-language" value={props.outputState.outputMode}
-          disabled={props.outputState.busy || pending}
-          onChange={(event) => void act(() => props.onOutputModeChange?.(event.target.value as OutputMode) ?? Promise.resolve())}>
-          {OUTPUT_MODES.map((item) => <option key={item.value} value={item.value} disabled={item.value !== "original" && !props.outputState?.ready}>{item.label}</option>)}
-        </select>
-        <span className="muted">{formatShortcutForDisplay(settings?.translationCycleShortcut ?? "CmdOrCtrl+Shift+Right", props.platform)} · Change language</span>
-        {!props.outputState.ready ? <>
-          <button className="secondary-inline-button" onClick={() => props.onResolveReadiness("model")}>Set up local translation</button>
-          {settings?.translationEnabled && props.outputState.errorMessage ? <span className="muted" role="status">{props.outputState.errorMessage}</span> : null}
-        </> : null}
-      </div> : null}
+      {settings?.translationEnabled && props.outputState && !props.outputState.ready && props.outputState.errorMessage ? (
+        <p className="notice-text" role="status">{readableError(props.outputState.errorMessage)}</p>
+      ) : null}
       {readiness &&
       (!readiness.hasModel ||
         !readiness.shortcutRegistered ||
         (readiness.accessibilityRequired &&
           !readiness.accessibilityGranted)) ? (
         <aside className="setup-panel" aria-label="Dictation setup">
-          <div>
-            <AppIcon name="info" />
-            <strong>Make yourself heard</strong>
-          </div>
+          <strong>Finish setup</strong>
           {!readiness.hasModel ? (
             <div className="setup-row">
               <span>Download a speech model to start transcribing.</span>
@@ -211,7 +230,7 @@ export function DictateScreen(props: Props) {
           {!readiness.shortcutRegistered ? (
             <div className="setup-row">
               <span>
-                Use the record button here, or set up your keyboard shortcut.
+                Set a keyboard shortcut to dictate from any app. The record button works without one.
               </span>
               <Button onClick={() => props.onResolveReadiness("shortcut")}>
                 Set a shortcut
@@ -222,8 +241,7 @@ export function DictateScreen(props: Props) {
           !readiness.accessibilityGranted ? (
             <div className="setup-row">
               <span>
-                Allow auto-paste to insert words into another app. You can still
-                copy them.
+                Allow Accessibility access so Blabber can paste into other apps. Without it, text is copied.
               </span>
               <Button onClick={() => props.onResolveReadiness("accessibility")}>
                 {props.isPollingAccessibility ? "Check again" : "Grant access"}
@@ -232,74 +250,16 @@ export function DictateScreen(props: Props) {
           ) : null}
         </aside>
       ) : null}
-      <article
+      <div
         className={
-          "dictation-studio surface" +
+          "recorder" +
           (listening ? " is-listening" : processing ? " is-processing" : "")
         }
       >
-        <div className="studio-topline">
-          <span
-            className={"state-label" + (listening ? " live" : "")}
-            role="status"
-          >
-            <span />
-            {stateLabel}
-          </span>
-          <span className="studio-device">
-            {recording?.activeInputDevice ??
-              settings?.preferredInputDevice ??
-              "System microphone"}
-          </span>
-        </div>
-        <div className="recording-stage">
-          <div
-            className="voice-meter"
-            role="meter"
-            aria-label="Microphone input level"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(level * 100)}
-          >
-            {Array.from({ length: 29 }, (_, index) => (
-              <span
-                key={index}
-                style={{
-                  height:
-                    4 +
-                    (listening
-                      ? Math.pow(level, 0.65) *
-                        (22 + 46 * Math.sin(((index + 1) / 30) * Math.PI))
-                      : 0) +
-                    "px",
-                }}
-              />
-            ))}
-          </div>
-          <span className="recording-time">
-            {formatTimestamp(
-              listening || canStop ? (recording?.durationMs ?? 0) : 0,
-            )}
-          </span>
-          <h2>
-            {listening
-              ? "Go ahead. We’re listening."
-              : processing
-                ? "Finding your words…"
-                : "What’s on your mind?"}
-          </h2>
-          <p className="muted studio-hint">
-            {listening
-              ? !levelAvailable
-                ? "Input meter unavailable. Recording is still active."
-                : "Speak naturally. Stop when you’re finished."
-              : processing
-                ? props.outputState?.statusText || manual.statusText ||
-                  "Your audio is being transcribed on this device."
-                : "Start recording and let your words take shape."}
-          </p>
+        <div className="recorder-controls">
           <Button
             className="record-control"
+            size="large"
             variant={canStop ? "danger" : "primary"}
             icon={canStop ? "stop" : "microphone"}
             disabled={
@@ -325,62 +285,109 @@ export function DictateScreen(props: Props) {
                   ? "Shortcut dictation active"
                   : "Start recording"}
           </Button>
-          <div className="recording-secondary">
-            {canStop ? (
-              <Button
-                variant="ghost"
-                onClick={() => void act(props.onCancelRecording)}
-                disabled={pending}
-              >
-                Cancel recording
-              </Button>
-            ) : (
-              <span className="shortcut-hint">
-                Or use <kbd>{shortcut || "your shortcut"}</kbd> from any app
-              </span>
-            )}
-          </div>
+          {canStop ? (
+            <Button
+              variant="ghost"
+              onClick={() => void act(props.onCancelRecording)}
+              disabled={pending}
+            >
+              Cancel recording
+            </Button>
+          ) : null}
+          {processing || quickActive ? (
+            <ActionButton
+              variant="ghost"
+              icon="reset"
+              action={reset}
+              success="Reset"
+            >
+              Reset stuck dictation
+            </ActionButton>
+          ) : null}
         </div>
-        {processing ? <Progress label={props.outputState?.statusText || "Transcribing recording"} /> : null}
-        <footer className="studio-footer">
-          <span>
-            <AppIcon name="window" /> Your audio stays on your device
+        <span className="recording-time">
+          {formatTimestamp(
+            listening || canStop ? (recording?.durationMs ?? 0) : 0,
+          )}
+        </span>
+        <div
+          className="voice-meter"
+          role="meter"
+          aria-label="Microphone input level"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(level * 100)}
+        >
+          {Array.from({ length: 40 }, (_, index) => (
+            <span
+              key={index}
+              style={{
+                height:
+                  2 +
+                  (listening
+                    ? Math.pow(level, 0.65) *
+                      (6 + 20 * Math.abs(Math.sin((index + 1) * 1.7)))
+                    : 0) +
+                  "px",
+              }}
+            />
+          ))}
+        </div>
+        <div className="recorder-status">
+          <span
+            className={
+              "state-label" +
+              (listening ? " is-live" : error && !processing ? " is-error" : processing ? " is-busy" : "")
+            }
+            role="status"
+          >
+            {stateLabel}
           </span>
-          <span>
-            {settings?.saveHistory ? "History enabled" : "History off"}
+          <span className="studio-device">
+            {recording?.activeInputDevice ??
+              settings?.preferredInputDevice ??
+              "System microphone"}
           </span>
-        </footer>
-      </article>
+        </div>
+      </div>
+      {processing ? <Progress label={props.outputState?.statusText || "Transcribing recording"} /> : null}
+      <p className="recorder-hint">
+        {listening
+          ? !levelAvailable
+            ? "Input meter unavailable. Recording is still active."
+            : "Speak normally. Stop when you’re done."
+          : processing
+            ? props.outputState?.statusText || manual.statusText ||
+              "Transcribing on this Mac."
+            : shortcut
+              ? <>Or {holdOrPress.toLowerCase()} <ShortcutKeys shortcut={shortcut} /> in any app</>
+              : "Set a shortcut in Settings to dictate from any app."}
+      </p>
       {error ? (
         <div className="error-panel" role="alert">
-          <strong>Let’s try that again</strong>
-          <p>{error}</p>
-          {quick?.canRetryStreaming && props.onRetryLive ? <>
-            <p>The recording is retained. Retry returns text here for you to copy; it will not paste into another app.</p>
-            <ActionButton icon="reset" action={props.onRetryLive} success="Transcript ready">Retry transcription</ActionButton>
-          </> : null}
-          <ActionButton icon="reset" action={reset} success="Reset">
-            Reset dictation
-          </ActionButton>
+          <strong>Dictation failed</strong>
+          <p>{readableError(error)}</p>
+          {quick?.canRetryStreaming && props.onRetryLive ? (
+            <p className="error-panel-note">
+              The recording was kept. Retry shows the text here to copy; it won’t paste into another app.
+            </p>
+          ) : null}
+          <div className="error-panel-actions">
+            {quick?.canRetryStreaming && props.onRetryLive ? (
+              <ActionButton icon="reset" action={props.onRetryLive} success="Transcript ready">Retry transcription</ActionButton>
+            ) : null}
+            <ActionButton icon="reset" action={reset} success="Reset">
+              Reset dictation
+            </ActionButton>
+          </div>
         </div>
       ) : null}
-      {processing || quickActive ? (
-        <ActionButton
-          variant="ghost"
-          icon="reset"
-          action={reset}
-          success="Reset"
-        >
-          Reset stuck dictation
-        </ActionButton>
-      ) : null}
-      {(result || quickText || translatedOutput) && !listening && !processing ? (
-        <article className="surface result-panel">
+      {hasResult ? (
+        <section className="dictation-result" aria-labelledby="last-dictation-heading">
           <div className="section-header">
-            <div>
-              <p className="eyebrow">YOUR WORDS</p>
-              <h2 role="status">{outcome}</h2>
-            </div>
+            <h2 id="last-dictation-heading" className="section-title">Last dictation</h2>
+            <span className={"status-text is-" + outcomeTone} role="status">{outcome}</span>
+            <span className="section-header-spacer" />
             {!translatedOutput ? <ActionButton
               icon="copy"
               disabled={!String(result?.plainText ?? quickText ?? "").trim()}
@@ -393,7 +400,7 @@ export function DictateScreen(props: Props) {
             </ActionButton> : null}
           </div>
           {quick?.lastInsertWarning && !result ? (
-            <p className="muted" role="status">{quick.lastInsertWarning}</p>
+            <p className="notice-text" role="status">{quick.lastInsertWarning}</p>
           ) : null}
           {quick?.lastInsertOutcome === "clipboard_only" && !result ? (
             <p className="muted">
@@ -410,16 +417,30 @@ export function DictateScreen(props: Props) {
           ) : (
             <p className="transcript-body">{quickText}</p>
           )}
-        </article>
-      ) : (
-        <div className="workspace-tip">
-          <AppIcon name="keyboardEdit" />
-          <div>
-            <strong>A shortcut to your next sentence</strong>
-            <p>Use dictation in emails, documents, and anywhere you write.</p>
-          </div>
-        </div>
-      )}
+        </section>
+      ) : null}
+      {earlier.length > 0 ? (
+        <section className="recent-dictations" aria-labelledby="earlier-heading">
+          <h2 id="earlier-heading" className="section-title">Earlier today</h2>
+          <ul>
+            {earlier.map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className="recent-row"
+                  onClick={() => props.onOpenTranscript?.(item.id)}
+                >
+                  <span className="recent-text">{item.plainText.trim() || item.title}</span>
+                  <span className="recent-num">{formatTime(item.createdAt)}</span>
+                  <span className="recent-num">{item.durationMs != null ? formatListDuration(item.durationMs) : ""}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : !hasResult && !error && settings && !settings.saveHistory ? (
+        <p className="muted recent-empty">History is off, so past dictations aren’t kept.</p>
+      ) : null}
     </section>
   );
 }

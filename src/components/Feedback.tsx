@@ -12,12 +12,15 @@ export function Button({
   icon,
   busy,
   variant = "secondary",
+  size = "default",
   className = "",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   icon?: AppIconName;
   busy?: boolean;
+  /** primary: the one main action per view · secondary: outlined · ghost: quiet text · danger: destructive or stop */
   variant?: "primary" | "secondary" | "danger" | "ghost";
+  size?: "default" | "large";
 }) {
   return (
     <button
@@ -25,7 +28,7 @@ export function Button({
       {...props}
       aria-busy={busy || undefined}
       disabled={props.disabled || busy}
-      className={["button", "button-" + variant, className].join(" ")}
+      className={["button", "button-" + variant, size === "large" ? "button-large" : "", className].filter(Boolean).join(" ")}
     >
       {busy ? (
         <span className="icon-button-spinner" aria-hidden="true" />
@@ -91,25 +94,25 @@ export function ActionButton({
   );
 }
 
+/** Screen toolbar: the title on the left, screen-level controls on the right. */
 export function PageHeader({
-  eyebrow,
   title,
   description,
   children,
 }: {
-  eyebrow: string;
+  /** @deprecated Kept so existing callers compile; no longer rendered. */
+  eyebrow?: string;
   title: string;
   description?: string;
   children?: ReactNode;
 }) {
   return (
     <header className="page-header">
-      <div>
-        <p className="eyebrow">{eyebrow}</p>
+      <div className="page-header-title">
         <h1>{title}</h1>
-        {description ? <p className="muted">{description}</p> : null}
+        {description ? <p className="page-header-description">{description}</p> : null}
       </div>
-      {children}
+      {children ? <div className="page-header-actions">{children}</div> : null}
     </header>
   );
 }
@@ -143,5 +146,17 @@ export function Progress({
         }
       />
     </div>
+  );
+}
+
+/** Shows a shortcut as separate keycaps, e.g. ⌘ ⇧ Space. Expects the text from formatShortcutForDisplay. */
+export function ShortcutKeys({ shortcut }: { shortcut: string }) {
+  const keys = shortcut.split("+").filter(Boolean);
+  return (
+    <span className="shortcut-keys" aria-label={keys.join(" ")}>
+      {keys.map((key, index) => (
+        <kbd key={index} aria-hidden="true">{key}</kbd>
+      ))}
+    </span>
   );
 }

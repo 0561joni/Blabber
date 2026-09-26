@@ -165,6 +165,10 @@ pub struct DictationSession {
     pub recording_id: Option<String>,
     pub recording_path: Option<String>,
 }
+/// A translated output language falls back to Original after this much idle
+/// time, so a later dictation is not translated by accident.
+const ORIGINAL_RESET_AFTER: Duration = Duration::from_secs(60);
+
 #[derive(Default)]
 struct SessionState {
     mode: OutputMode,
@@ -172,8 +176,30 @@ struct SessionState {
     stage: String,
     status_text: String,
     last_output: Option<DictationOutput>,
+    /// Bumped on every language change and dictation end; a pending reset
+    /// only applies if nothing happened since it was armed.
+    reset_revision: u64,
 }
 impl SessionState {
+    /// Restarts the countdown back to Original. Returns the revision the
+    /// countdown must still match when it ends, or None if no reset is due.
+    fn arm_original_reset(&mut self) -> Option<u64> {
+        self.reset_revision = self.reset_revision.wrapping_add(1);
+        (self.mode != OutputMode::Original && self.active.is_none()).then_some(self.reset_revision)
+    }
+    /// Switches back to Original if the countdown is still current and no
+    /// dictation or recording is running. Returns true when the mode changed.
+    fn expire_original_reset(&mut self, revision: u64, recording: bool) -> bool {
+        if revision != self.reset_revision
+            || self.active.is_some()
+            || recording
+            || self.mode == OutputMode::Original
+        {
+            return false;
+        }
+        self.mode = OutputMode::Original;
+        true
+    }
     fn change_mode(&mut self, mode: OutputMode, recording: bool) -> Result<()> {
         if self.active.is_some() || recording {
             bail!("Finish or cancel the current dictation before changing its language.");
@@ -396,6 +422,41 @@ impl TranslationService {
     pub fn cycle(&self) -> Result<OutputState> {
         self.change_mode(None)
     }
+    fn is_recording(&self) -> bool {
+        self.recording.status().is_ok_and(|s| {
+            matches!(
+                s.state,
+                RecordingOverlayState::Listening | RecordingOverlayState::Paused
+            )
+        })
+    }
+    fn schedule_original_reset(&self, revision: Option<u64>) {
+        let Some(revision) = revision else { return };
+        let service = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(ORIGINAL_RESET_AFTER);
+            service.expire_original_reset(revision);
+        });
+    }
+    fn expire_original_reset(&self, revision: u64) {
+        let recording = self.is_recording();
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if recording && state.reset_revision == revision && state.active.is_none() {
+            // The microphone is busy (for example a microphone test): wait another round.
+            let next = state.arm_original_reset();
+            drop(state);
+            self.schedule_original_reset(next);
+            return;
+        }
+        let changed = state.expire_original_reset(revision, recording);
+        drop(state);
+        if changed {
+            self.shell.set_output_mode(OutputMode::Original);
+            self.publish();
+        }
+    }
     fn change_mode(&self, requested: Option<OutputMode>) -> Result<OutputState> {
         let mut state = self
             .state
@@ -405,16 +466,10 @@ impl TranslationService {
         if mode != OutputMode::Original {
             self.ready()?;
         }
-        state.change_mode(
-            mode,
-            self.recording.status().is_ok_and(|s| {
-                matches!(
-                    s.state,
-                    RecordingOverlayState::Listening | RecordingOverlayState::Paused
-                )
-            }),
-        )?;
+        state.change_mode(mode, self.is_recording())?;
+        let reset = state.arm_original_reset();
         drop(state);
+        self.schedule_original_reset(reset);
         self.shell.set_output_mode(mode);
         self.shell.flash_mode()?;
         self.publish();
@@ -567,8 +622,10 @@ impl TranslationService {
         self.queue.acquire(id, cancelled)
     }
     pub fn cancel(&self) {
+        let mut reset = None;
         let active = self.state.lock().ok().and_then(|mut s| {
             let active = s.active.take();
+            reset = s.arm_original_reset();
             if let Some(session) = &active {
                 session.cancelled.store(true, Ordering::SeqCst);
             }
@@ -594,17 +651,21 @@ impl TranslationService {
         if let Some(session) = active {
             self.queue.remove(&session.id);
         }
+        self.schedule_original_reset(reset);
         self.publish();
     }
     fn finish(&self, id: &str) {
         let mut overlay = None;
+        let mut reset = None;
         if let Ok(mut state) = self.state.lock() {
             if state.active.as_ref().is_some_and(|s| s.id == id) {
                 overlay = Some(self.shell.overlay_payload());
                 state.finish(id);
+                reset = state.arm_original_reset();
                 self.shell.set_output_mode(state.mode);
             }
         }
+        self.schedule_original_reset(reset);
         if let Some(overlay) = overlay {
             if matches!(
                 overlay.phase,
@@ -1103,6 +1164,24 @@ mod tests {
         assert!(state.finish("first"));
         assert!(state.change_mode(OutputMode::French, true).is_err()); // microphone test
         state.change_mode(OutputMode::French, false).unwrap();
+    }
+    #[test]
+    fn translated_language_returns_to_original_only_after_an_undisturbed_countdown() {
+        let mut state = SessionState::default();
+        assert_eq!(state.arm_original_reset(), None); // already Original
+        state.change_mode(OutputMode::French, false).unwrap();
+        let first = state.arm_original_reset().unwrap();
+        let second = state.arm_original_reset().unwrap(); // a later dictation restarts it
+        assert!(!state.expire_original_reset(first, false));
+        assert_eq!(state.mode, OutputMode::French);
+        assert!(!state.expire_original_reset(second, true)); // microphone busy
+        state.active = Some(session("running"));
+        assert!(!state.expire_original_reset(second, false)); // dictation running
+        assert_eq!(state.arm_original_reset(), None);
+        state.active = None;
+        let third = state.arm_original_reset().unwrap();
+        assert!(state.expire_original_reset(third, false));
+        assert_eq!(state.mode, OutputMode::Original);
     }
     #[test]
     fn late_session_cleanup_cannot_finish_a_new_dictation() {

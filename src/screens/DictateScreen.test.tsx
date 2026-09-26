@@ -186,4 +186,33 @@ describe("Dictation workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
     expect(current.onResolveReadiness).toHaveBeenCalledWith("accessibility");
   });
+
+  it("lists today's earlier dictations with time and duration and opens one", () => {
+    const onOpenTranscript = vi.fn();
+    const summary = (id: string, createdAt: string, sourceType: "quick_dictate" | "file_upload", plainText: string) => ({
+      id, createdAt, sourceType, title: id, plainText, status: "completed" as const, detectedLanguages: ["de"],
+      durationMs: 32000, modelName: null, qualityStatus: "clean" as const, recoveredRegionCount: 0,
+      diarizationStatus: "not_requested" as const, speakerCount: null,
+    });
+    const now = new Date();
+    const earlierToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 1).toISOString();
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12).toISOString();
+    render(
+      <DictateScreen
+        {...props()}
+        recentDictations={[
+          summary("today", earlierToday, "quick_dictate", "Kurze Notiz zum Budget."),
+          summary("file", earlierToday, "file_upload", "An uploaded interview."),
+          summary("old", yesterday, "quick_dictate", "Yesterday's note."),
+        ] as never}
+        onOpenTranscript={onOpenTranscript}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Earlier today" })).toBeTruthy();
+    expect(screen.queryByText("An uploaded interview.")).toBeNull();
+    expect(screen.queryByText("Yesterday's note.")).toBeNull();
+    expect(screen.getByText("0:32")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Kurze Notiz zum Budget/ }));
+    expect(onOpenTranscript).toHaveBeenCalledWith("today");
+  });
 });
