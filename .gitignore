@@ -1,0 +1,32 @@
+node_modules
+dist
+.DS_Store
+.claude/
+.codex/
+target
+src-tauri/target
+src-tauri/bundle/windows-cuda-runtime
+src-tauri/gen
+*.log
+workers/**/__pycache__/
+workers/**/build/
+workers/**/dist/
+
+src-tauri/bundle/translation/*
+!src-tauri/bundle/translation/.gitkeep
+
+src-tauri/bundle/r2t2/*
+!src-tauri/bundle/r2t2/.gitkeep
+
+src-tauri/bundle/vibevoice/*
+!src-tauri/bundle/vibevoice/.gitkeep
+src-tauri/bundle/moss/*
+!src-tauri/bundle/moss/.gitkeep
+
+# Private / local-only data (never publish)
+_private/
+benchmark-results/reference-cache/
+benchmark-results/semantic-cache/
+benchmark-results/*-evaluate.json
+benchmark-results/*-model-bench.json
+Claude outputs/signing-diagnostic.txt

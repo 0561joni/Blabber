@@ -1,0 +1,355 @@
+{
+  "workerSha256": "1fd30f567b87ac716e880339e3142543b007c4ee37a49a6cb7b374a232af2e7e",
+  "synthetic": true,
+  "results": [
+    {
+      "fixture": "de-01",
+      "expected": "Bitte schicke die aktualisierte Rechnung morgen an Frau Müller.",
+      "text": "Bitte schicke die aktualisierte Rechnung morgen an Frau Müller.",
+      "wer": 0.0,
+      "loadSeconds": 2.1210098339943215,
+      "totalSeconds": 3.729561874992214
+    },
+    {
+      "fixture": "de-02",
+      "expected": "Der Termin beginnt um neun Uhr dreißig und endet um elf Uhr.",
+      "text": "Der Termin beginnt um 9:30 und endet um 11:",
+      "wer": 0.4166666666666667,
+      "loadSeconds": 0.00025683299463707954,
+      "totalSeconds": 1.5861354999942705
+    },
+    {
+      "fixture": "de-03",
+      "expected": "Ich möchte diese Änderung ausdrücklich nicht veröffentlichen.",
+      "text": "Ich möchte diese Änderung ausdrücklich nicht veröffentlichen.",
+      "wer": 0.0,
+      "loadSeconds": 0.0002614170080050826,
+      "totalSeconds": 1.4664917500049341
+    },
+    {
+      "fixture": "de-04",
+      "expected": "Wir haben zwölf Bestellungen und sieben offene Rückfragen.",
+      "text": "Wir haben zwölf Bestellungen und sieben offene Rückfragen.",
+      "wer": 0.0,
+      "loadSeconds": 0.0001908330013975501,
+      "totalSeconds": 1.5713646670046728
+    },
+    {
+      "fixture": "de-05",
+      "expected": "Die Größe der Küche beträgt ungefähr achtzehn Quadratmeter.",
+      "text": "Die Größe der Küche beträgt ungefähr 18 Quadratmeter",
+      "wer": 0.125,
+      "loadSeconds": 0.0002944169973488897,
+      "totalSeconds": 1.8930972079979256
+    },
+    {
+      "fixture": "de-06",
+      "expected": "Bitte prüfe die Dokumentation und starte anschließend den Test.",
+      "text": "Bitte prüfe die Dokumentation und starte anschließend den Test.",
+      "wer": 0.0,
+      "loadSeconds": 0.00030004201107658446,
+      "totalSeconds": 1.7616195000009611
+    },
+    {
+      "fixture": "de-07",
+      "expected": "Ich denke, wir sollten zuerst die einfachere Lösung versuchen.",
+      "text": "Ich denke, wir sollten zuerst die einfachere Lösung versuchen.",
+      "wer": 0.0,
+      "loadSeconds": 0.000218084009247832,
+      "totalSeconds": 1.8952664590033237
+    },
+    {
+      "fixture": "de-08",
+      "expected": "Nein, nein, diese Datei darf noch nicht gelöscht werden.",
+      "text": "Nein, nein, diese Datei darf noch nicht gelöscht werden.",
+      "wer": 0.0,
+      "loadSeconds": 0.00020087500161025673,
+      "totalSeconds": 1.5427233750087908
+    },
+    {
+      "fixture": "de-09",
+      "expected": "Die Straße führt über die Brücke zum öffentlichen Gebäude.",
+      "text": "Die Straße führt über die Brücke zum öffentlichen Gebäude.",
+      "wer": 0.0,
+      "loadSeconds": 0.0002989170025102794,
+      "totalSeconds": 1.5504116670053918
+    },
+    {
+      "fixture": "de-10",
+      "expected": "Heute ist der zweiundzwanzigste September zweitausendsechsundzwanzig.",
+      "text": "Heute ist der 22. September 2026",
+      "wer": 0.3333333333333333,
+      "loadSeconds": 0.00021383300190791488,
+      "totalSeconds": 1.9821052080078516
+    },
+    {
+      "fixture": "de-11",
+      "expected": "Kannst du mir bitte erklären, warum die Verbindung unterbrochen wurde?",
+      "text": "Kannst du mir bitte erklären, warum die Verbindung unterbrochen wurde?",
+      "wer": 0.0,
+      "loadSeconds": 0.0002284579968545586,
+      "totalSeconds": 1.9914642910007387
+    },
+    {
+      "fixture": "de-12",
+      "expected": "Das Passwort gehört nicht in das öffentliche Protokoll.",
+      "text": "Das Passwort gehört nicht in das öffentliche Protokoll.",
+      "wer": 0.0,
+      "loadSeconds": 0.0002423330006422475,
+      "totalSeconds": 1.4652320829918608
+    },
+    {
+      "fixture": "de-13",
+      "expected": "Wir brauchen sowohl eine deutsche als auch eine englische Fassung.",
+      "text": "Wir brauchen sowohl eine deutsche als auch eine englische Fassung.",
+      "wer": 0.0,
+      "loadSeconds": 0.00021358300000429153,
+      "totalSeconds": 1.5108177920046728
+    },
+    {
+      "fixture": "de-14",
+      "expected": "Vielen Dank für Ihre Nachricht. Ich melde mich am Freitag zurück.",
+      "text": "Vielen Dank für Ihre Nachricht. Ich melde mich am Freitag zurück.",
+      "wer": 0.0,
+      "loadSeconds": 0.0002764169912552461,
+      "totalSeconds": 1.816622958998778
+    },
+    {
+      "fixture": "de-15",
+      "expected": "Der Gesamtbetrag beträgt zweihundertfünfundvierzig Euro.",
+      "text": "der Gesamtbetrag beträgt zweihundertfünfundvierzig Euro",
+      "wer": 0.0,
+      "loadSeconds": 0.0002397499920334667,
+      "totalSeconds": 1.8926272499957122
+    },
+    {
+      "fixture": "de-16",
+      "expected": "Bitte ändere nur den Titel und lasse den übrigen Text unverändert.",
+      "text": "Bitte ändern nur den Titel und lasse den übrigen Text unverändert.",
+      "wer": 0.09090909090909091,
+      "loadSeconds": 0.00020133399812038988,
+      "totalSeconds": 1.9402588340017246
+    },
+    {
+      "fixture": "de-17",
+      "expected": "Ich habe die neue Version bereits auf meinem Computer installiert.",
+      "text": "Ich habe die neue Version bereits auf meinem Computer installiert.",
+      "wer": 0.0,
+      "loadSeconds": 0.00020354200387373567,
+      "totalSeconds": 1.6958529590046965
+    },
+    {
+      "fixture": "de-18",
+      "expected": "Die Überprüfung muss vollständig abgeschlossen sein, bevor wir fortfahren.",
+      "text": "Die Überprüfung muss vollständig abgeschlossen sein, bevor wir fortfahren.",
+      "wer": 0.0,
+      "loadSeconds": 0.00021625000226777047,
+      "totalSeconds": 2.112277249994804
+    },
+    {
+      "fixture": "de-19",
+      "expected": "Erster Punkt: die Qualität. Zweiter Punkt: die Geschwindigkeit.",
+      "text": "Erster Punkt: die Qualität. Zweiter Punkt: die Geschwindigkeit.",
+      "wer": 0.0,
+      "loadSeconds": 0.00020037499780301005,
+      "totalSeconds": 2.1041347080026753
+    },
+    {
+      "fixture": "de-20",
+      "expected": "Das war mein letzter Satz. Bitte füge keine weiteren Wörter hinzu.",
+      "text": "Das war mein letzter Satz. Bitte füge keine weiteren Wörter hinzu.",
+      "wer": 0.0,
+      "loadSeconds": 0.00021212499996181577,
+      "totalSeconds": 1.8907114580069901
+    },
+    {
+      "fixture": "en-01",
+      "expected": "Please send the updated invoice to Doctor Miller tomorrow.",
+      "text": "Please send the updated invoice to Dr. Miller tomorrow.",
+      "wer": 0.1111111111111111,
+      "loadSeconds": 0.00020249999943189323,
+      "totalSeconds": 1.0904248330043629
+    },
+    {
+      "fixture": "en-02",
+      "expected": "The appointment starts at nine thirty and ends at eleven.",
+      "text": "The appointment starts at 9:30 and ends at 11.",
+      "wer": 0.3,
+      "loadSeconds": 0.0003035830013686791,
+      "totalSeconds": 1.1841091669921298
+    },
+    {
+      "fixture": "en-03",
+      "expected": "I explicitly do not want to publish this change.",
+      "text": "I explicitly do not want to publish this change.",
+      "wer": 0.0,
+      "loadSeconds": 0.00020258300355635583,
+      "totalSeconds": 1.053324958003941
+    },
+    {
+      "fixture": "en-04",
+      "expected": "We have twelve orders and seven unanswered questions.",
+      "text": "We have 12 orders and seven unanswered questions.",
+      "wer": 0.125,
+      "loadSeconds": 0.0002307499962626025,
+      "totalSeconds": 1.1650930839969078
+    },
+    {
+      "fixture": "en-05",
+      "expected": "The kitchen is approximately eighteen square meters.",
+      "text": "The kitchen is approximately 18 square meters.",
+      "wer": 0.14285714285714285,
+      "loadSeconds": 0.00029166600143071264,
+      "totalSeconds": 1.058099250003579
+    },
+    {
+      "fixture": "en-06",
+      "expected": "Please check the documentation and then start the test.",
+      "text": "Please check the documentation and then start the test.",
+      "wer": 0.0,
+      "loadSeconds": 0.00018829198961611837,
+      "totalSeconds": 1.0605703749897657
+    },
+    {
+      "fixture": "en-07",
+      "expected": "I think we should try the simpler solution first.",
+      "text": "I think we should try the simpler solution first.",
+      "wer": 0.0,
+      "loadSeconds": 0.00021304200345184654,
+      "totalSeconds": 1.0965447920025326
+    },
+    {
+      "fixture": "en-08",
+      "expected": "No, no, this file must not be deleted yet.",
+      "text": "No, no, this file must not be deleted yet.",
+      "wer": 0.0,
+      "loadSeconds": 0.0002387080021435395,
+      "totalSeconds": 1.384533750009723
+    },
+    {
+      "fixture": "en-09",
+      "expected": "The street goes over the bridge to the public building.",
+      "text": "The street goes over the bridge to the public building.",
+      "wer": 0.0,
+      "loadSeconds": 0.00022683398856315762,
+      "totalSeconds": 1.1162034169974504
+    },
+    {
+      "fixture": "en-10",
+      "expected": "Today is September twenty second, twenty twenty six.",
+      "text": "Today is September 22, 2026.",
+      "wer": 0.625,
+      "loadSeconds": 0.00023225000768434256,
+      "totalSeconds": 1.3600869590009097
+    },
+    {
+      "fixture": "en-11",
+      "expected": "Could you please explain why the connection was interrupted?",
+      "text": "Could you please explain why the connection was interrupted?",
+      "wer": 0.0,
+      "loadSeconds": 0.0002892079937737435,
+      "totalSeconds": 1.1276420409994898
+    },
+    {
+      "fixture": "en-12",
+      "expected": "The password does not belong in the public log.",
+      "text": "The password does not belong in the public log.",
+      "wer": 0.0,
+      "loadSeconds": 0.0001903749944176525,
+      "totalSeconds": 1.0457030419929652
+    },
+    {
+      "fixture": "en-13",
+      "expected": "We need both a German version and an English version.",
+      "text": "We need both a German version and an English version.",
+      "wer": 0.0,
+      "loadSeconds": 0.0002744169905781746,
+      "totalSeconds": 1.1131503340002382
+    },
+    {
+      "fixture": "en-14",
+      "expected": "Thank you for your message. I will get back to you on Friday.",
+      "text": "Thank you for your message. I will get back to you on Friday.",
+      "wer": 0.0,
+      "loadSeconds": 0.00028087499958928674,
+      "totalSeconds": 1.564661915996112
+    },
+    {
+      "fixture": "en-15",
+      "expected": "The total amount is two hundred and forty five euros.",
+      "text": "The total amount is 245 euros.",
+      "wer": 0.5,
+      "loadSeconds": 0.00022300001000985503,
+      "totalSeconds": 1.0935412920080125
+    },
+    {
+      "fixture": "en-16",
+      "expected": "Please change only the title and leave the rest of the text unchanged.",
+      "text": "Please change only the title and leave the rest of the text unchanged.",
+      "wer": 0.0,
+      "loadSeconds": 0.00021662500512320548,
+      "totalSeconds": 1.4838509999972302
+    },
+    {
+      "fixture": "en-17",
+      "expected": "I have already installed the new version on my computer.",
+      "text": "I have already installed the new version on my computer.",
+      "wer": 0.0,
+      "loadSeconds": 0.00017699999443721026,
+      "totalSeconds": 1.0995931249926798
+    },
+    {
+      "fixture": "en-18",
+      "expected": "The review must be fully completed before we continue.",
+      "text": "The review must be fully completed before we continue.",
+      "wer": 0.0,
+      "loadSeconds": 0.00022687499586027116,
+      "totalSeconds": 1.1421476249961415
+    },
+    {
+      "fixture": "en-19",
+      "expected": "First point: quality. Second point: speed.",
+      "text": "First point, quality. Second point, speed.",
+      "wer": 0.0,
+      "loadSeconds": 0.00018883400480262935,
+      "totalSeconds": 1.275207999991835
+    },
+    {
+      "fixture": "en-20",
+      "expected": "That was my last sentence. Please do not add any more words.",
+      "text": "That was my last sentence. Please do not add any more words.",
+      "wer": 0.0,
+      "loadSeconds": 0.0002682920021470636,
+      "totalSeconds": 1.4776369999890449
+    },
+    {
+      "silenceSamples": 0,
+      "status": "passed"
+    },
+    {
+      "silenceSamples": 1,
+      "status": "passed"
+    },
+    {
+      "silenceSamples": 10240,
+      "status": "passed"
+    },
+    {
+      "silenceSamples": 512000,
+      "status": "passed"
+    },
+    {
+      "action": "cancel",
+      "repetitions": 3,
+      "status": "passed"
+    },
+    {
+      "action": "reset",
+      "repetitions": 3,
+      "status": "passed"
+    }
+  ],
+  "limitations": "Local native probes only; not packaged-app or human-recording acceptance.",
+  "status": "passed",
+  "exitCode": 0
+}

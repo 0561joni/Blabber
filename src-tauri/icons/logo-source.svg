@@ -1,0 +1,28 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="140" y1="96" x2="884" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#34D6F4"/>
+      <stop offset="1" stop-color="#2D4BFF"/>
+    </linearGradient>
+    <linearGradient id="micBlue" x1="512" y1="316" x2="512" y2="806" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38C8F3"/>
+      <stop offset="1" stop-color="#2D74F4"/>
+    </linearGradient>
+    <filter id="shadow" x="80" y="80" width="864" height="864" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="30" stdDeviation="30" flood-color="#193A9A" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <rect x="96" y="96" width="832" height="832" rx="180" fill="url(#bg)"/>
+  </g>
+
+  <rect x="332" y="200" width="360" height="624" rx="180" fill="white"/>
+
+  <rect x="434" y="388" width="156" height="38" rx="19" fill="url(#micBlue)"/>
+  <rect x="434" y="468" width="156" height="38" rx="19" fill="url(#micBlue)"/>
+
+  <path d="M512 548C471.131 548 438 581.131 438 622V654C438 695.974 472.026 730 514 730C555.974 730 590 695.974 590 654V622C590 581.131 556.869 548 516 548H512Z" fill="url(#micBlue)"/>
+  <rect x="494" y="726" width="36" height="170" rx="18" fill="url(#micBlue)"/>
+  <rect x="454" y="878" width="116" height="34" rx="17" fill="url(#micBlue)" opacity="0.0"/>
+</svg>

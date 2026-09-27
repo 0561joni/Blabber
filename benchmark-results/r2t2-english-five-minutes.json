@@ -1,0 +1,3155 @@
+{
+  "manifest": {
+    "protocolVersion": 1,
+    "minimumMacOSVersion": 14,
+    "modelId": "confucius4-r2t2-q8-0",
+    "modelRepository": "davidxifeng/Confucius4-R2T2-gguf",
+    "modelRevision": "a8e6b385d7df7eae9519363e07034a209004797a",
+    "modelFile": "r2t2-q8_0.gguf",
+    "modelBytes": 2477512064,
+    "modelSha256": "19f5ccd624484bcb5d44301437de41560b0ecc40c430e8850dfeefefbe82ccf5",
+    "runtimeRevision": "eb8e21bd7b71dc104d6be7a88f5641bcd5373617",
+    "runtimeArchiveSha256": "212453797250cab2567393962a3e082ab94b6fe6c4b7cd57fc70eab6eafbb680",
+    "officialRevision": "c4611929bc3592b38dab34e96a8c9940d6da3755",
+    "licenseUrl": "https://github.com/netease-youdao/Confucius4-R2T2/blob/c4611929bc3592b38dab34e96a8c9940d6da3755/MODEL_LICENSE",
+    "releaseEnabled": false,
+    "releaseBlocker": "Native rolling continuity and German/English accuracy acceptance have not passed."
+  },
+  "workerSha256": "1fd30f567b87ac716e880339e3142543b007c4ee37a49a6cb7b374a232af2e7e",
+  "audioSha256": "10adaad62a08bf37130e95d3c61e61fc5e3823cc581f1af9216af92ce68539f9",
+  "repeat": 1,
+  "paced": false,
+  "results": [
+    {
+      "chunkMs": 640,
+      "rollbackTokens": 5,
+      "language": "English",
+      "audioSeconds": 300.0,
+      "mode": "rolling16s8s",
+      "events": [
+        {
+          "sample": 10240,
+          "elapsedSeconds": 0.12981975000002421,
+          "delta": ""
+        },
+        {
+          "sample": 20480,
+          "elapsedSeconds": 0.33116695799981244,
+          "delta": ""
+        },
+        {
+          "sample": 30720,
+          "elapsedSeconds": 0.5685423749964684,
+          "delta": "Please"
+        },
+        {
+          "sample": 40960,
+          "elapsedSeconds": 0.8513369580032304,
+          "delta": " send the updated"
+        },
+        {
+          "sample": 51200,
+          "elapsedSeconds": 1.1001475420052884,
+          "delta": " invoice to"
+        },
+        {
+          "sample": 61440,
+          "elapsedSeconds": 1.4145315420028055,
+          "delta": " Dr"
+        },
+        {
+          "sample": 71680,
+          "elapsedSeconds": 1.7704574579984182,
+          "delta": ". Miller"
+        },
+        {
+          "sample": 81920,
+          "elapsedSeconds": 2.2208644580096006,
+          "delta": " tomorrow. The appointment starts at"
+        },
+        {
+          "sample": 92160,
+          "elapsedSeconds": 2.6297281669976655,
+          "delta": " 9:"
+        },
+        {
+          "sample": 102400,
+          "elapsedSeconds": 3.0000427500053775,
+          "delta": "30 and ends"
+        },
+        {
+          "sample": 112640,
+          "elapsedSeconds": 3.3873547080002027,
+          "delta": " at "
+        },
+        {
+          "sample": 122880,
+          "elapsedSeconds": 3.792896375001874,
+          "delta": "11"
+        },
+        {
+          "sample": 133120,
+          "elapsedSeconds": 4.248465291995672,
+          "delta": ". I explicitly"
+        },
+        {
+          "sample": 143360,
+          "elapsedSeconds": 4.667085332999704,
+          "delta": " do not want"
+        },
+        {
+          "sample": 153600,
+          "elapsedSeconds": 5.088153707998572,
+          "delta": " to publish"
+        },
+        {
+          "sample": 163840,
+          "elapsedSeconds": 5.541096583008766,
+          "delta": " this change. We"
+        },
+        {
+          "sample": 174080,
+          "elapsedSeconds": 6.045245250003063,
+          "delta": " have 1"
+        },
+        {
+          "sample": 184320,
+          "elapsedSeconds": 6.504730750006274,
+          "delta": "2"
+        },
+        {
+          "sample": 194560,
+          "elapsedSeconds": 6.999674167003832,
+          "delta": " orders"
+        },
+        {
+          "sample": 204800,
+          "elapsedSeconds": 7.5487842919974355,
+          "delta": " and 7"
+        },
+        {
+          "sample": 215040,
+          "elapsedSeconds": 8.029373458004557,
+          "delta": " unanswered"
+        },
+        {
+          "sample": 225280,
+          "elapsedSeconds": 8.555126874998678,
+          "delta": " questions. The kitchen"
+        },
+        {
+          "sample": 235520,
+          "elapsedSeconds": 9.095694792005816,
+          "delta": " is"
+        },
+        {
+          "sample": 245760,
+          "elapsedSeconds": 9.671010542006115,
+          "delta": " approximately 1"
+        },
+        {
+          "sample": 256000,
+          "elapsedSeconds": 10.237116250005784,
+          "delta": "8 square"
+        },
+        {
+          "sample": 266240,
+          "elapsedSeconds": 10.615392874999088,
+          "delta": ""
+        },
+        {
+          "sample": 276480,
+          "elapsedSeconds": 11.080216707996442,
+          "delta": " meters. Please"
+        },
+        {
+          "sample": 286720,
+          "elapsedSeconds": 11.523804958007531,
+          "delta": " check the documentation"
+        },
+        {
+          "sample": 296960,
+          "elapsedSeconds": 11.969079375005094,
+          "delta": " and then"
+        },
+        {
+          "sample": 307200,
+          "elapsedSeconds": 12.518094500002917,
+          "delta": " start the test."
+        },
+        {
+          "sample": 317440,
+          "elapsedSeconds": 13.021935208002105,
+          "delta": " I think"
+        },
+        {
+          "sample": 327680,
+          "elapsedSeconds": 13.513974166999105,
+          "delta": " we"
+        },
+        {
+          "sample": 337920,
+          "elapsedSeconds": 14.023343916996964,
+          "delta": " should try"
+        },
+        {
+          "sample": 348160,
+          "elapsedSeconds": 14.528599458004464,
+          "delta": " the simpler solution"
+        },
+        {
+          "sample": 358400,
+          "elapsedSeconds": 15.031692167001893,
+          "delta": " first."
+        },
+        {
+          "sample": 368640,
+          "elapsedSeconds": 15.59455862500181,
+          "delta": " No,"
+        },
+        {
+          "sample": 378880,
+          "elapsedSeconds": 16.156990250005038,
+          "delta": " no,"
+        },
+        {
+          "sample": 389120,
+          "elapsedSeconds": 16.600133875006577,
+          "delta": " this file must"
+        },
+        {
+          "sample": 399360,
+          "elapsedSeconds": 17.043184124995605,
+          "delta": " not be"
+        },
+        {
+          "sample": 409600,
+          "elapsedSeconds": 17.522158499996294,
+          "delta": " deleted yet."
+        },
+        {
+          "sample": 419840,
+          "elapsedSeconds": 17.994878958008485,
+          "delta": " The street goes"
+        },
+        {
+          "sample": 430080,
+          "elapsedSeconds": 18.50216720800381,
+          "delta": " over the bridge"
+        },
+        {
+          "sample": 440320,
+          "elapsedSeconds": 18.985120541998185,
+          "delta": " to"
+        },
+        {
+          "sample": 450560,
+          "elapsedSeconds": 19.46845800000301,
+          "delta": " the"
+        },
+        {
+          "sample": 460800,
+          "elapsedSeconds": 19.952051667001797,
+          "delta": " public"
+        },
+        {
+          "sample": 471040,
+          "elapsedSeconds": 20.500968667009147,
+          "delta": " building. Today is September"
+        },
+        {
+          "sample": 481280,
+          "elapsedSeconds": 21.030767125004786,
+          "delta": " 22nd"
+        },
+        {
+          "sample": 491520,
+          "elapsedSeconds": 21.606030124996323,
+          "delta": ", "
+        },
+        {
+          "sample": 501760,
+          "elapsedSeconds": 22.196207166998647,
+          "delta": "202"
+        },
+        {
+          "sample": 512000,
+          "elapsedSeconds": 22.762287457997445,
+          "delta": "6."
+        },
+        {
+          "sample": 522240,
+          "elapsedSeconds": 23.18205337499967,
+          "delta": " Could you"
+        },
+        {
+          "sample": 532480,
+          "elapsedSeconds": 23.605070707999403,
+          "delta": " please"
+        },
+        {
+          "sample": 542720,
+          "elapsedSeconds": 24.071362667003996,
+          "delta": " explain why the"
+        },
+        {
+          "sample": 552960,
+          "elapsedSeconds": 24.552215832998627,
+          "delta": " connection"
+        },
+        {
+          "sample": 563200,
+          "elapsedSeconds": 25.077170042000944,
+          "delta": " was interrupted?"
+        },
+        {
+          "sample": 573440,
+          "elapsedSeconds": 25.618199958000332,
+          "delta": " The password does"
+        },
+        {
+          "sample": 583680,
+          "elapsedSeconds": 26.12895454200043,
+          "delta": " not belong"
+        },
+        {
+          "sample": 593920,
+          "elapsedSeconds": 26.67765570800111,
+          "delta": " in the public log"
+        },
+        {
+          "sample": 604160,
+          "elapsedSeconds": 27.160652500009746,
+          "delta": ". We"
+        },
+        {
+          "sample": 614400,
+          "elapsedSeconds": 27.72713462500542,
+          "delta": " need both a"
+        },
+        {
+          "sample": 624640,
+          "elapsedSeconds": 28.271057457997813,
+          "delta": " German version"
+        },
+        {
+          "sample": 634880,
+          "elapsedSeconds": 28.839440541996737,
+          "delta": " and an"
+        },
+        {
+          "sample": 645120,
+          "elapsedSeconds": 29.322163500008173,
+          "delta": " English version. Thank"
+        },
+        {
+          "sample": 655360,
+          "elapsedSeconds": 29.778551833005622,
+          "delta": " you for"
+        },
+        {
+          "sample": 665600,
+          "elapsedSeconds": 30.256214916997124,
+          "delta": " your message."
+        },
+        {
+          "sample": 675840,
+          "elapsedSeconds": 30.700318832998164,
+          "delta": " I will get"
+        },
+        {
+          "sample": 686080,
+          "elapsedSeconds": 31.204998083005194,
+          "delta": " back to"
+        },
+        {
+          "sample": 696320,
+          "elapsedSeconds": 31.710400625001057,
+          "delta": " you on"
+        },
+        {
+          "sample": 706560,
+          "elapsedSeconds": 32.23894166700484,
+          "delta": " Friday. The"
+        },
+        {
+          "sample": 716800,
+          "elapsedSeconds": 32.71940975000325,
+          "delta": " total amount"
+        },
+        {
+          "sample": 727040,
+          "elapsedSeconds": 33.20668141699571,
+          "delta": " is "
+        },
+        {
+          "sample": 737280,
+          "elapsedSeconds": 33.69906195800286,
+          "delta": "2"
+        },
+        {
+          "sample": 747520,
+          "elapsedSeconds": 34.26920629199594,
+          "delta": "45"
+        },
+        {
+          "sample": 757760,
+          "elapsedSeconds": 34.85961900000984,
+          "delta": " euros. Please"
+        },
+        {
+          "sample": 768000,
+          "elapsedSeconds": 35.450058292000904,
+          "delta": " change only the"
+        },
+        {
+          "sample": 778240,
+          "elapsedSeconds": 35.8980831670051,
+          "delta": " title and leave"
+        },
+        {
+          "sample": 788480,
+          "elapsedSeconds": 36.3205794999958,
+          "delta": " the rest"
+        },
+        {
+          "sample": 798720,
+          "elapsedSeconds": 36.7655028750014,
+          "delta": " of the"
+        },
+        {
+          "sample": 808960,
+          "elapsedSeconds": 37.25419979200524,
+          "delta": " text"
+        },
+        {
+          "sample": 819200,
+          "elapsedSeconds": 37.79553566699906,
+          "delta": " unchanged. I"
+        },
+        {
+          "sample": 829440,
+          "elapsedSeconds": 38.32853191700997,
+          "delta": " have already installed"
+        },
+        {
+          "sample": 839680,
+          "elapsedSeconds": 38.81041200000618,
+          "delta": " the new"
+        },
+        {
+          "sample": 849920,
+          "elapsedSeconds": 39.31746583300992,
+          "delta": " version on"
+        },
+        {
+          "sample": 860160,
+          "elapsedSeconds": 39.85618745800457,
+          "delta": " my computer."
+        },
+        {
+          "sample": 870400,
+          "elapsedSeconds": 40.41651333300979,
+          "delta": " The"
+        },
+        {
+          "sample": 880640,
+          "elapsedSeconds": 40.98197400000936,
+          "delta": " review must"
+        },
+        {
+          "sample": 890880,
+          "elapsedSeconds": 41.5566553749959,
+          "delta": " be fully"
+        },
+        {
+          "sample": 901120,
+          "elapsedSeconds": 41.98854512500111,
+          "delta": " completed"
+        },
+        {
+          "sample": 911360,
+          "elapsedSeconds": 42.435841333004646,
+          "delta": " before we"
+        },
+        {
+          "sample": 921600,
+          "elapsedSeconds": 42.85860095800308,
+          "delta": " continue"
+        },
+        {
+          "sample": 931840,
+          "elapsedSeconds": 43.30351900000824,
+          "delta": ". First"
+        },
+        {
+          "sample": 942080,
+          "elapsedSeconds": 43.74929437499668,
+          "delta": " point, quality"
+        },
+        {
+          "sample": 952320,
+          "elapsedSeconds": 44.25368129200069,
+          "delta": ". Second"
+        },
+        {
+          "sample": 962560,
+          "elapsedSeconds": 44.782285583001794,
+          "delta": " point, speed"
+        },
+        {
+          "sample": 972800,
+          "elapsedSeconds": 45.26976266699785,
+          "delta": ". That"
+        },
+        {
+          "sample": 983040,
+          "elapsedSeconds": 45.76258437499928,
+          "delta": " was"
+        },
+        {
+          "sample": 993280,
+          "elapsedSeconds": 46.32335108300322,
+          "delta": " my last sentence."
+        },
+        {
+          "sample": 1003520,
+          "elapsedSeconds": 46.83266250000452,
+          "delta": " Please do not"
+        },
+        {
+          "sample": 1013760,
+          "elapsedSeconds": 47.40579320800316,
+          "delta": " add any"
+        },
+        {
+          "sample": 1024000,
+          "elapsedSeconds": 47.97165400000813,
+          "delta": " more words"
+        },
+        {
+          "sample": 1034240,
+          "elapsedSeconds": 48.41939412499778,
+          "delta": ". Please"
+        },
+        {
+          "sample": 1044480,
+          "elapsedSeconds": 48.88940683299734,
+          "delta": " send the updated"
+        },
+        {
+          "sample": 1054720,
+          "elapsedSeconds": 49.31422108299739,
+          "delta": " invoice to"
+        },
+        {
+          "sample": 1064960,
+          "elapsedSeconds": 49.7469927080092,
+          "delta": " Dr"
+        },
+        {
+          "sample": 1075200,
+          "elapsedSeconds": 50.256229667007574,
+          "delta": ". Miller"
+        },
+        {
+          "sample": 1085440,
+          "elapsedSeconds": 50.85548908299825,
+          "delta": " tomorrow. The appointment starts at"
+        },
+        {
+          "sample": 1095680,
+          "elapsedSeconds": 51.38584825000726,
+          "delta": " 9:"
+        },
+        {
+          "sample": 1105920,
+          "elapsedSeconds": 51.96108074999938,
+          "delta": "30 and ends at"
+        },
+        {
+          "sample": 1116160,
+          "elapsedSeconds": 52.40147545799846,
+          "delta": ""
+        },
+        {
+          "sample": 1126400,
+          "elapsedSeconds": 52.990761583001586,
+          "delta": " 11"
+        },
+        {
+          "sample": 1136640,
+          "elapsedSeconds": 53.5912167080096,
+          "delta": ". I explicitly"
+        },
+        {
+          "sample": 1146880,
+          "elapsedSeconds": 54.168105042001116,
+          "delta": " do not want"
+        },
+        {
+          "sample": 1157120,
+          "elapsedSeconds": 54.590354917003424,
+          "delta": " to publish"
+        },
+        {
+          "sample": 1167360,
+          "elapsedSeconds": 55.05728700000327,
+          "delta": " this change."
+        },
+        {
+          "sample": 1177600,
+          "elapsedSeconds": 55.54711112500809,
+          "delta": " We have 1"
+        },
+        {
+          "sample": 1187840,
+          "elapsedSeconds": 56.02869449999707,
+          "delta": "2"
+        },
+        {
+          "sample": 1198080,
+          "elapsedSeconds": 56.510151499998756,
+          "delta": " orders and"
+        },
+        {
+          "sample": 1208320,
+          "elapsedSeconds": 57.01292308300617,
+          "delta": " 7"
+        },
+        {
+          "sample": 1218560,
+          "elapsedSeconds": 57.5037261670077,
+          "delta": " unanswered"
+        },
+        {
+          "sample": 1228800,
+          "elapsedSeconds": 58.04913979199773,
+          "delta": " questions. The kitchen"
+        },
+        {
+          "sample": 1239040,
+          "elapsedSeconds": 58.53506120800739,
+          "delta": " is"
+        },
+        {
+          "sample": 1249280,
+          "elapsedSeconds": 59.038612125004875,
+          "delta": " approximately 1"
+        },
+        {
+          "sample": 1259520,
+          "elapsedSeconds": 59.601943417001166,
+          "delta": "8 square"
+        },
+        {
+          "sample": 1269760,
+          "elapsedSeconds": 60.11901979200775,
+          "delta": " meters"
+        },
+        {
+          "sample": 1280000,
+          "elapsedSeconds": 60.68334233300993,
+          "delta": ". Please"
+        },
+        {
+          "sample": 1290240,
+          "elapsedSeconds": 61.129480542003876,
+          "delta": " check the"
+        },
+        {
+          "sample": 1300480,
+          "elapsedSeconds": 61.60711441699823,
+          "delta": " documentation and then"
+        },
+        {
+          "sample": 1310720,
+          "elapsedSeconds": 62.07939579199592,
+          "delta": " start the test"
+        },
+        {
+          "sample": 1320960,
+          "elapsedSeconds": 62.54694775000098,
+          "delta": ". I think"
+        },
+        {
+          "sample": 1331200,
+          "elapsedSeconds": 63.02843062499596,
+          "delta": " we"
+        },
+        {
+          "sample": 1341440,
+          "elapsedSeconds": 63.53122474999691,
+          "delta": " should try"
+        },
+        {
+          "sample": 1351680,
+          "elapsedSeconds": 64.03475687500031,
+          "delta": " the simpler"
+        },
+        {
+          "sample": 1361920,
+          "elapsedSeconds": 64.56113312499656,
+          "delta": " solution first."
+        },
+        {
+          "sample": 1372160,
+          "elapsedSeconds": 65.06562654199661,
+          "delta": " No,"
+        },
+        {
+          "sample": 1382400,
+          "elapsedSeconds": 65.5815074580023,
+          "delta": " no,"
+        },
+        {
+          "sample": 1392640,
+          "elapsedSeconds": 66.15283108300355,
+          "delta": " this file must"
+        },
+        {
+          "sample": 1402880,
+          "elapsedSeconds": 66.71492962499906,
+          "delta": " not be"
+        },
+        {
+          "sample": 1413120,
+          "elapsedSeconds": 67.16056941699935,
+          "delta": " deleted yet"
+        },
+        {
+          "sample": 1423360,
+          "elapsedSeconds": 67.65711850000662,
+          "delta": ". The street goes"
+        },
+        {
+          "sample": 1433600,
+          "elapsedSeconds": 68.10207679199812,
+          "delta": " over the bridge"
+        },
+        {
+          "sample": 1443840,
+          "elapsedSeconds": 68.5218107499968,
+          "delta": " to"
+        },
+        {
+          "sample": 1454080,
+          "elapsedSeconds": 69.00310591699963,
+          "delta": " the public"
+        },
+        {
+          "sample": 1464320,
+          "elapsedSeconds": 69.5174353330076,
+          "delta": " building. Today"
+        },
+        {
+          "sample": 1474560,
+          "elapsedSeconds": 69.96259475000261,
+          "delta": ""
+        },
+        {
+          "sample": 1484800,
+          "elapsedSeconds": 70.44701454200549,
+          "delta": " is"
+        },
+        {
+          "sample": 1495040,
+          "elapsedSeconds": 70.97363716700056,
+          "delta": " September twenty second"
+        },
+        {
+          "sample": 1505280,
+          "elapsedSeconds": 71.49905670800945,
+          "delta": ", twenty twenty"
+        },
+        {
+          "sample": 1515520,
+          "elapsedSeconds": 72.06112079200102,
+          "delta": " six."
+        },
+        {
+          "sample": 1525760,
+          "elapsedSeconds": 72.62272733300051,
+          "delta": " Could you"
+        },
+        {
+          "sample": 1536000,
+          "elapsedSeconds": 73.14354562500375,
+          "delta": " please"
+        },
+        {
+          "sample": 1546240,
+          "elapsedSeconds": 73.59694950000267,
+          "delta": " explain why the"
+        },
+        {
+          "sample": 1556480,
+          "elapsedSeconds": 74.02704749999975,
+          "delta": " connection"
+        },
+        {
+          "sample": 1566720,
+          "elapsedSeconds": 74.4948873329995,
+          "delta": " was interrupted?"
+        },
+        {
+          "sample": 1576960,
+          "elapsedSeconds": 74.94011100000353,
+          "delta": " The password does"
+        },
+        {
+          "sample": 1587200,
+          "elapsedSeconds": 75.46384333299648,
+          "delta": " not belong in"
+        },
+        {
+          "sample": 1597440,
+          "elapsedSeconds": 75.98773416700715,
+          "delta": " the public log"
+        },
+        {
+          "sample": 1607680,
+          "elapsedSeconds": 76.47143204200256,
+          "delta": "."
+        },
+        {
+          "sample": 1617920,
+          "elapsedSeconds": 76.99631508300081,
+          "delta": " We need both a"
+        },
+        {
+          "sample": 1628160,
+          "elapsedSeconds": 77.48745533300098,
+          "delta": " German version"
+        },
+        {
+          "sample": 1638400,
+          "elapsedSeconds": 78.00311570800841,
+          "delta": " and an"
+        },
+        {
+          "sample": 1648640,
+          "elapsedSeconds": 78.5896012919984,
+          "delta": " English version. Thank"
+        },
+        {
+          "sample": 1658880,
+          "elapsedSeconds": 79.14956783299567,
+          "delta": " you for"
+        },
+        {
+          "sample": 1669120,
+          "elapsedSeconds": 79.61426837500767,
+          "delta": " your message."
+        },
+        {
+          "sample": 1679360,
+          "elapsedSeconds": 80.05590329199913,
+          "delta": " I will"
+        },
+        {
+          "sample": 1689600,
+          "elapsedSeconds": 80.5216088330053,
+          "delta": " get back to"
+        },
+        {
+          "sample": 1699840,
+          "elapsedSeconds": 80.96627262500988,
+          "delta": " you on"
+        },
+        {
+          "sample": 1710080,
+          "elapsedSeconds": 81.4780946670071,
+          "delta": " Friday."
+        },
+        {
+          "sample": 1720320,
+          "elapsedSeconds": 81.99374020799587,
+          "delta": " The total amount"
+        },
+        {
+          "sample": 1730560,
+          "elapsedSeconds": 82.47763325000415,
+          "delta": " is "
+        },
+        {
+          "sample": 1740800,
+          "elapsedSeconds": 82.96059316700848,
+          "delta": "2"
+        },
+        {
+          "sample": 1751040,
+          "elapsedSeconds": 83.46617912499642,
+          "delta": "45"
+        },
+        {
+          "sample": 1761280,
+          "elapsedSeconds": 83.97110908300965,
+          "delta": " euros."
+        },
+        {
+          "sample": 1771520,
+          "elapsedSeconds": 84.5783895420027,
+          "delta": " Please change only the"
+        },
+        {
+          "sample": 1781760,
+          "elapsedSeconds": 85.16643045800447,
+          "delta": " title and leave"
+        },
+        {
+          "sample": 1792000,
+          "elapsedSeconds": 85.7195749579987,
+          "delta": " the rest"
+        },
+        {
+          "sample": 1802240,
+          "elapsedSeconds": 86.16680545800773,
+          "delta": " of the"
+        },
+        {
+          "sample": 1812480,
+          "elapsedSeconds": 86.58871183299925,
+          "delta": " text"
+        },
+        {
+          "sample": 1822720,
+          "elapsedSeconds": 87.05443679200835,
+          "delta": " unchanged. I"
+        },
+        {
+          "sample": 1832960,
+          "elapsedSeconds": 87.52304929200909,
+          "delta": " have already installed"
+        },
+        {
+          "sample": 1843200,
+          "elapsedSeconds": 88.0046643329988,
+          "delta": " the new"
+        },
+        {
+          "sample": 1853440,
+          "elapsedSeconds": 88.50719620799646,
+          "delta": " version on"
+        },
+        {
+          "sample": 1863680,
+          "elapsedSeconds": 89.01081245800015,
+          "delta": " my computer."
+        },
+        {
+          "sample": 1873920,
+          "elapsedSeconds": 89.50293291700655,
+          "delta": " The"
+        },
+        {
+          "sample": 1884160,
+          "elapsedSeconds": 90.01805970800342,
+          "delta": " review must"
+        },
+        {
+          "sample": 1894400,
+          "elapsedSeconds": 90.50152416700439,
+          "delta": " be fully"
+        },
+        {
+          "sample": 1904640,
+          "elapsedSeconds": 91.04118383300374,
+          "delta": " completed before"
+        },
+        {
+          "sample": 1914880,
+          "elapsedSeconds": 91.58240916700743,
+          "delta": " we"
+        },
+        {
+          "sample": 1925120,
+          "elapsedSeconds": 92.00561429200752,
+          "delta": " continue"
+        },
+        {
+          "sample": 1935360,
+          "elapsedSeconds": 92.45204770800774,
+          "delta": ". First"
+        },
+        {
+          "sample": 1945600,
+          "elapsedSeconds": 92.90005625000049,
+          "delta": " point, quality"
+        },
+        {
+          "sample": 1955840,
+          "elapsedSeconds": 93.35436104200198,
+          "delta": ". Second"
+        },
+        {
+          "sample": 1966080,
+          "elapsedSeconds": 93.840557042,
+          "delta": " point, speed"
+        },
+        {
+          "sample": 1976320,
+          "elapsedSeconds": 94.32615274999989,
+          "delta": ". That"
+        },
+        {
+          "sample": 1986560,
+          "elapsedSeconds": 94.8083624580031,
+          "delta": " was"
+        },
+        {
+          "sample": 1996800,
+          "elapsedSeconds": 95.3590877079987,
+          "delta": " my last sentence."
+        },
+        {
+          "sample": 2007040,
+          "elapsedSeconds": 95.86558174999664,
+          "delta": " Please do not"
+        },
+        {
+          "sample": 2017280,
+          "elapsedSeconds": 96.3730896670022,
+          "delta": " add any"
+        },
+        {
+          "sample": 2027520,
+          "elapsedSeconds": 96.88108608299808,
+          "delta": " more words"
+        },
+        {
+          "sample": 2037760,
+          "elapsedSeconds": 97.45337483299954,
+          "delta": ". Please"
+        },
+        {
+          "sample": 2048000,
+          "elapsedSeconds": 98.04790520800452,
+          "delta": " send the updated"
+        },
+        {
+          "sample": 2058240,
+          "elapsedSeconds": 98.47219266700267,
+          "delta": " invoice to"
+        },
+        {
+          "sample": 2068480,
+          "elapsedSeconds": 98.8972886249976,
+          "delta": " Dr"
+        },
+        {
+          "sample": 2078720,
+          "elapsedSeconds": 99.3413574169972,
+          "delta": ". Miller"
+        },
+        {
+          "sample": 2088960,
+          "elapsedSeconds": 99.87979920800717,
+          "delta": " tomorrow. The appointment starts at"
+        },
+        {
+          "sample": 2099200,
+          "elapsedSeconds": 100.40817424999841,
+          "delta": " 9:"
+        },
+        {
+          "sample": 2109440,
+          "elapsedSeconds": 100.97942341699672,
+          "delta": "30 and ends at"
+        },
+        {
+          "sample": 2119680,
+          "elapsedSeconds": 101.44748691700806,
+          "delta": ""
+        },
+        {
+          "sample": 2129920,
+          "elapsedSeconds": 101.98677616700297,
+          "delta": " 11"
+        },
+        {
+          "sample": 2140160,
+          "elapsedSeconds": 102.51520345800964,
+          "delta": ". I explicitly"
+        },
+        {
+          "sample": 2150400,
+          "elapsedSeconds": 103.07700908300467,
+          "delta": " do not want"
+        },
+        {
+          "sample": 2160640,
+          "elapsedSeconds": 103.63940012500098,
+          "delta": " to publish"
+        },
+        {
+          "sample": 2170880,
+          "elapsedSeconds": 104.24965895799687,
+          "delta": " this change. We"
+        },
+        {
+          "sample": 2181120,
+          "elapsedSeconds": 104.71489279200614,
+          "delta": " have 1"
+        },
+        {
+          "sample": 2191360,
+          "elapsedSeconds": 105.14058029200532,
+          "delta": "2"
+        },
+        {
+          "sample": 2201600,
+          "elapsedSeconds": 105.57179675000953,
+          "delta": " orders and"
+        },
+        {
+          "sample": 2211840,
+          "elapsedSeconds": 106.02649845799897,
+          "delta": " 7"
+        },
+        {
+          "sample": 2222080,
+          "elapsedSeconds": 106.5125657919998,
+          "delta": " unanswered"
+        },
+        {
+          "sample": 2232320,
+          "elapsedSeconds": 107.06243687499955,
+          "delta": " questions. The kitchen"
+        },
+        {
+          "sample": 2242560,
+          "elapsedSeconds": 107.54499187500915,
+          "delta": " is"
+        },
+        {
+          "sample": 2252800,
+          "elapsedSeconds": 108.02745125000365,
+          "delta": " approximately "
+        },
+        {
+          "sample": 2263040,
+          "elapsedSeconds": 108.55578858300578,
+          "delta": "18 square"
+        },
+        {
+          "sample": 2273280,
+          "elapsedSeconds": 109.01451670800452,
+          "delta": " meters"
+        },
+        {
+          "sample": 2283520,
+          "elapsedSeconds": 109.5895302919962,
+          "delta": ". Please"
+        },
+        {
+          "sample": 2293760,
+          "elapsedSeconds": 110.18145529199683,
+          "delta": " check the documentation and"
+        },
+        {
+          "sample": 2304000,
+          "elapsedSeconds": 110.72437683300814,
+          "delta": " then"
+        },
+        {
+          "sample": 2314240,
+          "elapsedSeconds": 111.21299608300615,
+          "delta": " start the test."
+        },
+        {
+          "sample": 2324480,
+          "elapsedSeconds": 111.65957470799913,
+          "delta": " I think"
+        },
+        {
+          "sample": 2334720,
+          "elapsedSeconds": 112.08094324999547,
+          "delta": " we"
+        },
+        {
+          "sample": 2344960,
+          "elapsedSeconds": 112.52613145799842,
+          "delta": " should try"
+        },
+        {
+          "sample": 2355200,
+          "elapsedSeconds": 113.02948845800711,
+          "delta": " the simpler solution"
+        },
+        {
+          "sample": 2365440,
+          "elapsedSeconds": 113.54364950000308,
+          "delta": " first."
+        },
+        {
+          "sample": 2375680,
+          "elapsedSeconds": 114.05523962499865,
+          "delta": " No,"
+        },
+        {
+          "sample": 2385920,
+          "elapsedSeconds": 114.5620029999991,
+          "delta": " no,"
+        },
+        {
+          "sample": 2396160,
+          "elapsedSeconds": 115.0690390420059,
+          "delta": " this file must"
+        },
+        {
+          "sample": 2406400,
+          "elapsedSeconds": 115.57294587499928,
+          "delta": " not be"
+        },
+        {
+          "sample": 2416640,
+          "elapsedSeconds": 116.15662033300032,
+          "delta": " deleted yet."
+        },
+        {
+          "sample": 2426880,
+          "elapsedSeconds": 116.74139150000701,
+          "delta": " The street goes"
+        },
+        {
+          "sample": 2437120,
+          "elapsedSeconds": 117.18877979200624,
+          "delta": " over the bridge"
+        },
+        {
+          "sample": 2447360,
+          "elapsedSeconds": 117.61839699999837,
+          "delta": " to"
+        },
+        {
+          "sample": 2457600,
+          "elapsedSeconds": 118.04818608300411,
+          "delta": " the public"
+        },
+        {
+          "sample": 2467840,
+          "elapsedSeconds": 118.42893820800236,
+          "delta": ""
+        },
+        {
+          "sample": 2478080,
+          "elapsedSeconds": 118.97875783299969,
+          "delta": " building. Today is September"
+        },
+        {
+          "sample": 2488320,
+          "elapsedSeconds": 119.48247429200273,
+          "delta": " 22"
+        },
+        {
+          "sample": 2498560,
+          "elapsedSeconds": 120.00727566699788,
+          "delta": "nd, "
+        },
+        {
+          "sample": 2508800,
+          "elapsedSeconds": 120.53249525000865,
+          "delta": "202"
+        },
+        {
+          "sample": 2519040,
+          "elapsedSeconds": 121.03582754200033,
+          "delta": "6."
+        },
+        {
+          "sample": 2529280,
+          "elapsedSeconds": 121.55343391699716,
+          "delta": " Could you"
+        },
+        {
+          "sample": 2539520,
+          "elapsedSeconds": 122.10555683300481,
+          "delta": " please"
+        },
+        {
+          "sample": 2549760,
+          "elapsedSeconds": 122.68916620800155,
+          "delta": " explain why the"
+        },
+        {
+          "sample": 2560000,
+          "elapsedSeconds": 123.23109850000765,
+          "delta": " connection"
+        },
+        {
+          "sample": 2570240,
+          "elapsedSeconds": 123.69730770800379,
+          "delta": " was interrupted?"
+        },
+        {
+          "sample": 2580480,
+          "elapsedSeconds": 124.14253500000632,
+          "delta": " The password does"
+        },
+        {
+          "sample": 2590720,
+          "elapsedSeconds": 124.60936850000871,
+          "delta": " not belong in"
+        },
+        {
+          "sample": 2600960,
+          "elapsedSeconds": 125.13835062499857,
+          "delta": " the public log"
+        },
+        {
+          "sample": 2611200,
+          "elapsedSeconds": 125.65310362500895,
+          "delta": ". We"
+        },
+        {
+          "sample": 2621440,
+          "elapsedSeconds": 126.16346154200437,
+          "delta": " need both a"
+        },
+        {
+          "sample": 2631680,
+          "elapsedSeconds": 126.64527658300358,
+          "delta": " German version"
+        },
+        {
+          "sample": 2641920,
+          "elapsedSeconds": 127.17175125000358,
+          "delta": " and an English"
+        },
+        {
+          "sample": 2652160,
+          "elapsedSeconds": 127.67590145800204,
+          "delta": " version. Thank"
+        },
+        {
+          "sample": 2662400,
+          "elapsedSeconds": 128.24078775000817,
+          "delta": " you for"
+        },
+        {
+          "sample": 2672640,
+          "elapsedSeconds": 128.8526874579984,
+          "delta": " your message. I"
+        },
+        {
+          "sample": 2682880,
+          "elapsedSeconds": 129.40268724999623,
+          "delta": " will get"
+        },
+        {
+          "sample": 2693120,
+          "elapsedSeconds": 129.8559363749955,
+          "delta": " back to"
+        },
+        {
+          "sample": 2703360,
+          "elapsedSeconds": 130.3031471669965,
+          "delta": " you on"
+        },
+        {
+          "sample": 2713600,
+          "elapsedSeconds": 130.74783162500535,
+          "delta": " Friday."
+        },
+        {
+          "sample": 2723840,
+          "elapsedSeconds": 131.19265399999858,
+          "delta": " The total amount"
+        },
+        {
+          "sample": 2734080,
+          "elapsedSeconds": 131.67595420799626,
+          "delta": " is "
+        },
+        {
+          "sample": 2744320,
+          "elapsedSeconds": 132.15697341700434,
+          "delta": "2"
+        },
+        {
+          "sample": 2754560,
+          "elapsedSeconds": 132.65927354199812,
+          "delta": "45"
+        },
+        {
+          "sample": 2764800,
+          "elapsedSeconds": 133.16900308300683,
+          "delta": " euros."
+        },
+        {
+          "sample": 2775040,
+          "elapsedSeconds": 133.7356289169984,
+          "delta": " Please change only the"
+        },
+        {
+          "sample": 2785280,
+          "elapsedSeconds": 134.26007112499792,
+          "delta": " title and leave"
+        },
+        {
+          "sample": 2795520,
+          "elapsedSeconds": 134.80484791699564,
+          "delta": " the rest"
+        },
+        {
+          "sample": 2805760,
+          "elapsedSeconds": 135.37372674999642,
+          "delta": " of the"
+        },
+        {
+          "sample": 2816000,
+          "elapsedSeconds": 135.91871349999565,
+          "delta": " text"
+        },
+        {
+          "sample": 2826240,
+          "elapsedSeconds": 136.38934054200945,
+          "delta": " unchanged. I"
+        },
+        {
+          "sample": 2836480,
+          "elapsedSeconds": 136.85862037500192,
+          "delta": " have already installed"
+        },
+        {
+          "sample": 2846720,
+          "elapsedSeconds": 137.2862805830082,
+          "delta": " the new"
+        },
+        {
+          "sample": 2856960,
+          "elapsedSeconds": 137.74102762500115,
+          "delta": " version on"
+        },
+        {
+          "sample": 2867200,
+          "elapsedSeconds": 138.27353449999646,
+          "delta": " my computer."
+        },
+        {
+          "sample": 2877440,
+          "elapsedSeconds": 138.75406808299886,
+          "delta": " The"
+        },
+        {
+          "sample": 2887680,
+          "elapsedSeconds": 139.25778450000507,
+          "delta": " review must"
+        },
+        {
+          "sample": 2897920,
+          "elapsedSeconds": 139.761954667003,
+          "delta": " be fully"
+        },
+        {
+          "sample": 2908160,
+          "elapsedSeconds": 140.2453110829956,
+          "delta": " completed before"
+        },
+        {
+          "sample": 2918400,
+          "elapsedSeconds": 140.72813691700867,
+          "delta": " we"
+        },
+        {
+          "sample": 2928640,
+          "elapsedSeconds": 141.30197054200107,
+          "delta": " continue."
+        },
+        {
+          "sample": 2938880,
+          "elapsedSeconds": 141.85663666699838,
+          "delta": " First point"
+        },
+        {
+          "sample": 2949120,
+          "elapsedSeconds": 142.28060791699681,
+          "delta": ", quality"
+        },
+        {
+          "sample": 2959360,
+          "elapsedSeconds": 142.7230750000017,
+          "delta": ". Second"
+        },
+        {
+          "sample": 2969600,
+          "elapsedSeconds": 143.18915037500847,
+          "delta": " point, speed"
+        },
+        {
+          "sample": 2979840,
+          "elapsedSeconds": 143.6125500420021,
+          "delta": ". That"
+        },
+        {
+          "sample": 2990080,
+          "elapsedSeconds": 144.11540058300307,
+          "delta": " was my"
+        },
+        {
+          "sample": 3000320,
+          "elapsedSeconds": 144.6393952500075,
+          "delta": " last sentence. Please"
+        },
+        {
+          "sample": 3010560,
+          "elapsedSeconds": 145.12193120800657,
+          "delta": " do not"
+        },
+        {
+          "sample": 3020800,
+          "elapsedSeconds": 145.63654491699708,
+          "delta": " add any"
+        },
+        {
+          "sample": 3031040,
+          "elapsedSeconds": 146.14706479200686,
+          "delta": " more words"
+        },
+        {
+          "sample": 3041280,
+          "elapsedSeconds": 146.650046958006,
+          "delta": ". Please"
+        },
+        {
+          "sample": 3051520,
+          "elapsedSeconds": 147.23636895800882,
+          "delta": " send the updated"
+        },
+        {
+          "sample": 3061760,
+          "elapsedSeconds": 147.7801845829963,
+          "delta": " invoice to"
+        },
+        {
+          "sample": 3072000,
+          "elapsedSeconds": 148.32221766700968,
+          "delta": " Dr"
+        },
+        {
+          "sample": 3082240,
+          "elapsedSeconds": 148.76277154200943,
+          "delta": ". Miller"
+        },
+        {
+          "sample": 3092480,
+          "elapsedSeconds": 149.30740791700373,
+          "delta": " tomorrow. The appointment starts at"
+        },
+        {
+          "sample": 3102720,
+          "elapsedSeconds": 149.78514466699562,
+          "delta": " 9:"
+        },
+        {
+          "sample": 3112960,
+          "elapsedSeconds": 150.34038479199808,
+          "delta": "30 and ends at"
+        },
+        {
+          "sample": 3123200,
+          "elapsedSeconds": 150.82187812500342,
+          "delta": " "
+        },
+        {
+          "sample": 3133440,
+          "elapsedSeconds": 151.3306285419967,
+          "delta": "11."
+        },
+        {
+          "sample": 3143680,
+          "elapsedSeconds": 151.83842600000207,
+          "delta": " I explicitly"
+        },
+        {
+          "sample": 3153920,
+          "elapsedSeconds": 152.34882070800813,
+          "delta": " do not want"
+        },
+        {
+          "sample": 3164160,
+          "elapsedSeconds": 152.85625420800352,
+          "delta": " to publish"
+        },
+        {
+          "sample": 3174400,
+          "elapsedSeconds": 153.4521681250044,
+          "delta": " this change. We"
+        },
+        {
+          "sample": 3184640,
+          "elapsedSeconds": 154.05131912500656,
+          "delta": " have 1"
+        },
+        {
+          "sample": 3194880,
+          "elapsedSeconds": 154.59662183299952,
+          "delta": "2"
+        },
+        {
+          "sample": 3205120,
+          "elapsedSeconds": 155.0185493750032,
+          "delta": " orders and"
+        },
+        {
+          "sample": 3215360,
+          "elapsedSeconds": 155.4656084580056,
+          "delta": " 7"
+        },
+        {
+          "sample": 3225600,
+          "elapsedSeconds": 155.8894841250003,
+          "delta": " unanswered"
+        },
+        {
+          "sample": 3235840,
+          "elapsedSeconds": 156.35647875000723,
+          "delta": " questions. The kitchen"
+        },
+        {
+          "sample": 3246080,
+          "elapsedSeconds": 156.83812625000428,
+          "delta": " is approximately"
+        },
+        {
+          "sample": 3256320,
+          "elapsedSeconds": 157.32433345800382,
+          "delta": " 1"
+        },
+        {
+          "sample": 3266560,
+          "elapsedSeconds": 157.84079499999643,
+          "delta": "8 square"
+        },
+        {
+          "sample": 3276800,
+          "elapsedSeconds": 158.3038096250093,
+          "delta": " meters"
+        },
+        {
+          "sample": 3287040,
+          "elapsedSeconds": 158.80845695800963,
+          "delta": ". Please"
+        },
+        {
+          "sample": 3297280,
+          "elapsedSeconds": 159.33759687500424,
+          "delta": " check the documentation and"
+        },
+        {
+          "sample": 3307520,
+          "elapsedSeconds": 159.88490204200207,
+          "delta": " then"
+        },
+        {
+          "sample": 3317760,
+          "elapsedSeconds": 160.49502266700438,
+          "delta": " start the test."
+        },
+        {
+          "sample": 3328000,
+          "elapsedSeconds": 161.0605775830045,
+          "delta": " I think"
+        },
+        {
+          "sample": 3338240,
+          "elapsedSeconds": 161.49443758300913,
+          "delta": " we"
+        },
+        {
+          "sample": 3348480,
+          "elapsedSeconds": 161.94873366699903,
+          "delta": " should try"
+        },
+        {
+          "sample": 3358720,
+          "elapsedSeconds": 162.39759083300305,
+          "delta": " the simpler solution"
+        },
+        {
+          "sample": 3368960,
+          "elapsedSeconds": 162.8436810830026,
+          "delta": " first."
+        },
+        {
+          "sample": 3379200,
+          "elapsedSeconds": 163.35037804199965,
+          "delta": " No,"
+        },
+        {
+          "sample": 3389440,
+          "elapsedSeconds": 163.85645158300758,
+          "delta": " no, this"
+        },
+        {
+          "sample": 3399680,
+          "elapsedSeconds": 164.33928595800535,
+          "delta": " file must"
+        },
+        {
+          "sample": 3409920,
+          "elapsedSeconds": 164.84490441699745,
+          "delta": " not be"
+        },
+        {
+          "sample": 3420160,
+          "elapsedSeconds": 165.38050100000692,
+          "delta": " deleted yet."
+        },
+        {
+          "sample": 3430400,
+          "elapsedSeconds": 165.92152829200495,
+          "delta": " The street goes"
+        },
+        {
+          "sample": 3440640,
+          "elapsedSeconds": 166.48857016699912,
+          "delta": " over the bridge"
+        },
+        {
+          "sample": 3450880,
+          "elapsedSeconds": 167.02935224999965,
+          "delta": " to"
+        },
+        {
+          "sample": 3461120,
+          "elapsedSeconds": 167.4541434999992,
+          "delta": " the public"
+        },
+        {
+          "sample": 3471360,
+          "elapsedSeconds": 167.90134383300028,
+          "delta": " building. Today"
+        },
+        {
+          "sample": 3481600,
+          "elapsedSeconds": 168.32350404199678,
+          "delta": " is September"
+        },
+        {
+          "sample": 3491840,
+          "elapsedSeconds": 168.78922220799723,
+          "delta": " 22nd"
+        },
+        {
+          "sample": 3502080,
+          "elapsedSeconds": 169.3003090830025,
+          "delta": ", "
+        },
+        {
+          "sample": 3512320,
+          "elapsedSeconds": 169.83914987499884,
+          "delta": "202"
+        },
+        {
+          "sample": 3522560,
+          "elapsedSeconds": 170.34934112500923,
+          "delta": "6."
+        },
+        {
+          "sample": 3532800,
+          "elapsedSeconds": 170.85654512500332,
+          "delta": " Could you"
+        },
+        {
+          "sample": 3543040,
+          "elapsedSeconds": 171.341942250001,
+          "delta": " please"
+        },
+        {
+          "sample": 3553280,
+          "elapsedSeconds": 171.8719080419978,
+          "delta": " explain why the"
+        },
+        {
+          "sample": 3563520,
+          "elapsedSeconds": 172.4162528750021,
+          "delta": " connection"
+        },
+        {
+          "sample": 3573760,
+          "elapsedSeconds": 173.00159187499958,
+          "delta": " was interrupted?"
+        },
+        {
+          "sample": 3584000,
+          "elapsedSeconds": 173.60048900000402,
+          "delta": " The password does"
+        },
+        {
+          "sample": 3594240,
+          "elapsedSeconds": 174.05200783300097,
+          "delta": " not belong"
+        },
+        {
+          "sample": 3604480,
+          "elapsedSeconds": 174.543602500009,
+          "delta": " in the public log"
+        },
+        {
+          "sample": 3614720,
+          "elapsedSeconds": 174.99002912500873,
+          "delta": ". We"
+        },
+        {
+          "sample": 3624960,
+          "elapsedSeconds": 175.49665724999795,
+          "delta": " need both a"
+        },
+        {
+          "sample": 3635200,
+          "elapsedSeconds": 175.99169908300973,
+          "delta": " German version"
+        },
+        {
+          "sample": 3645440,
+          "elapsedSeconds": 176.51891554200847,
+          "delta": " and an English"
+        },
+        {
+          "sample": 3655680,
+          "elapsedSeconds": 177.02370858300128,
+          "delta": " version. Thank"
+        },
+        {
+          "sample": 3665920,
+          "elapsedSeconds": 177.53776658300194,
+          "delta": " you for"
+        },
+        {
+          "sample": 3676160,
+          "elapsedSeconds": 178.07244387500396,
+          "delta": " your message."
+        },
+        {
+          "sample": 3686400,
+          "elapsedSeconds": 178.63672458300425,
+          "delta": " I will get"
+        },
+        {
+          "sample": 3696640,
+          "elapsedSeconds": 179.20052337500965,
+          "delta": " back to"
+        },
+        {
+          "sample": 3706880,
+          "elapsedSeconds": 179.76815279200673,
+          "delta": " you on"
+        },
+        {
+          "sample": 3717120,
+          "elapsedSeconds": 180.1685328750027,
+          "delta": " Friday"
+        },
+        {
+          "sample": 3727360,
+          "elapsedSeconds": 180.63738412500243,
+          "delta": ". The total amount"
+        },
+        {
+          "sample": 3737600,
+          "elapsedSeconds": 181.06046562500705,
+          "delta": " is "
+        },
+        {
+          "sample": 3747840,
+          "elapsedSeconds": 181.49613279200275,
+          "delta": "2"
+        },
+        {
+          "sample": 3758080,
+          "elapsedSeconds": 182.011340750003,
+          "delta": "45"
+        },
+        {
+          "sample": 3768320,
+          "elapsedSeconds": 182.5405122920056,
+          "delta": " euros. Please"
+        },
+        {
+          "sample": 3778560,
+          "elapsedSeconds": 183.06478291700478,
+          "delta": " change only the"
+        },
+        {
+          "sample": 3788800,
+          "elapsedSeconds": 183.58914320800977,
+          "delta": " title and leave"
+        },
+        {
+          "sample": 3799040,
+          "elapsedSeconds": 184.06996041700768,
+          "delta": " the rest"
+        },
+        {
+          "sample": 3809280,
+          "elapsedSeconds": 184.57364408300782,
+          "delta": " of the"
+        },
+        {
+          "sample": 3819520,
+          "elapsedSeconds": 185.11607183300657,
+          "delta": " text"
+        },
+        {
+          "sample": 3829760,
+          "elapsedSeconds": 185.71615787500923,
+          "delta": " unchanged. I"
+        },
+        {
+          "sample": 3840000,
+          "elapsedSeconds": 186.311180625009,
+          "delta": " have already installed"
+        },
+        {
+          "sample": 3850240,
+          "elapsedSeconds": 186.73184995799966,
+          "delta": " the new"
+        },
+        {
+          "sample": 3860480,
+          "elapsedSeconds": 187.17451637500199,
+          "delta": " version on"
+        },
+        {
+          "sample": 3870720,
+          "elapsedSeconds": 187.64007312500325,
+          "delta": " my computer."
+        },
+        {
+          "sample": 3880960,
+          "elapsedSeconds": 188.06208466700627,
+          "delta": " The"
+        },
+        {
+          "sample": 3891200,
+          "elapsedSeconds": 188.5655255830061,
+          "delta": " review must"
+        },
+        {
+          "sample": 3901440,
+          "elapsedSeconds": 189.0683692080056,
+          "delta": " be fully"
+        },
+        {
+          "sample": 3911680,
+          "elapsedSeconds": 189.5632458330074,
+          "delta": " completed before"
+        },
+        {
+          "sample": 3921920,
+          "elapsedSeconds": 190.05229525000323,
+          "delta": " we"
+        },
+        {
+          "sample": 3932160,
+          "elapsedSeconds": 190.55742066699895,
+          "delta": " continue."
+        },
+        {
+          "sample": 3942400,
+          "elapsedSeconds": 191.0387436250021,
+          "delta": " First"
+        },
+        {
+          "sample": 3952640,
+          "elapsedSeconds": 191.62342591700144,
+          "delta": " point, quality."
+        },
+        {
+          "sample": 3962880,
+          "elapsedSeconds": 192.16247641699738,
+          "delta": " Second"
+        },
+        {
+          "sample": 3973120,
+          "elapsedSeconds": 192.62883312499616,
+          "delta": " point, speed"
+        },
+        {
+          "sample": 3983360,
+          "elapsedSeconds": 193.05126291699708,
+          "delta": ". That"
+        },
+        {
+          "sample": 3993600,
+          "elapsedSeconds": 193.5071884170029,
+          "delta": " was my"
+        },
+        {
+          "sample": 4003840,
+          "elapsedSeconds": 193.98463604200515,
+          "delta": " last sentence."
+        },
+        {
+          "sample": 4014080,
+          "elapsedSeconds": 194.43277975000092,
+          "delta": " Please do not"
+        },
+        {
+          "sample": 4024320,
+          "elapsedSeconds": 194.93624049999926,
+          "delta": " add any"
+        },
+        {
+          "sample": 4034560,
+          "elapsedSeconds": 195.4406982500077,
+          "delta": " more words"
+        },
+        {
+          "sample": 4044800,
+          "elapsedSeconds": 195.9464607080008,
+          "delta": ". Please"
+        },
+        {
+          "sample": 4055040,
+          "elapsedSeconds": 196.47506733299815,
+          "delta": " send the updated"
+        },
+        {
+          "sample": 4065280,
+          "elapsedSeconds": 196.9608861250017,
+          "delta": " invoice to"
+        },
+        {
+          "sample": 4075520,
+          "elapsedSeconds": 197.4527312499995,
+          "delta": " Dr"
+        },
+        {
+          "sample": 4085760,
+          "elapsedSeconds": 198.0280565419962,
+          "delta": ". Miller"
+        },
+        {
+          "sample": 4096000,
+          "elapsedSeconds": 198.68023229199753,
+          "delta": " tomorrow. The appointment starts at"
+        },
+        {
+          "sample": 4106240,
+          "elapsedSeconds": 199.14788608299568,
+          "delta": " 9:"
+        },
+        {
+          "sample": 4116480,
+          "elapsedSeconds": 199.65763104200596,
+          "delta": "30 and ends at"
+        },
+        {
+          "sample": 4126720,
+          "elapsedSeconds": 200.0793135420099,
+          "delta": " "
+        },
+        {
+          "sample": 4136960,
+          "elapsedSeconds": 200.58221649999905,
+          "delta": "11"
+        },
+        {
+          "sample": 4147200,
+          "elapsedSeconds": 201.11058195799706,
+          "delta": ". I explicitly"
+        },
+        {
+          "sample": 4157440,
+          "elapsedSeconds": 201.62572729200474,
+          "delta": " do not want"
+        },
+        {
+          "sample": 4167680,
+          "elapsedSeconds": 202.13685783300025,
+          "delta": " to publish"
+        },
+        {
+          "sample": 4177920,
+          "elapsedSeconds": 202.6838372080092,
+          "delta": " this change. We"
+        },
+        {
+          "sample": 4188160,
+          "elapsedSeconds": 203.2122537920077,
+          "delta": " have 1"
+        },
+        {
+          "sample": 4198400,
+          "elapsedSeconds": 203.7553614579956,
+          "delta": "2"
+        },
+        {
+          "sample": 4208640,
+          "elapsedSeconds": 204.3218102499959,
+          "delta": " orders and"
+        },
+        {
+          "sample": 4218880,
+          "elapsedSeconds": 204.91456391700194,
+          "delta": " 7 unanswered"
+        },
+        {
+          "sample": 4229120,
+          "elapsedSeconds": 205.31729141699907,
+          "delta": ""
+        },
+        {
+          "sample": 4239360,
+          "elapsedSeconds": 205.7949860420049,
+          "delta": " questions. The kitchen"
+        },
+        {
+          "sample": 4249600,
+          "elapsedSeconds": 206.22042237500136,
+          "delta": " is approximately"
+        },
+        {
+          "sample": 4259840,
+          "elapsedSeconds": 206.64268299999821,
+          "delta": " 1"
+        },
+        {
+          "sample": 4270080,
+          "elapsedSeconds": 207.14700379200804,
+          "delta": "8 square"
+        },
+        {
+          "sample": 4280320,
+          "elapsedSeconds": 207.60644829200464,
+          "delta": " meters"
+        },
+        {
+          "sample": 4290560,
+          "elapsedSeconds": 208.13081375000183,
+          "delta": ". Please"
+        },
+        {
+          "sample": 4300800,
+          "elapsedSeconds": 208.65560220800398,
+          "delta": " check the documentation and"
+        },
+        {
+          "sample": 4311040,
+          "elapsedSeconds": 209.14046779200726,
+          "delta": " then"
+        },
+        {
+          "sample": 4321280,
+          "elapsedSeconds": 209.7008366670052,
+          "delta": " start the test."
+        },
+        {
+          "sample": 4331520,
+          "elapsedSeconds": 210.27328895800747,
+          "delta": " I think"
+        },
+        {
+          "sample": 4341760,
+          "elapsedSeconds": 210.8175274170062,
+          "delta": " we should"
+        },
+        {
+          "sample": 4352000,
+          "elapsedSeconds": 211.36516862500866,
+          "delta": " try"
+        },
+        {
+          "sample": 4362240,
+          "elapsedSeconds": 211.80758158300887,
+          "delta": " the simpler solution"
+        },
+        {
+          "sample": 4372480,
+          "elapsedSeconds": 212.25176691700472,
+          "delta": " first."
+        },
+        {
+          "sample": 4382720,
+          "elapsedSeconds": 212.700766791997,
+          "delta": " No,"
+        },
+        {
+          "sample": 4392960,
+          "elapsedSeconds": 213.15300716699858,
+          "delta": " no, this"
+        },
+        {
+          "sample": 4403200,
+          "elapsedSeconds": 213.6461525830091,
+          "delta": " file must"
+        },
+        {
+          "sample": 4413440,
+          "elapsedSeconds": 214.15596404200187,
+          "delta": " not be"
+        },
+        {
+          "sample": 4423680,
+          "elapsedSeconds": 214.68199395800184,
+          "delta": " deleted yet."
+        },
+        {
+          "sample": 4433920,
+          "elapsedSeconds": 215.20790424999723,
+          "delta": " The street goes"
+        },
+        {
+          "sample": 4444160,
+          "elapsedSeconds": 215.71377295799903,
+          "delta": " over the bridge"
+        },
+        {
+          "sample": 4454400,
+          "elapsedSeconds": 216.1960417079972,
+          "delta": " to"
+        },
+        {
+          "sample": 4464640,
+          "elapsedSeconds": 216.76264958300453,
+          "delta": " the public"
+        },
+        {
+          "sample": 4474880,
+          "elapsedSeconds": 217.33592737499566,
+          "delta": " building. Today"
+        },
+        {
+          "sample": 4485120,
+          "elapsedSeconds": 217.77019345799636,
+          "delta": " is September"
+        },
+        {
+          "sample": 4495360,
+          "elapsedSeconds": 218.2166358329996,
+          "delta": " 22"
+        },
+        {
+          "sample": 4505600,
+          "elapsedSeconds": 218.6841990420071,
+          "delta": ", 2"
+        },
+        {
+          "sample": 4515840,
+          "elapsedSeconds": 219.1292442920094,
+          "delta": "02"
+        },
+        {
+          "sample": 4526080,
+          "elapsedSeconds": 219.63082295800268,
+          "delta": "6."
+        },
+        {
+          "sample": 4536320,
+          "elapsedSeconds": 220.1363282079983,
+          "delta": " Could you"
+        },
+        {
+          "sample": 4546560,
+          "elapsedSeconds": 220.61866200000804,
+          "delta": " please"
+        },
+        {
+          "sample": 4556800,
+          "elapsedSeconds": 221.14761770800396,
+          "delta": " explain why the"
+        },
+        {
+          "sample": 4567040,
+          "elapsedSeconds": 221.63945166699705,
+          "delta": " connection"
+        },
+        {
+          "sample": 4577280,
+          "elapsedSeconds": 222.1727286670066,
+          "delta": " was interrupted?"
+        },
+        {
+          "sample": 4587520,
+          "elapsedSeconds": 222.76148579199798,
+          "delta": " The password does"
+        },
+        {
+          "sample": 4597760,
+          "elapsedSeconds": 223.35471579199657,
+          "delta": " not belong in"
+        },
+        {
+          "sample": 4608000,
+          "elapsedSeconds": 223.9435727920063,
+          "delta": " the public log"
+        },
+        {
+          "sample": 4618240,
+          "elapsedSeconds": 224.39051758300047,
+          "delta": ". We"
+        },
+        {
+          "sample": 4628480,
+          "elapsedSeconds": 224.8579157080094,
+          "delta": " need both a"
+        },
+        {
+          "sample": 4638720,
+          "elapsedSeconds": 225.2846920830052,
+          "delta": " German version"
+        },
+        {
+          "sample": 4648960,
+          "elapsedSeconds": 225.8231722920027,
+          "delta": " and an English"
+        },
+        {
+          "sample": 4659200,
+          "elapsedSeconds": 226.33470533300715,
+          "delta": " version. Thank"
+        },
+        {
+          "sample": 4669440,
+          "elapsedSeconds": 226.84315929200966,
+          "delta": " you for"
+        },
+        {
+          "sample": 4679680,
+          "elapsedSeconds": 227.37317291699583,
+          "delta": " your message. I"
+        },
+        {
+          "sample": 4689920,
+          "elapsedSeconds": 227.88131799999974,
+          "delta": " will get back"
+        },
+        {
+          "sample": 4700160,
+          "elapsedSeconds": 228.36457779200282,
+          "delta": " to"
+        },
+        {
+          "sample": 4710400,
+          "elapsedSeconds": 228.93200054200133,
+          "delta": " you on"
+        },
+        {
+          "sample": 4720640,
+          "elapsedSeconds": 229.50434524999582,
+          "delta": " Friday. The"
+        },
+        {
+          "sample": 4730880,
+          "elapsedSeconds": 230.05433970800368,
+          "delta": " total amount"
+        },
+        {
+          "sample": 4741120,
+          "elapsedSeconds": 230.47840087499935,
+          "delta": " is "
+        },
+        {
+          "sample": 4751360,
+          "elapsedSeconds": 230.84888354199938,
+          "delta": ""
+        },
+        {
+          "sample": 4761600,
+          "elapsedSeconds": 231.21438341699832,
+          "delta": ""
+        },
+        {
+          "sample": 4771840,
+          "elapsedSeconds": 231.58562216699647,
+          "delta": ""
+        },
+        {
+          "sample": 4782080,
+          "elapsedSeconds": 231.95627999999851,
+          "delta": ""
+        },
+        {
+          "sample": 4792320,
+          "elapsedSeconds": 232.38610474999587,
+          "delta": ""
+        },
+        {
+          "sample": 4800000,
+          "elapsedSeconds": 232.38830654200865,
+          "delta": ""
+        }
+      ],
+      "loadSeconds": 2.2883434160030447,
+      "status": "completed",
+      "text": "Please send the updated invoice to Dr. Miller tomorrow. The appointment starts at 9:30 and ends at 11. I explicitly do not want to publish this change. We have 12 orders and 7 unanswered questions. The kitchen is approximately 18 square meters. Please check the documentation and then start the test. I think we should try the simpler solution first. No, no, this file must not be deleted yet. The street goes over the bridge to the public building. Today is September 22nd, 2026. Could you please explain why the connection was interrupted? The password does not belong in the public log. We need both a German version and an English version. Thank you for your message. I will get back to you on Friday. The total amount is 245 euros. Please change only the title and leave the rest of the text unchanged. I have already installed the new version on my computer. The review must be fully completed before we continue. First point, quality. Second point, speed. That was my last sentence. Please do not add any more words. Please send the updated invoice to Dr. Miller tomorrow. The appointment starts at 9:30 and ends at 11. I explicitly do not want to publish this change. We have 12 orders and 7 unanswered questions. The kitchen is approximately 18 square meters. Please check the documentation and then start the test. I think we should try the simpler solution first. No, no, this file must not be deleted yet. The street goes over the bridge to the public building. Today is September twenty second, twenty twenty six. Could you please explain why the connection was interrupted? The password does not belong in the public log. We need both a German version and an English version. Thank you for your message. I will get back to you on Friday. The total amount is 245 euros. Please change only the title and leave the rest of the text unchanged. I have already installed the new version on my computer. The review must be fully completed before we continue. First point, quality. Second point, speed. That was my last sentence. Please do not add any more words. Please send the updated invoice to Dr. Miller tomorrow. The appointment starts at 9:30 and ends at 11. I explicitly do not want to publish this change. We have 12 orders and 7 unanswered questions. The kitchen is approximately 18 square meters. Please check the documentation and then start the test. I think we should try the simpler solution first. No, no, this file must not be deleted yet. The street goes over the bridge to the public building. Today is September 22nd, 2026. Could you please explain why the connection was interrupted? The password does not belong in the public log. We need both a German version and an English version. Thank you for your message. I will get back to you on Friday. The total amount is 245 euros. Please change only the title and leave the rest of the text unchanged. I have already installed the new version on my computer. The review must be fully completed before we continue. First point, quality. Second point, speed. That was my last sentence. Please do not add any more words. Please send the updated invoice to Dr. Miller tomorrow. The appointment starts at 9:30 and ends at 11. I explicitly do not want to publish this change. We have 12 orders and 7 unanswered questions. The kitchen is approximately 18 square meters. Please check the documentation and then start the test. I think we should try the simpler solution first. No, no, this file must not be deleted yet. The street goes over the bridge to the public building. Today is September 22nd, 2026. Could you please explain why the connection was interrupted? The password does not belong in the public log. We need both a German version and an English version. Thank you for your message. I will get back to you on Friday. The total amount is 245 euros. Please change only the title and leave the rest of the text unchanged. I have already installed the new version on my computer. The review must be fully completed before we continue. First point, quality. Second point, speed. That was my last sentence. Please do not add any more words. Please send the updated invoice to Dr. Miller tomorrow. The appointment starts at 9:30 and ends at 11. I explicitly do not want to publish this change. We have 12 orders and 7 unanswered questions. The kitchen is approximately 18 square meters. Please check the documentation and then start the test. I think we should try the simpler solution first. No, no, this file must not be deleted yet. The street goes over the bridge to the public building. Today is September 22, 2026. Could you please explain why the connection was interrupted? The password does not belong in the public log. We need both a German version and an English version. Thank you for your message. I will get back to you on Friday. The total amount is 245 euros.",
+      "firstTextSeconds": 0.5685423749964684,
+      "finalizeSeconds": 0.4264122499880614,
+      "streamSeconds": 232.81472020799993,
+      "realTimeFactor": 0.7760490673599998,
+      "exitCode": 0
+    },
+    {
+      "chunkMs": 2000,
+      "rollbackTokens": 5,
+      "language": "English",
+      "audioSeconds": 300.0,
+      "mode": "rolling16s8s",
+      "events": [
+        {
+          "sample": 32000,
+          "elapsedSeconds": 0.28085641701181885,
+          "delta": "Please"
+        },
+        {
+          "sample": 64000,
+          "elapsedSeconds": 0.7457735420030076,
+          "delta": " send the updated invoice to Dr."
+        },
+        {
+          "sample": 96000,
+          "elapsedSeconds": 1.376002792007057,
+          "delta": " Miller tomorrow. The appointment starts at 9:30 and ends"
+        },
+        {
+          "sample": 128000,
+          "elapsedSeconds": 1.9020168340066448,
+          "delta": " at 11. I"
+        },
+        {
+          "sample": 160000,
+          "elapsedSeconds": 2.5189913340000203,
+          "delta": " explicitly do not want to publish this change."
+        },
+        {
+          "sample": 192000,
+          "elapsedSeconds": 3.1085542920045555,
+          "delta": " We have 12 orders and"
+        },
+        {
+          "sample": 224000,
+          "elapsedSeconds": 3.705774875008501,
+          "delta": " 7 unanswered questions"
+        },
+        {
+          "sample": 256000,
+          "elapsedSeconds": 4.4532840000028955,
+          "delta": ". The kitchen is approximately 18 square"
+        },
+        {
+          "sample": 288000,
+          "elapsedSeconds": 5.007795167010045,
+          "delta": " meters. Please check the documentation and"
+        },
+        {
+          "sample": 320000,
+          "elapsedSeconds": 5.650480709009571,
+          "delta": " then start the test. I think"
+        },
+        {
+          "sample": 352000,
+          "elapsedSeconds": 6.258980917002191,
+          "delta": " we should try the simpler solution"
+        },
+        {
+          "sample": 384000,
+          "elapsedSeconds": 6.964667209002073,
+          "delta": " first. No, no, this file"
+        },
+        {
+          "sample": 416000,
+          "elapsedSeconds": 7.563636834005592,
+          "delta": " must not be deleted yet. The street"
+        },
+        {
+          "sample": 448000,
+          "elapsedSeconds": 8.176761709008133,
+          "delta": " goes over the bridge to the"
+        },
+        {
+          "sample": 480000,
+          "elapsedSeconds": 8.865775584010407,
+          "delta": " public building. Today is September 22"
+        },
+        {
+          "sample": 512000,
+          "elapsedSeconds": 9.586426542009576,
+          "delta": "nd, 2026."
+        },
+        {
+          "sample": 544000,
+          "elapsedSeconds": 10.151181750014075,
+          "delta": " Could you please explain why the"
+        },
+        {
+          "sample": 576000,
+          "elapsedSeconds": 10.797905209008604,
+          "delta": " connection was interrupted? The password does"
+        },
+        {
+          "sample": 608000,
+          "elapsedSeconds": 11.480072334001306,
+          "delta": " not belong in the public log. We need"
+        },
+        {
+          "sample": 640000,
+          "elapsedSeconds": 12.196852375011076,
+          "delta": " both a German version and an English version"
+        },
+        {
+          "sample": 672000,
+          "elapsedSeconds": 12.822206084005302,
+          "delta": ". Thank you for your message. I will"
+        },
+        {
+          "sample": 704000,
+          "elapsedSeconds": 13.439776709012222,
+          "delta": " get back to you on Friday"
+        },
+        {
+          "sample": 736000,
+          "elapsedSeconds": 14.067672584002139,
+          "delta": ". The total amount is 2"
+        },
+        {
+          "sample": 768000,
+          "elapsedSeconds": 14.79865687500569,
+          "delta": "45 euros. Please change only the"
+        },
+        {
+          "sample": 800000,
+          "elapsedSeconds": 15.378910250001354,
+          "delta": " title and leave the rest of the"
+        },
+        {
+          "sample": 832000,
+          "elapsedSeconds": 16.015671875007683,
+          "delta": " text unchanged. I have already installed"
+        },
+        {
+          "sample": 864000,
+          "elapsedSeconds": 16.650168834006763,
+          "delta": " the new version on my computer."
+        },
+        {
+          "sample": 896000,
+          "elapsedSeconds": 17.331352542008972,
+          "delta": " The review must be fully completed"
+        },
+        {
+          "sample": 928000,
+          "elapsedSeconds": 17.872927542004618,
+          "delta": " before we continue. First"
+        },
+        {
+          "sample": 960000,
+          "elapsedSeconds": 18.51887737501238,
+          "delta": " point, quality. Second point,"
+        },
+        {
+          "sample": 992000,
+          "elapsedSeconds": 19.15273108400288,
+          "delta": " speed. That was my last sentence"
+        },
+        {
+          "sample": 1024000,
+          "elapsedSeconds": 19.88033225000254,
+          "delta": ". Please do not add any more words"
+        },
+        {
+          "sample": 1056000,
+          "elapsedSeconds": 20.43464475001383,
+          "delta": ". Please send the updated invoice to"
+        },
+        {
+          "sample": 1088000,
+          "elapsedSeconds": 21.136228542003664,
+          "delta": " Dr. Miller tomorrow. The appointment starts at "
+        },
+        {
+          "sample": 1120000,
+          "elapsedSeconds": 21.810668792008073,
+          "delta": "9:30 and ends at "
+        },
+        {
+          "sample": 1152000,
+          "elapsedSeconds": 22.543746959010605,
+          "delta": "11. I explicitly do not want"
+        },
+        {
+          "sample": 1184000,
+          "elapsedSeconds": 23.1622349590034,
+          "delta": " to publish this change. We have 12"
+        },
+        {
+          "sample": 1216000,
+          "elapsedSeconds": 23.75792524999997,
+          "delta": " orders and 7 unanswered"
+        },
+        {
+          "sample": 1248000,
+          "elapsedSeconds": 24.398480458999984,
+          "delta": " questions. The kitchen is approximately "
+        },
+        {
+          "sample": 1280000,
+          "elapsedSeconds": 25.07295729200996,
+          "delta": "18 square meters. Please"
+        },
+        {
+          "sample": 1312000,
+          "elapsedSeconds": 25.70369775001018,
+          "delta": " check the documentation and then start the test."
+        },
+        {
+          "sample": 1344000,
+          "elapsedSeconds": 26.31147808401147,
+          "delta": " I think we should try the"
+        },
+        {
+          "sample": 1376000,
+          "elapsedSeconds": 26.95509695900546,
+          "delta": " simpler solution first. No, no"
+        },
+        {
+          "sample": 1408000,
+          "elapsedSeconds": 27.64991925000504,
+          "delta": ", this file must not be deleted"
+        },
+        {
+          "sample": 1440000,
+          "elapsedSeconds": 28.251746750000166,
+          "delta": " yet. The street goes over the bridge"
+        },
+        {
+          "sample": 1472000,
+          "elapsedSeconds": 28.848787792012445,
+          "delta": " to the public building. Today"
+        },
+        {
+          "sample": 1504000,
+          "elapsedSeconds": 29.485052709002048,
+          "delta": " is September twenty second, twenty twenty"
+        },
+        {
+          "sample": 1536000,
+          "elapsedSeconds": 30.12985383400519,
+          "delta": " six. Could you please"
+        },
+        {
+          "sample": 1568000,
+          "elapsedSeconds": 30.712779292007326,
+          "delta": " explain why the connection was interrupted?"
+        },
+        {
+          "sample": 1600000,
+          "elapsedSeconds": 31.39812525000889,
+          "delta": " The password does not belong in the public log"
+        },
+        {
+          "sample": 1632000,
+          "elapsedSeconds": 32.03331775001425,
+          "delta": ". We need both a German version"
+        },
+        {
+          "sample": 1664000,
+          "elapsedSeconds": 32.777941834006924,
+          "delta": " and an English version. Thank you for your"
+        },
+        {
+          "sample": 1696000,
+          "elapsedSeconds": 33.38087291701231,
+          "delta": " message. I will get back to you"
+        },
+        {
+          "sample": 1728000,
+          "elapsedSeconds": 34.00633254200511,
+          "delta": " on Friday. The total amount"
+        },
+        {
+          "sample": 1760000,
+          "elapsedSeconds": 34.65223612500995,
+          "delta": " is 245 euros."
+        },
+        {
+          "sample": 1792000,
+          "elapsedSeconds": 35.38158079200366,
+          "delta": " Please change only the title and leave the rest"
+        },
+        {
+          "sample": 1824000,
+          "elapsedSeconds": 35.94060095900204,
+          "delta": " of the text unchanged. I"
+        },
+        {
+          "sample": 1856000,
+          "elapsedSeconds": 36.57477804200607,
+          "delta": " have already installed the new version on"
+        },
+        {
+          "sample": 1888000,
+          "elapsedSeconds": 37.1891449590039,
+          "delta": " my computer. The review must be"
+        },
+        {
+          "sample": 1920000,
+          "elapsedSeconds": 37.83039416700194,
+          "delta": " fully completed before we continue"
+        },
+        {
+          "sample": 1952000,
+          "elapsedSeconds": 38.37749666700256,
+          "delta": ". First point, quality."
+        },
+        {
+          "sample": 1984000,
+          "elapsedSeconds": 39.016262917008135,
+          "delta": " Second point, speed. That was"
+        },
+        {
+          "sample": 2016000,
+          "elapsedSeconds": 39.67366391701216,
+          "delta": " my last sentence. Please do not add"
+        },
+        {
+          "sample": 2048000,
+          "elapsedSeconds": 40.39734054201108,
+          "delta": " any more words. Please send the updated"
+        },
+        {
+          "sample": 2080000,
+          "elapsedSeconds": 40.95235620900348,
+          "delta": " invoice to Dr. Miller tomorrow"
+        },
+        {
+          "sample": 2112000,
+          "elapsedSeconds": 41.73013479200017,
+          "delta": ". The appointment starts at 9:30 and ends at"
+        },
+        {
+          "sample": 2144000,
+          "elapsedSeconds": 42.36009866700624,
+          "delta": " 11. I explicitly"
+        },
+        {
+          "sample": 2176000,
+          "elapsedSeconds": 43.12492245901376,
+          "delta": " do not want to publish this change. We have"
+        },
+        {
+          "sample": 2208000,
+          "elapsedSeconds": 43.67956945901096,
+          "delta": " 12 orders and "
+        },
+        {
+          "sample": 2240000,
+          "elapsedSeconds": 44.32245979200525,
+          "delta": "7 unanswered questions. The kitchen is"
+        },
+        {
+          "sample": 2272000,
+          "elapsedSeconds": 44.9189175000065,
+          "delta": " approximately 18 square"
+        },
+        {
+          "sample": 2304000,
+          "elapsedSeconds": 45.66880595900875,
+          "delta": " meters. Please check the documentation and then"
+        },
+        {
+          "sample": 2336000,
+          "elapsedSeconds": 46.28480004200537,
+          "delta": " start the test. I think we should try"
+        },
+        {
+          "sample": 2368000,
+          "elapsedSeconds": 46.88486512500094,
+          "delta": " the simpler solution first."
+        },
+        {
+          "sample": 2400000,
+          "elapsedSeconds": 47.544022542002494,
+          "delta": " No, no, this file must not"
+        },
+        {
+          "sample": 2432000,
+          "elapsedSeconds": 48.26583991700318,
+          "delta": " be deleted yet. The street goes over"
+        },
+        {
+          "sample": 2464000,
+          "elapsedSeconds": 48.79979054200521,
+          "delta": " the bridge to the public"
+        },
+        {
+          "sample": 2496000,
+          "elapsedSeconds": 49.48120162500709,
+          "delta": " building. Today is September 22, "
+        },
+        {
+          "sample": 2528000,
+          "elapsedSeconds": 50.11074745900987,
+          "delta": "2026. Could you"
+        },
+        {
+          "sample": 2560000,
+          "elapsedSeconds": 50.772920041999896,
+          "delta": " please explain why the connection"
+        },
+        {
+          "sample": 2592000,
+          "elapsedSeconds": 51.40067720900697,
+          "delta": " was interrupted? The password does not belong in"
+        },
+        {
+          "sample": 2624000,
+          "elapsedSeconds": 52.06149687500147,
+          "delta": " the public log. We need both a"
+        },
+        {
+          "sample": 2656000,
+          "elapsedSeconds": 52.6990389170096,
+          "delta": " German version and an English version. Thank"
+        },
+        {
+          "sample": 2688000,
+          "elapsedSeconds": 53.42534070900001,
+          "delta": " you for your message. I will get back"
+        },
+        {
+          "sample": 2720000,
+          "elapsedSeconds": 54.01290075000725,
+          "delta": " to you on Friday. The total amount"
+        },
+        {
+          "sample": 2752000,
+          "elapsedSeconds": 54.59104287500668,
+          "delta": " is 24"
+        },
+        {
+          "sample": 2784000,
+          "elapsedSeconds": 55.27564025000902,
+          "delta": "5 euros. Please change only the title and leave"
+        },
+        {
+          "sample": 2816000,
+          "elapsedSeconds": 55.934235417007585,
+          "delta": " the rest of the text"
+        },
+        {
+          "sample": 2848000,
+          "elapsedSeconds": 56.53354320900689,
+          "delta": " unchanged. I have already installed the new"
+        },
+        {
+          "sample": 2880000,
+          "elapsedSeconds": 57.14482979201421,
+          "delta": " version on my computer. The review"
+        },
+        {
+          "sample": 2912000,
+          "elapsedSeconds": 57.72361991700018,
+          "delta": " must be fully completed before"
+        },
+        {
+          "sample": 2944000,
+          "elapsedSeconds": 58.41514091700083,
+          "delta": " we continue. First point,"
+        },
+        {
+          "sample": 2976000,
+          "elapsedSeconds": 58.993013209008495,
+          "delta": " quality. Second point, speed. That"
+        },
+        {
+          "sample": 3008000,
+          "elapsedSeconds": 59.62801075000607,
+          "delta": " was my last sentence. Please do not"
+        },
+        {
+          "sample": 3040000,
+          "elapsedSeconds": 60.24728637500084,
+          "delta": " add any more words. Please"
+        },
+        {
+          "sample": 3072000,
+          "elapsedSeconds": 60.92633654200472,
+          "delta": " send the updated invoice to Dr"
+        },
+        {
+          "sample": 3104000,
+          "elapsedSeconds": 61.597498209011974,
+          "delta": ". Miller tomorrow. The appointment starts at 9:"
+        },
+        {
+          "sample": 3136000,
+          "elapsedSeconds": 62.29500158400333,
+          "delta": "30 and ends at 11."
+        },
+        {
+          "sample": 3168000,
+          "elapsedSeconds": 63.00687745900359,
+          "delta": " I explicitly do not want to publish this change."
+        },
+        {
+          "sample": 3200000,
+          "elapsedSeconds": 63.68199687500601,
+          "delta": " We have 12 orders and"
+        },
+        {
+          "sample": 3232000,
+          "elapsedSeconds": 64.19202870900335,
+          "delta": " 7 unanswered questions"
+        },
+        {
+          "sample": 3264000,
+          "elapsedSeconds": 64.85785150001175,
+          "delta": ". The kitchen is approximately 18"
+        },
+        {
+          "sample": 3296000,
+          "elapsedSeconds": 65.4757469590113,
+          "delta": " square meters. Please check the"
+        },
+        {
+          "sample": 3328000,
+          "elapsedSeconds": 66.23548975000449,
+          "delta": " documentation and then start the test. I think"
+        },
+        {
+          "sample": 3360000,
+          "elapsedSeconds": 66.77426587500668,
+          "delta": " we should try the simpler solution"
+        },
+        {
+          "sample": 3392000,
+          "elapsedSeconds": 67.41617408400634,
+          "delta": " first. No, no, this"
+        },
+        {
+          "sample": 3424000,
+          "elapsedSeconds": 68.07595691700408,
+          "delta": " file must not be deleted yet. The"
+        },
+        {
+          "sample": 3456000,
+          "elapsedSeconds": 68.77585275001184,
+          "delta": " street goes over the bridge to the"
+        },
+        {
+          "sample": 3488000,
+          "elapsedSeconds": 69.40085291700962,
+          "delta": " public building. Today is September 22"
+        },
+        {
+          "sample": 3520000,
+          "elapsedSeconds": 70.05158712500997,
+          "delta": "nd, 2026"
+        },
+        {
+          "sample": 3552000,
+          "elapsedSeconds": 70.69857025000965,
+          "delta": ". Could you please explain why the"
+        },
+        {
+          "sample": 3584000,
+          "elapsedSeconds": 71.40356225000869,
+          "delta": " connection was interrupted? The password does"
+        },
+        {
+          "sample": 3616000,
+          "elapsedSeconds": 72.00656704200082,
+          "delta": " not belong in the public log. We"
+        },
+        {
+          "sample": 3648000,
+          "elapsedSeconds": 72.66234225001244,
+          "delta": " need both a German version and an English"
+        },
+        {
+          "sample": 3680000,
+          "elapsedSeconds": 73.35094600000593,
+          "delta": " version. Thank you for your message. I will"
+        },
+        {
+          "sample": 3712000,
+          "elapsedSeconds": 74.03729783400195,
+          "delta": " get back to you on Friday"
+        },
+        {
+          "sample": 3744000,
+          "elapsedSeconds": 74.60065620900423,
+          "delta": ". The total amount is "
+        },
+        {
+          "sample": 3776000,
+          "elapsedSeconds": 75.2615140840062,
+          "delta": "245 euros. Please change only"
+        },
+        {
+          "sample": 3808000,
+          "elapsedSeconds": 75.9251715420105,
+          "delta": " the title and leave the rest of the"
+        },
+        {
+          "sample": 3840000,
+          "elapsedSeconds": 76.621390625005,
+          "delta": " text unchanged. I have already installed"
+        },
+        {
+          "sample": 3872000,
+          "elapsedSeconds": 77.20073520900041,
+          "delta": " the new version on my computer."
+        },
+        {
+          "sample": 3904000,
+          "elapsedSeconds": 77.80407579200983,
+          "delta": " The review must be fully completed"
+        },
+        {
+          "sample": 3936000,
+          "elapsedSeconds": 78.3865848750138,
+          "delta": " before we continue. First"
+        },
+        {
+          "sample": 3968000,
+          "elapsedSeconds": 79.08450029201049,
+          "delta": " point, quality. Second point,"
+        },
+        {
+          "sample": 4000000,
+          "elapsedSeconds": 79.65979966700252,
+          "delta": " speed. That was my last sentence"
+        },
+        {
+          "sample": 4032000,
+          "elapsedSeconds": 80.30082645900256,
+          "delta": ". Please do not add any more words"
+        },
+        {
+          "sample": 4064000,
+          "elapsedSeconds": 80.92027420901286,
+          "delta": ". Please send the updated invoice to"
+        },
+        {
+          "sample": 4096000,
+          "elapsedSeconds": 81.6686359590094,
+          "delta": " Dr. Miller tomorrow. The appointment starts at"
+        },
+        {
+          "sample": 4128000,
+          "elapsedSeconds": 82.30772004200844,
+          "delta": " 9:30 and ends at "
+        },
+        {
+          "sample": 4160000,
+          "elapsedSeconds": 82.95271208400663,
+          "delta": "11. I explicitly do not want"
+        },
+        {
+          "sample": 4192000,
+          "elapsedSeconds": 83.63157445901015,
+          "delta": " to publish this change. We have 12"
+        },
+        {
+          "sample": 4224000,
+          "elapsedSeconds": 84.28761304200452,
+          "delta": " orders and 7 unanswered"
+        },
+        {
+          "sample": 4256000,
+          "elapsedSeconds": 84.84433370901388,
+          "delta": " questions. The kitchen is approximately "
+        },
+        {
+          "sample": 4288000,
+          "elapsedSeconds": 85.46052625001175,
+          "delta": "18 square meters. Please"
+        },
+        {
+          "sample": 4320000,
+          "elapsedSeconds": 86.15651208400959,
+          "delta": " check the documentation and then start the test."
+        },
+        {
+          "sample": 4352000,
+          "elapsedSeconds": 86.81948616700538,
+          "delta": " I think we should try"
+        },
+        {
+          "sample": 4384000,
+          "elapsedSeconds": 87.4146011670091,
+          "delta": " the simpler solution first. No,"
+        },
+        {
+          "sample": 4416000,
+          "elapsedSeconds": 88.07464170901221,
+          "delta": " no, this file must not be deleted"
+        },
+        {
+          "sample": 4448000,
+          "elapsedSeconds": 88.72448562500358,
+          "delta": " yet. The street goes over the bridge"
+        },
+        {
+          "sample": 4480000,
+          "elapsedSeconds": 89.38268462500127,
+          "delta": " to the public building. Today"
+        },
+        {
+          "sample": 4512000,
+          "elapsedSeconds": 90.0209398750012,
+          "delta": " is September 22, 202"
+        },
+        {
+          "sample": 4544000,
+          "elapsedSeconds": 90.6199633750075,
+          "delta": "6. Could you please"
+        },
+        {
+          "sample": 4576000,
+          "elapsedSeconds": 91.25965841700963,
+          "delta": " explain why the connection was interrupted?"
+        },
+        {
+          "sample": 4608000,
+          "elapsedSeconds": 92.00513704201148,
+          "delta": " The password does not belong in the public log"
+        },
+        {
+          "sample": 4640000,
+          "elapsedSeconds": 92.55837141700613,
+          "delta": ". We need both a German version"
+        },
+        {
+          "sample": 4672000,
+          "elapsedSeconds": 93.24018504201376,
+          "delta": " and an English version. Thank you for your"
+        },
+        {
+          "sample": 4704000,
+          "elapsedSeconds": 93.91209591701045,
+          "delta": " message. I will get back to you"
+        },
+        {
+          "sample": 4736000,
+          "elapsedSeconds": 94.59273387500434,
+          "delta": " on Friday. The total amount"
+        },
+        {
+          "sample": 4768000,
+          "elapsedSeconds": 95.01637962501263,
+          "delta": " is "
+        },
+        {
+          "sample": 4800000,
+          "elapsedSeconds": 95.45050016700407,
+          "delta": ""
+        }
+      ],
+      "loadSeconds": 2.185651791995042,
+      "status": "completed",
+      "text": "Please send the updated invoice to Dr. Miller tomorrow. The appointment starts at 9:30 and ends at 11. I explicitly do not want to publish this change. We have 12 orders and 7 unanswered questions. The kitchen is approximately 18 square meters. Please check the documentation and then start the test. I think we should try the simpler solution first. No, no, this file must not be deleted yet. The street goes over the bridge to the public building. Today is September 22nd, 2026. Could you please explain why the connection was interrupted? The password does not belong in the public log. We need both a German version and an English version. Thank you for your message. I will get back to you on Friday. The total amount is 245 euros. Please change only the title and leave the rest of the text unchanged. I have already installed the new version on my computer. The review must be fully completed before we continue. First point, quality. Second point, speed. That was my last sentence. Please do not add any more words. Please send the updated invoice to Dr. Miller tomorrow. The appointment starts at 9:30 and ends at 11. I explicitly do not want to publish this change. We have 12 orders and 7 unanswered questions. The kitchen is approximately 18 square meters. Please check the documentation and then start the test. I think we should try the simpler solution first. No, no, this file must not be deleted yet. The street goes over the bridge to the public building. Today is September twenty second, twenty twenty six. Could you please explain why the connection was interrupted? The password does not belong in the public log. We need both a German version and an English version. Thank you for your message. I will get back to you on Friday. The total amount is 245 euros. Please change only the title and leave the rest of the text unchanged. I have already installed the new version on my computer. The review must be fully completed before we continue. First point, quality. Second point, speed. That was my last sentence. Please do not add any more words. Please send the updated invoice to Dr. Miller tomorrow. The appointment starts at 9:30 and ends at 11. I explicitly do not want to publish this change. We have 12 orders and 7 unanswered questions. The kitchen is approximately 18 square meters. Please check the documentation and then start the test. I think we should try the simpler solution first. No, no, this file must not be deleted yet. The street goes over the bridge to the public building. Today is September 22, 2026. Could you please explain why the connection was interrupted? The password does not belong in the public log. We need both a German version and an English version. Thank you for your message. I will get back to you on Friday. The total amount is 245 euros. Please change only the title and leave the rest of the text unchanged. I have already installed the new version on my computer. The review must be fully completed before we continue. First point, quality. Second point, speed. That was my last sentence. Please do not add any more words. Please send the updated invoice to Dr. Miller tomorrow. The appointment starts at 9:30 and ends at 11. I explicitly do not want to publish this change. We have 12 orders and 7 unanswered questions. The kitchen is approximately 18 square meters. Please check the documentation and then start the test. I think we should try the simpler solution first. No, no, this file must not be deleted yet. The street goes over the bridge to the public building. Today is September 22nd, 2026. Could you please explain why the connection was interrupted? The password does not belong in the public log. We need both a German version and an English version. Thank you for your message. I will get back to you on Friday. The total amount is 245 euros. Please change only the title and leave the rest of the text unchanged. I have already installed the new version on my computer. The review must be fully completed before we continue. First point, quality. Second point, speed. That was my last sentence. Please do not add any more words. Please send the updated invoice to Dr. Miller tomorrow. The appointment starts at 9:30 and ends at 11. I explicitly do not want to publish this change. We have 12 orders and 7 unanswered questions. The kitchen is approximately 18 square meters. Please check the documentation and then start the test. I think we should try the simpler solution first. No, no, this file must not be deleted yet. The street goes over the bridge to the public building. Today is September 22, 2026. Could you please explain why the connection was interrupted? The password does not belong in the public log. We need both a German version and an English version. Thank you for your message. I will get back to you on Friday. The total amount is 245 euros.",
+      "firstTextSeconds": 0.28085641701181885,
+      "finalizeSeconds": 0.42654733400559053,
+      "streamSeconds": 95.87705087500217,
+      "realTimeFactor": 0.3195901695833406,
+      "exitCode": 0
+    }
+  ],
+  "limitations": "Fixture probe only; not German/English release acceptance or measured acoustic word latency.",
+  "childrenPeakRssBytes": 5137186816
+}

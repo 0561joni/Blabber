@@ -1,0 +1,138 @@
+/*
+ * Blabber design tokens: the single source for color, type, spacing, radius and elevation.
+ * Every other stylesheet reads these variables; do not hard-code values elsewhere.
+ * Dark values apply when appearance.tsx sets data-theme="dark" on <html>.
+ */
+:root {
+  color-scheme: light;
+
+  /* Neutrals */
+  --color-canvas: #ffffff;
+  --color-sidebar: #f4f5f7;
+  --color-subtle: #f4f5f7;
+  --color-hover: #eceef1;
+  --color-text: #17202e;
+  --color-text-2: #4b5565;
+  --color-text-muted: #5f6a7a;
+  --color-divider: #e3e6eb;
+  --color-control: #8a93a0;
+
+  /* Primary: actions, selection, focus */
+  --color-primary: #2456d6;
+  --color-primary-hover: #1d47b8;
+  --color-primary-tint: #eaf0fc;
+  --color-on-primary: #ffffff;
+
+  /* Accent: live audio only (meter, Listening, live text) */
+  --color-live: #0b7396;
+  --color-live-tint: #e5f4f8;
+
+  /* Status */
+  --color-success: #1e7a4c;
+  --color-success-tint: #e8f4ec;
+  --color-warning: #95590a;
+  --color-warning-tint: #fbf1e1;
+  --color-error: #c0303c;
+  --color-error-hover: #a52833;
+  --color-error-tint: #fbeaeb;
+  --color-on-error: #ffffff;
+
+  /* Typography: system font only (offline app) */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --text-title: 600 22px/28px var(--font-sans);
+  --text-heading: 600 17px/24px var(--font-sans);
+  --text-section: 600 15px/20px var(--font-sans);
+  --text-reading: 400 15px/24px var(--font-sans);
+  --text-body: 400 13px/20px var(--font-sans);
+  --text-small: 400 12px/16px var(--font-sans);
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* Spacing: 4 px base */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Sizes */
+  --control-height: 28px;
+  --control-height-lg: 36px;
+  --toolbar-height: 48px;
+  --sidebar-width: 188px;
+  --sidebar-width-collapsed: 52px;
+  --reading-width: 720px;
+
+  /* Shape and elevation */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  --radius-full: 999px;
+  --shadow-pop: 0 4px 16px rgb(23 32 46 / 12%), 0 0 0 1px rgb(23 32 46 / 6%);
+  --focus-ring: 0 0 0 2px var(--color-canvas), 0 0 0 4px var(--color-primary);
+  --duration: 150ms;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-canvas: #15171b;
+  --color-sidebar: #1b1e23;
+  --color-subtle: #22262c;
+  --color-hover: #262a31;
+  --color-text: #e9ecf1;
+  --color-text-2: #aeb5c0;
+  --color-text-muted: #8c95a3;
+  --color-divider: #2c3038;
+  --color-control: #646d7b;
+  --color-primary: #7fa4ff;
+  --color-primary-hover: #9db9ff;
+  --color-primary-tint: #1f2a40;
+  --color-on-primary: #0e1420;
+  --color-live: #4cc3e3;
+  --color-live-tint: #15303a;
+  --color-success: #5ccb94;
+  --color-success-tint: #17302a;
+  --color-warning: #e2ae5b;
+  --color-warning-tint: #352a18;
+  --color-error: #ff8a93;
+  --color-error-hover: #ffa6ad;
+  --color-error-tint: #3a2023;
+  --color-on-error: #1a0d0f;
+  --shadow-pop: 0 4px 16px rgb(0 0 0 / 40%), 0 0 0 1px rgb(255 255 255 / 8%);
+}
+
+/*
+ * Legacy names still used by screens that have not been migrated yet.
+ * They point at the tokens above; remove each alias once nothing reads it.
+ */
+:root,
+:root[data-theme="dark"] {
+  --canvas: var(--color-canvas);
+  --surface: var(--color-canvas);
+  --surface-raised: var(--color-canvas);
+  --surface-subtle: var(--color-subtle);
+  --sidebar: var(--color-sidebar);
+  --text-primary: var(--color-text);
+  --text-secondary: var(--color-text-2);
+  --text-muted: var(--color-text-muted);
+  --border: var(--color-divider);
+  --border-strong: var(--color-control);
+  --accent: var(--color-primary);
+  --accent-hover: var(--color-primary-hover);
+  --accent-tint: var(--color-primary-tint);
+  --accent-success: var(--color-success);
+  --success-tint: var(--color-success-tint);
+  --accent-warn: var(--color-warning);
+  --warn-tint: var(--color-warning-tint);
+  --accent-error: var(--color-error);
+  --error-tint: var(--color-error-tint);
+  --accent-live: var(--color-live);
+  --accent-idle: var(--color-text-muted);
+  --shadow-soft: none;
+  --shadow-panel: var(--shadow-pop);
+  --radius-md: var(--radius-lg);
+}

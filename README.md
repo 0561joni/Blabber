@@ -1,0 +1,239 @@
+# SpeechToText
+
+Local-first Tauri transcription app for macOS, Windows, and Linux.
+
+Current scope:
+
+- Tauri 2 + React + TypeScript scaffold
+- Rust backend module layout for later audio/ASR work
+- SQLite-backed settings and transcript history
+- Minimal Home, Settings, and History screens
+- Phase 4 whisper.cpp integration through `whisper-rs`
+- Offline dictation translation to French and Argentinian Spanish on Apple Silicon
+
+## Dictation translation
+
+In **Settings → Models → Local translation**, download TranslateGemma 12B Q6_K
+(9.66 GB). The verified download enables the language shortcut. Dictate in German
+or English and press **⌘⇧→** between dictations to cycle through **Original →
+Français → Español (AR)**. The shortcut is configurable and reserved globally.
+Each app start resets to Original; switching is locked while a dictation is active.
+
+Global dictation pastes the finished translation; the Dictate workspace offers
+separate original/translation views and copy actions. Failed translations preserve
+the source and never paste. History follows the existing preference, and retrying
+a failed translation never pastes into a potentially different application.
+Imported audio remains unchanged. Inference works offline after model setup.
+
+The native helper is built automatically for Apple Silicon by `npm run tauri dev`
+and `npm run tauri -- build`. Use `npm run build:translation` to build it separately.
+It requires CMake and a working Apple developer toolchain at build time; the packaged
+application needs no separately installed translation runtime.
+
+See [translation architecture and acceptance](docs/translation.md) for pinned
+versions, error handling, reproducible benchmarks, and remaining release checks.
+
+## File transcription: audio and video
+
+Drop files on **Files** (or use **Choose files**). Supported:
+
+- **Audio:** WAV, MP3, M4A, OPUS (up to 2 GB)
+- **Video:** MP4, MOV, M4V, MKV, WEBM, AVI (up to 20 GB). Only the first audio
+  track is extracted and transcribed; the picture is skipped. The 6-hour
+  duration cap applies to both.
+
+MP4/MOV/M4V, MKV (AAC/FLAC/Vorbis/PCM) and Vorbis WebM decode fully offline with
+the built-in decoder, with macOS AVFoundation (`avconvert`) as fallback. Opus
+WebM and AVI need `ffmpeg` (`brew install ffmpeg`); without it Blabber shows a
+clear error. Review playback streams MP4/MOV/M4V directly and plays extracted
+audio for the other video formats. Videos without sound are rejected with
+"has no audio track".
+
+## Local development
+
+Use the repo's supported Node version before installing dependencies:
+
+```bash
+node -v
+cat .nvmrc
+```
+
+Recommended runtime: `Node 22 LTS` (`22.19.0` in `.nvmrc`).
+
+Frontend only:
+
+```bash
+npm install
+npm run dev
+```
+
+Full Tauri app:
+
+```bash
+npm install
+npm run tauri dev
+```
+
+### Closing and quitting
+
+Blabber runs one desktop instance per user. Opening it again restores the existing window (or the splash screen while starting), including when it is hidden or minimized. Simultaneous launches share an OS lock that is automatically released after a crash; transcription workers and Linux `--dictate-toggle` commands continue to run separately.
+
+On macOS, the red close button hides the workspace. Clicking the Dock icon or the menu-bar icon restores it. Cmd-Q, Dock Quit, the application menu, and the tray's Quit entry share one shutdown path.
+
+Idle quit requires no confirmation. If recording, transcription, or speaker processing is active, Blabber offers **Weiterarbeiten** or **Abbrechen und beenden**. Accepted quit blocks new work, stops capture and workers, restores audio volume, drains active operations, and releases cached model/GPU resources before terminating. The window shows cleanup status while this completes. Engines without a safe mid-call abort finish their current native call before their memory is released. Partial model downloads retain the existing resume behavior.
+
+Native regression probes (macOS, without workspace windows or user data):
+
+```bash
+cargo run --manifest-path src-tauri/Cargo.toml --example macos_quit_smoke -- --native
+cargo run --manifest-path src-tauri/Cargo.toml --example macos_quit_smoke -- --tauri
+```
+
+The ignored `asr::tests::metal_cache_release_exits_cleanly` test can additionally be run in a dedicated test process with `BLABBER_WHISPER_SMOKE_MODEL` set to an installed Whisper `.bin` file. It verifies that a cached Metal model is released before process exit, reproducing the managed-state lifetime involved in the former quit crash.
+
+The decoder regression test also exercises first and repeated GPU transcription, CPU transcription, and native shutdown cancellation. Supply an installed Whisper model and a speech recording with at least one second of audio:
+
+```bash
+BLABBER_WHISPER_SMOKE_MODEL=/path/to/ggml-small.bin \
+BLABBER_WHISPER_SMOKE_AUDIO=/path/to/speech.wav \
+cargo test --manifest-path src-tauri/Cargo.toml --lib \
+  asr::tests::native_abort_callback_decodes_and_cancels_cleanly -- --ignored --exact --nocapture
+```
+
+Run it alone because it sets the process-wide shutdown flag. This covers the encoder callback that model-loading tests cannot reach: Blabber registers a static C callback directly to avoid the incorrect closure pointer cast in `whisper-rs 0.16.0`'s safe abort wrapper.
+
+Platform prerequisites:
+
+- macOS: working Rust toolchain, accepted Xcode license, `macOS 11.0+`
+- Windows: working Rust MSVC toolchain, Visual Studio C++ build tools, WebView2 runtime
+- Linux: working Rust toolchain plus the system packages below
+
+The macOS app targets `macOS 11.0+` because the current native Whisper/ggml toolchain for Apple Silicon release builds requires a newer macOS deployment target.
+
+### Linux build dependencies
+
+**Debian / Ubuntu** (matches the canonical Tauri 2 list, plus ALSA for the
+microphone and chime):
+
+```bash
+sudo apt install \
+  libwebkit2gtk-4.1-dev \
+  libasound2-dev \
+  libxdo-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  libssl-dev \
+  build-essential \
+  pkg-config \
+  curl wget file
+```
+
+`libwebkit2gtk-4.1-dev` transitively pulls in GTK 3, GDK, ATK, Cairo, Pango,
+GLib, libsoup 3, and JavaScriptCore — there's no need to list them
+individually on Debian-based distros.
+
+**Fedora / RHEL:**
+
+```bash
+sudo dnf install \
+  webkit2gtk4.1-devel \
+  alsa-lib-devel \
+  libxdo-devel \
+  libayatana-appindicator-gtk3-devel \
+  librsvg2-devel \
+  openssl-devel \
+  gcc gcc-c++ pkgconf-pkg-config \
+  curl wget file
+```
+
+If your `dnf` version doesn't find `libayatana-appindicator-gtk3-devel`, try
+`libappindicator-gtk3-devel` instead (older repos use that name).
+
+### Linux runtime dependencies
+
+Packaged Debian builds declare the runtime packages Blabber expects:
+
+- GTK 3 and WebKitGTK 4.1 for the Tauri webview.
+- AppIndicator/Ayatana for tray icons. GNOME also needs the
+  [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/)
+  because GNOME hides tray icons by default.
+- ALSA, with PulseAudio or PipeWire compatibility available from the desktop
+  session, for microphone capture and chimes.
+- `ffmpeg` for fallback decoding of audio files that the native decoder cannot
+  read directly.
+- `xdg-utils` / `xdg-open` for opening folders and system locations from the app.
+
+AppImage and manual installs cannot force host packages, so install the matching
+packages through your distro if the app cannot start, open folders, capture
+audio, show a tray icon, or decode a specific audio file.
+
+### Linux session: X11 vs Wayland
+
+Most modern distros default to Wayland. Check with:
+
+```bash
+echo $XDG_SESSION_TYPE   # prints "wayland" or "x11"
+```
+
+**On X11:** everything works — global push-to-talk shortcut, auto-paste, the works.
+
+**On Wayland:**
+- The **global push-to-talk shortcut is inactive** (Wayland doesn't expose the
+  required hooks for Tauri's plugin yet). Use the **Hold to dictate** button on the
+  Home screen instead — it dictates straight to your clipboard, ready for Ctrl+V.
+- To use a compositor-level shortcut, open Settings and bind the exact command
+  shown there, for example `"/path/to/Blabber" --dictate-toggle`. This avoids
+  assuming a `blabber` wrapper exists on `PATH`.
+- Auto-paste is disabled on Wayland for now. Dictation copies to the clipboard;
+  press Ctrl+V in the target app to paste.
+
+If you really need the global shortcut, switch login session: at the login screen,
+click the gear icon and choose "Ubuntu on Xorg" / "GNOME on Xorg" before logging in.
+
+## Platform support
+
+| Feature | macOS | Windows | Linux |
+| --- | --- | --- | --- |
+| Tray app | Yes | Yes | KDE/XFCE: yes; GNOME: needs the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) |
+| Main window | Yes | Yes | Yes |
+| Global shortcut dictation | Yes | Yes | **X11 only** (Wayland: use the in-app Hold-to-dictate button) |
+| Shortcut overlay | Yes | Yes | Yes |
+| Auto paste after dictation | Yes | Yes | X11: yes; Wayland: clipboard-only |
+| Launch at login | Yes | Yes | Yes (XDG autostart `.desktop`) |
+| GPU acceleration | Metal | CUDA | None (CPU only) |
+| Model downloads and file transcription | Yes | Yes | Yes |
+| MOSS Transcribe + Diarize 0.9B F16 | Yes | Yes | Yes |
+| VibeVoice-ASR 8-bit MLX | Apple Silicon, macOS 14+ | No | No |
+
+Windows packaged builds use the bundled `.ico` app icon. macOS packaged builds use the `.icns`
+icon.
+
+On Linux, fresh installs prefer Whisper Small so CPU inference stays responsive. You can
+pick larger models in Settings if your CPU can handle them.
+
+## Phase 4 model requirement
+
+The app now uses a real local Whisper backend. To transcribe audio, place at least one
+whisper.cpp `ggml-*.bin` model file into the app's models directory and restart the app.
+
+Examples:
+
+- `ggml-small.bin` -> `balanced`
+- `ggml-medium.bin` or `ggml-large-v3.bin` -> `accurate`
+
+MOSS Transcribe + Diarize is a 1.83 GB CPU model available for shortcut dictation,
+Quick Dictate, and files up to 90 minutes. VibeVoice-ASR is a 9.52 GB file-only model
+for Apple Silicon on macOS 14 or newer; 32 GB unified memory is recommended. Both use
+their own timestamps, speakers, automatic language detection, and Blabber vocabulary
+context. Their native speaker labels are preserved even when standalone speaker
+post-processing is off.
+
+VibeVoice and MOSS run in bundled, self-contained workers (VibeVoice: `mlx-audio`
+frozen with PyInstaller; MOSS: the native `moss-transcribe` runtime plus a frozen
+adapter). `npm run tauri dev` / `npm run tauri -- build` (and the Deploy script) build
+them automatically; `npm run build:vibevoice` and `npm run build:moss` build them on
+their own. Building needs an arm64 Python 3.10 or newer (Homebrew, python.org, pyenv
+or `uv`; set `BLABBER_PYTHON` to pick one), CMake, and network access the first time;
+the packaged app never uses the system `python3`.
+
+The active models directory is shown in the Home screen diagnostics once the Tauri app is running.
