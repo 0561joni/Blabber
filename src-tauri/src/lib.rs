@@ -1,5 +1,6 @@
 pub mod app_state;
 pub mod asr;
+pub mod asr_scoring;
 pub mod audio_capture;
 pub mod audio_chunks;
 pub mod audio_files;

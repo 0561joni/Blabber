@@ -58,6 +58,23 @@ pub enum ModelCapability {
     Translation,
 }
 
+/// Where a listed model comes from.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelOrigin {
+    /// Offered for download by Blabber.
+    Catalog,
+    /// Once offered, no longer downloadable; listed while installed.
+    Retired,
+    /// Added to the models folder by hand; not verified by Blabber.
+    Custom,
+}
+
+/// Whisper downloads no longer offered: Qwen3-ASR and the live pair are more
+/// accurate on the reference corpus (docs/asr-benchmark.md). Installed copies
+/// keep working and can be deleted.
+const RETIRED_DOWNLOAD_IDS: &[&str] = &["ggml-small-bin", "ggml-medium-bin", "ggml-large-v3-turbo-bin"];
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadableModel {
@@ -75,6 +92,7 @@ pub struct DownloadableModel {
     pub capability: ModelCapability,
     pub capabilities: crate::model_metadata::ModelCapabilities,
     pub license_url: Option<String>,
+    pub origin: ModelOrigin,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -159,6 +177,12 @@ impl ModelDownloadManager {
             .into_iter()
             .find(|entry| entry.id == model_id)
             .ok_or_else(|| anyhow!("Unknown model download: {model_id}"))?;
+        if !spec.offered() {
+            return Err(anyhow!(
+                "MODEL_RETIRED: {} is no longer offered for download.",
+                spec.model_name
+            ));
+        }
         match spec.availability() {
             ModelAvailability::Available => {}
             ModelAvailability::ValidationPending => return Err(anyhow!("R2T2_VALIDATION_PENDING: R2T2 is unavailable until accuracy, continuity and packaged-app acceptance pass.")),
@@ -325,6 +349,90 @@ impl ModelDownloadManager {
             }
         });
         Ok(initial)
+    }
+
+    /// Deletes an installed model. Loaded copies are released first, and
+    /// selections that used it fall back to another installed model.
+    pub fn delete_model(&self, model_id: &str) -> Result<()> {
+        let _work = crate::shutdown::begin_work(false)?;
+        if self
+            .active_download
+            .lock()
+            .map_err(|_| anyhow!("download state is unavailable"))?
+            .as_deref()
+            == Some(model_id)
+        {
+            return Err(anyhow!("MODEL_BUSY: Cancel the download before deleting this model."));
+        }
+        let (target, spec) = deletion_target(&self.models_dir, model_id)?;
+        let state = self.app.try_state::<crate::app_state::AppState>();
+        if let Some(state) = &state {
+            let queue = state.translation.processing_queue();
+            if queue.busy() {
+                return Err(anyhow!(
+                    "MODEL_BUSY: A dictation or transcription is running. Delete the model when it has finished."
+                ));
+            }
+            if model_id == crate::live_pair::MODEL_ID {
+                state.live_pair.configure(None);
+            }
+            queue.evict_idle();
+        }
+        self.engine.release_resources();
+
+        let removed = match &target {
+            DeletionTarget::File(path) => {
+                let _ = fs::remove_file(path.with_file_name(format!(
+                    "{}.part",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                )));
+                fs::remove_file(path)
+            }
+            DeletionTarget::Directory(path) => {
+                if let Some(name) = path.file_name() {
+                    let _ = fs::remove_dir_all(
+                        self.models_dir.join(format!(".{}.part", name.to_string_lossy())),
+                    );
+                }
+                fs::remove_dir_all(path)
+            }
+        };
+        match removed {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(anyhow!("MODEL_DELETE_FAILED: {error}")),
+        }
+
+        self.refresh_installed()?;
+        let mut patch = crate::settings::SettingsPatch::default();
+        if spec.as_ref().is_some_and(|spec| spec.capability == ModelCapability::Translation) {
+            patch.translation_enabled = Some(false);
+        }
+        if spec.as_ref().is_some_and(|spec| spec.capability == ModelCapability::Diarization) {
+            patch.file_diarization_enabled = Some(false);
+        }
+        if patch.translation_enabled.is_some() || patch.file_diarization_enabled.is_some() {
+            storage::update_settings_for_db_path(&self.db_path, patch)?;
+        }
+        if let Some(state) = &state {
+            let _ = state.dictation_controller.sync_shortcut_registration();
+        }
+        if let Some(spec) = spec {
+            persist_status(&self.app, &self.statuses, idle_status(&spec));
+        }
+        Ok(())
+    }
+
+    /// Re-reads the models folder, so models added or removed by hand are
+    /// picked up without a restart.
+    pub fn refresh_installed(&self) -> Result<Vec<InstalledModel>> {
+        let models = self
+            .engine
+            .refresh_from_disk()
+            .or_else(|_| discover_installed_models(&self.models_dir))?;
+        storage::sync_installed_models_for_db_path(&self.db_path, &models)?;
+        storage::apply_preferred_model_defaults_for_db_path(&self.db_path, &models)?;
+        Ok(models)
     }
 
     pub fn cancel_download(&self, model_id: &str) -> Result<ModelDownloadStatus> {
@@ -713,6 +821,10 @@ struct DownloadableModelSpec {
 }
 
 impl DownloadableModelSpec {
+    fn offered(&self) -> bool {
+        !RETIRED_DOWNLOAD_IDS.contains(&self.id)
+    }
+
     fn availability(&self) -> ModelAvailability {
         if self.id == crate::r2t2::MODEL_ID {
             return if !crate::r2t2::platform_supported() {
@@ -995,10 +1107,15 @@ fn vad_model_spec() -> DownloadableModelSpec {
     }
 }
 
+/// The catalog, retired models that are still installed, and whisper.cpp
+/// files added to the models folder by hand.
 pub fn list_downloadable_models(models_dir: Option<&Path>) -> Vec<DownloadableModel> {
-    downloadable_specs()
-        .into_iter()
-        .map(|spec| DownloadableModel {
+    let specs = downloadable_specs();
+    let mut models: Vec<DownloadableModel> = specs
+        .iter()
+        .map(|spec| (spec, models_dir.is_some_and(|dir| model_is_installed(spec, dir))))
+        .filter(|(spec, installed)| spec.offered() || *installed)
+        .map(|(spec, installed)| DownloadableModel {
             id: spec.id.to_string(),
             engine: spec.engine.to_string(),
             model_name: spec.model_name.to_string(),
@@ -1019,7 +1136,7 @@ pub fn list_downloadable_models(models_dir: Option<&Path>) -> Vec<DownloadableMo
                 ),
                 ModelAvailability::Available => None,
             },
-            installed: models_dir.is_some_and(|dir| model_is_installed(&spec, dir)),
+            installed,
             artifact_count: spec.artifacts.len() as u32,
             capability: spec.capability,
             capabilities: capabilities_for_model(spec.id, spec.engine),
@@ -1029,8 +1146,76 @@ pub fn list_downloadable_models(models_dir: Option<&Path>) -> Vec<DownloadableMo
                 crate::live_pair::MODEL_ID => Some("https://openmdw.ai/license/1-1/".into()),
                 _ => None,
             },
+            origin: if spec.offered() { ModelOrigin::Catalog } else { ModelOrigin::Retired },
+        })
+        .collect();
+    if let Some(dir) = models_dir {
+        models.extend(custom_models(dir, &specs).into_iter().map(|model| DownloadableModel {
+            description: "Added to the models folder by hand. Blabber has not verified this model; use it at your own risk.".into(),
+            size_bytes: model.size_bytes,
+            profile: model.profile,
+            availability: ModelAvailability::Available,
+            requirements: None,
+            availability_reason: None,
+            installed: true,
+            artifact_count: 1,
+            capability: ModelCapability::Asr,
+            capabilities: model.capabilities.clone(),
+            license_url: None,
+            origin: ModelOrigin::Custom,
+            id: model.id,
+            engine: model.engine,
+            model_name: model.model_name,
+        }));
+    }
+    models
+}
+
+/// whisper.cpp models in the folder that Blabber never offered.
+fn custom_models(models_dir: &Path, specs: &[DownloadableModelSpec]) -> Vec<InstalledModel> {
+    crate::asr::discover_whisper_models(models_dir)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|model| {
+            !specs.iter().any(|spec| {
+                matches!(spec.layout, InstallLayout::File { file_name } if file_name == model.model_name)
+            })
         })
         .collect()
+}
+
+enum DeletionTarget {
+    File(PathBuf),
+    Directory(PathBuf),
+}
+
+/// The files that make up an installed model, and its catalog entry if any.
+fn deletion_target(
+    models_dir: &Path,
+    model_id: &str,
+) -> Result<(DeletionTarget, Option<DownloadableModelSpec>)> {
+    if let Some(spec) = downloadable_specs().into_iter().find(|spec| spec.id == model_id) {
+        let target = match spec.layout {
+            InstallLayout::File { file_name } => DeletionTarget::File(models_dir.join(file_name)),
+            InstallLayout::Directory { directory_name } => {
+                DeletionTarget::Directory(models_dir.join(directory_name))
+            }
+        };
+        return Ok((target, Some(spec)));
+    }
+    let specs = downloadable_specs();
+    let model = custom_models(models_dir, &specs)
+        .into_iter()
+        .find(|model| model.id == model_id)
+        .ok_or_else(|| anyhow!("MODEL_MISSING: {model_id} is not installed."))?;
+    let path = PathBuf::from(&model.local_path);
+    // Only files directly in the models folder, never the internal VAD model.
+    if path.parent() != Some(models_dir)
+        || path.file_name().and_then(|name| name.to_str()) == Some(VAD_MODEL_NAME)
+    {
+        return Err(anyhow!("MODEL_PROTECTED: {} cannot be deleted from Blabber.", model.model_name));
+    }
+    Ok((DeletionTarget::File(path), None))
 }
 
 fn model_is_installed(spec: &DownloadableModelSpec, models_dir: &Path) -> bool {
@@ -1435,6 +1620,64 @@ mod tests {
             b"hello"
         );
         assert!(model_is_installed(&requested, &models_dir));
+        fs::remove_dir_all(models_dir).expect("cleanup");
+    }
+
+    fn whisper_file(models_dir: &Path, name: &str) {
+        // Discovery ignores files under 1 MB; a sparse file is enough.
+        File::create(models_dir.join(name))
+            .and_then(|file| file.set_len(2 * 1024 * 1024))
+            .expect("model file");
+    }
+
+    #[test]
+    fn retired_downloads_are_listed_only_while_installed_and_custom_files_appear() {
+        let models_dir =
+            std::env::temp_dir().join(format!("blabber-model-list-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&models_dir).expect("models dir");
+        let ids = |models: &[DownloadableModel]| {
+            models.iter().map(|m| (m.id.clone(), m.origin)).collect::<Vec<_>>()
+        };
+
+        let listed = ids(&list_downloadable_models(Some(&models_dir)));
+        for retired in RETIRED_DOWNLOAD_IDS {
+            assert!(!listed.iter().any(|(id, _)| id == retired), "{retired} still offered");
+        }
+        assert!(listed.contains(&("ggml-large-v3-turbo-q5_0-bin".into(), ModelOrigin::Catalog)));
+
+        whisper_file(&models_dir, "ggml-medium.bin");
+        whisper_file(&models_dir, "ggml-large-v3.bin");
+        whisper_file(&models_dir, "ggml-tiny.bin");
+        whisper_file(&models_dir, VAD_MODEL_NAME);
+        let listed = list_downloadable_models(Some(&models_dir));
+        let medium = listed.iter().find(|m| m.id == "ggml-medium-bin").expect("installed retired model");
+        assert_eq!((medium.origin, medium.installed), (ModelOrigin::Retired, true));
+        let origins = ids(&listed);
+        assert!(origins.contains(&("ggml-large-v3-bin".into(), ModelOrigin::Custom)));
+        assert!(origins.contains(&("ggml-tiny-bin".into(), ModelOrigin::Custom)));
+        assert!(!origins.iter().any(|(id, _)| id.contains("silero")));
+        fs::remove_dir_all(models_dir).expect("cleanup");
+    }
+
+    #[test]
+    fn deletion_targets_stay_inside_the_models_folder() {
+        let models_dir =
+            std::env::temp_dir().join(format!("blabber-model-delete-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&models_dir).expect("models dir");
+        whisper_file(&models_dir, "ggml-large-v3.bin");
+
+        let (target, spec) = deletion_target(&models_dir, "ggml-large-v3-bin").expect("custom model");
+        assert!(spec.is_none());
+        assert!(matches!(target, DeletionTarget::File(path) if path == models_dir.join("ggml-large-v3.bin")));
+        let (target, spec) = deletion_target(&models_dir, QWEN_MODEL_ID).expect("catalog package");
+        assert_eq!(spec.map(|s| s.id), Some(QWEN_MODEL_ID));
+        assert!(matches!(target, DeletionTarget::Directory(path) if path == models_dir.join(QWEN_MODEL_DIR)));
+        assert!(deletion_target(&models_dir, "ggml-missing-bin").is_err());
+        assert!(deletion_target(&models_dir, "../../etc").is_err());
+        assert!(!downloadable_specs()
+            .iter()
+            .filter(|spec| RETIRED_DOWNLOAD_IDS.contains(&spec.id))
+            .any(DownloadableModelSpec::offered));
         fs::remove_dir_all(models_dir).expect("cleanup");
     }
 

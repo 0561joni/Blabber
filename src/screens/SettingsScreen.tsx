@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { formatShortcutForDisplay } from "../lib/formatting";
-import { ActionButton, PageHeader } from "../components/Feedback";
+import { ActionButton, Button, PageHeader } from "../components/Feedback";
 import { IconButton } from "../components/IconButton";
 import {
   ModelInfoButton,
@@ -15,6 +15,7 @@ import {
   previewFeedbackSound,
   cancelModelDownload,
   cancelRecordingSession,
+  deleteModel,
   getPlatformInfo,
   getRecordingInputLevel,
   getModelDownloadStatuses,
@@ -24,6 +25,7 @@ import {
   listenLivePairStatus,
   listenModelDownloadStatus,
   openModelsFolder,
+  rescanModelsFolder,
   resumeShortcutCapture,
   startModelDownload,
   startRecordingSession,
@@ -78,6 +80,9 @@ export function SettingsScreen({
   const [isSaving, setIsSaving] = useState(false);
   const [isOpeningModelsFolder, setIsOpeningModelsFolder] = useState(false);
   const [isDownloadsExpanded, setIsDownloadsExpanded] = useState(false);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
+  const [isRescanningModels, setIsRescanningModels] = useState(false);
   const [downloadableModels, setDownloadableModels] = useState<
     DownloadableModel[]
   >([]);
@@ -97,6 +102,9 @@ export function SettingsScreen({
   >(null);
   const microphoneTestPollerRef = useRef<number | null>(null);
   const isTestingMicrophoneRef = useRef(false);
+  // Models whose download completed in this session count as installed until
+  // the catalog says so (or until they are deleted).
+  const completedModelsRef = useRef(new Set<string>());
   const reloadModelStateRef = useRef(onReloadModelState);
   reloadModelStateRef.current = onReloadModelState;
   const dictateToggleCommand =
@@ -142,7 +150,7 @@ export function SettingsScreen({
     let unlisten: (() => void) | null = null;
     let catalogRevision = 0;
     const liveStatuses = new Set<string>();
-    const completedModels = new Set<string>();
+    const completedModels = completedModelsRef.current;
     const downloadStages = new Map<string, ModelDownloadStatus["state"]>();
 
     const refreshCatalog = async () => {
@@ -582,6 +590,74 @@ export function SettingsScreen({
           : "Failed to download the selected model.",
       );
     }
+  }
+
+  async function refreshModelLists() {
+    const [models] = await Promise.all([
+      listDownloadableModels(),
+      reloadModelStateRef.current(),
+    ]);
+    setDownloadableModels(
+      models.map((model) => ({
+        ...model,
+        installed: model.installed || completedModelsRef.current.has(model.id),
+      })),
+    );
+  }
+
+  async function handleDeleteModel(modelId: string) {
+    setErrorMessage(null);
+    setDeletingModelId(modelId);
+    try {
+      await deleteModel(modelId);
+      completedModelsRef.current.delete(modelId);
+      setModelDownloadStatuses((current) => {
+        const next = { ...current };
+        delete next[modelId];
+        return next;
+      });
+      await refreshModelLists();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to delete the model.",
+      );
+    } finally {
+      setDeletingModelId(null);
+      setConfirmingDeleteId(null);
+    }
+  }
+
+  async function handleRescanModels() {
+    setErrorMessage(null);
+    setIsRescanningModels(true);
+    try {
+      await rescanModelsFolder();
+      await refreshModelLists();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to rescan the models folder.",
+      );
+    } finally {
+      setIsRescanningModels(false);
+    }
+  }
+
+  function deleteControl(model: DownloadableModel, name: string) {
+    const busy = Object.values(modelDownloadStatuses).some(
+      (status) => status.modelId === model.id && status.state === "downloading",
+    );
+    return (
+      <DeleteModelControl
+        name={name}
+        sizeBytes={model.sizeBytes}
+        confirming={confirmingDeleteId === model.id}
+        deleting={deletingModelId === model.id}
+        disabled={busy || (deletingModelId !== null && deletingModelId !== model.id)}
+        onAsk={() => setConfirmingDeleteId(model.id)}
+        onCancel={() => setConfirmingDeleteId(null)}
+        onConfirm={() => void handleDeleteModel(model.id)}
+      />
+    );
   }
 
   async function handleCancelModelDownload(modelId: string) {
@@ -1048,12 +1124,24 @@ export function SettingsScreen({
             <h3>Local translation <span className="muted">· Preview</span></h3>
             <p>Dictate in German or English. Paste in French or Argentinian Spanish.</p>
             <p className="muted">TranslateGemma 12B Q6_K · 9.66 GB download · Apple Silicon · 18 GB RAM recommended. Models load one at a time to conserve memory.</p>
-            <label className="field-stack">
-              <span><input type="checkbox" checked={settings.translationEnabled ?? false}
-                disabled={isSaving || !translationModel?.installed || translationModel.availability !== "available"}
-                onChange={(event) => void handleChange("translationEnabled", event.target.checked)} /> Enable local translation</span>
-            </label>
-            {fieldFeedback("translationEnabled")}
+            <div className="setting-row">
+              <div className="setting-copy">
+                <p className="setting-title">Enable local translation</p>
+              </div>
+              <div className="setting-control">
+                <button
+                  disabled={isSaving || !translationModel?.installed || translationModel.availability !== "available"}
+                  aria-label="Enable local translation"
+                  type="button"
+                  className={settings.translationEnabled ? "switch-button is-on" : "switch-button"}
+                  aria-pressed={settings.translationEnabled ?? false}
+                  onClick={() => void handleChange("translationEnabled", !settings.translationEnabled)}
+                >
+                  <span className="switch-thumb" />
+                </button>
+              </div>
+              {fieldFeedback("translationEnabled")}
+            </div>
             <div className="translation-download-actions">
               {translationDownload?.state === "downloading" ? <>
                 <p role="status">Downloading translation model · {Math.round(translationDownload.progressPercent ?? 0)}%</p>
@@ -1062,6 +1150,9 @@ export function SettingsScreen({
                 action={() => startModelDownload(translationModel!.id).then(() => undefined)}>
                 {translationModel?.installed ? "Verify / repair model" : "Download translation model"}
               </ActionButton>}
+              {translationModel?.installed && translationDownload?.state !== "downloading"
+                ? deleteControl(translationModel, "the translation model")
+                : null}
             </div>
             {translationDownload?.errorMessage ? <p role="alert" className="warning-text">{translationDownload.errorMessage}</p> : null}
             {translationModel?.availabilityReason ? <p className="muted">{translationModel.availabilityReason}</p> : null}
@@ -1212,10 +1303,13 @@ export function SettingsScreen({
                   <span>Download models</span>
                   <p className="muted">
                     {formatDownloadSummary(
-                      speechModels,
+                      speechModels.filter((model) => (model.origin ?? "catalog") === "catalog"),
                       installedModels,
                       modelDownloadStatuses,
                     )}
+                    {speechModels.some((model) => model.origin === "retired" || model.origin === "custom")
+                      ? ` · ${speechModels.filter((model) => model.origin === "retired" || model.origin === "custom").length} more installed`
+                      : ""}
                   </p>
                 </div>
                 <span
@@ -1270,6 +1364,16 @@ export function SettingsScreen({
                           {model.availabilityReason ? (
                             <p className="downloadable-model-meta">
                               {model.availabilityReason}
+                            </p>
+                          ) : null}
+                          {model.origin === "retired" ? (
+                            <p className="downloadable-model-meta">
+                              No longer offered for download. Keeps working while installed.
+                            </p>
+                          ) : null}
+                          {model.origin === "custom" ? (
+                            <p className="downloadable-model-meta warning-text">
+                              Added to the models folder by hand · not verified by Blabber · use at your own risk
                             </p>
                           ) : null}
                           {model.licenseUrl ? <p className="downloadable-model-meta"><a href={model.licenseUrl} target="_blank" rel="noreferrer">NetEase model terms</a></p> : null}
@@ -1342,6 +1446,7 @@ export function SettingsScreen({
                                       ? "Downloaded"
                                       : "Available"}
                           </span>
+                          {model.installed ? deleteControl(model, presentation.friendlyName) : null}
                           {!isUnavailable && !isInstalled ? (
                             <IconButton
                               icon={
@@ -1440,6 +1545,12 @@ export function SettingsScreen({
                     </span>
                   </div>
                 </div>
+                {diarizationReady && diarizationModel ? (
+                  <div className="setting-row">
+                    <p className="muted">Speaker model · {formatModelSize(diarizationModel.sizeBytes)} · deleting it turns speaker identification off</p>
+                    {deleteControl(diarizationModel, "the speaker model")}
+                  </div>
+                ) : null}
                 {settings.fileDiarizationEnabled && diarizationDownloading ? (
                   <div className="model-download-progress">
                     <div className="model-download-progress-track">
@@ -1616,10 +1727,21 @@ export function SettingsScreen({
                 <p className="setting-title">Models folder</p>
                 <p className="muted">
                   Open the shared model directory in {modelsFolderAppName} to
-                  add or manage model files.
+                  add or manage model files. whisper.cpp models (.bin) you add
+                  appear in the model lists after a rescan. Blabber does not
+                  verify them, so use them at your own risk.
                 </p>
               </div>
               <div className="setting-control">
+                <IconButton
+                  icon="retry"
+                  label="Rescan models folder"
+                  state={isRescanningModels ? "busy" : "default"}
+                  disabled={isRescanningModels}
+                  onClick={() => {
+                    void handleRescanModels();
+                  }}
+                />
                 <IconButton
                   icon="folder"
                   label={modelsFolderButtonLabel}
@@ -1778,6 +1900,51 @@ export function SettingsScreen({
         </div>
       </section>
     </section>
+  );
+}
+
+function DeleteModelControl({
+  name,
+  sizeBytes,
+  confirming,
+  deleting,
+  disabled,
+  onAsk,
+  onCancel,
+  onConfirm,
+}: {
+  name: string;
+  sizeBytes: number;
+  confirming: boolean;
+  deleting: boolean;
+  disabled: boolean;
+  onAsk: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (confirming || deleting) {
+    return (
+      <span className="model-delete-confirm" role="group" aria-label={`Delete ${name}`}>
+        <span className="downloadable-model-meta">
+          Delete {name} and free {formatModelSize(sizeBytes)}?
+        </span>
+        <Button variant="danger" busy={deleting} onClick={onConfirm}>
+          Delete
+        </Button>
+        <Button variant="ghost" disabled={deleting} onClick={onCancel}>
+          Keep
+        </Button>
+      </span>
+    );
+  }
+  return (
+    <IconButton
+      icon="trash"
+      label={`Delete ${name}`}
+      tone="danger"
+      disabled={disabled}
+      onClick={onAsk}
+    />
   );
 }
 

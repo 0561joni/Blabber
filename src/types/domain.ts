@@ -203,7 +203,12 @@ export interface DownloadableModel {
   capability: ModelCapability;
   capabilities?: ModelCapabilities;
   licenseUrl?: string | null;
+  /** catalog: offered for download · retired: no longer offered, listed while
+   * installed · custom: added to the models folder by hand. */
+  origin?: ModelOrigin;
 }
+
+export type ModelOrigin = "catalog" | "retired" | "custom";
 
 export type ModelDownloadState =
   | "idle"

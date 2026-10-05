@@ -763,6 +763,24 @@ fn cancel_model_download(
 }
 
 #[tauri::command]
+async fn delete_model(state: tauri::State<'_, AppState>, model_id: String) -> Result<(), String> {
+    let manager = state.model_download_manager.clone();
+    tauri::async_runtime::spawn_blocking(move || manager.delete_model(&model_id))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn rescan_models_folder(state: tauri::State<'_, AppState>) -> Result<Vec<InstalledModel>, String> {
+    let manager = state.model_download_manager.clone();
+    tauri::async_runtime::spawn_blocking(move || manager.refresh_installed())
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn open_models_folder(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let mut command = if cfg!(target_os = "macos") {
         let mut command = Command::new("open");
@@ -1480,6 +1498,8 @@ fn main() {
             cancel_model_download,
             list_input_devices,
             open_models_folder,
+            delete_model,
+            rescan_models_folder,
             get_dictation_overlay_status,
             preview_transcription,
             pick_audio_files,

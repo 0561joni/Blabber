@@ -1,0 +1,1279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASR benchmark</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f2f1ed; --surface-3: #e9e8e3;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #75736d;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10); --border-2: rgba(11,11,11,.18);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --neg: #e34948; --pos: #2a78d6;
+  --good: #0ca30c; --good-text: #006300; --bad: #d03b3b; --bad-text: #b42c2c; --warn: #fab219;
+  --hl: #fff4cc; --best: color-mix(in srgb, var(--s1) 12%, var(--surface));
+  --radius: 10px; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.06);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --surface-3: #2c2c2a;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --border-2: rgba(255,255,255,.18);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --neg: #e66767; --pos: #3987e5;
+    --good-text: #0ca30c; --bad-text: #ee7070; --hl: #4a3d10;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.35);
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.5 var(--font); overflow-x: hidden; }
+a { color: var(--s1); }
+h1 { font-size: 26px; line-height: 1.2; margin: 0 0 4px; letter-spacing: -.01em; }
+h2 { font-size: 18px; margin: 0 0 4px; letter-spacing: -.005em; }
+h3 { font-size: 14px; margin: 16px 0 6px; }
+p { margin: 6px 0; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 16px; }
+header.top { padding: 28px 0 12px; }
+.sub { color: var(--ink-2); }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.num { font-variant-numeric: tabular-nums; }
+.badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 18px;
+  background: var(--surface-3); color: var(--ink-2); white-space: nowrap; vertical-align: middle; }
+.badge.warn { background: color-mix(in srgb, var(--warn) 30%, var(--surface)); color: var(--ink); }
+.badge.bad { background: color-mix(in srgb, var(--bad) 20%, var(--surface)); color: var(--ink); }
+.badge.info { background: color-mix(in srgb, var(--s1) 16%, var(--surface)); color: var(--ink); }
+.meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 16px; }
+.meta .kv { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; min-width: 0; }
+.kv .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.kv .v { overflow-wrap: anywhere; }
+.notice { margin: 12px 0 0; padding: 10px 14px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 22%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent); }
+.toc { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 14px 0 0; font-size: 13px; }
+.toc a { text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.controls { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--page) 92%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+.controls .wrap { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding-top: 8px; padding-bottom: 8px; }
+.ctl { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.ctl > span { color: var(--muted); }
+select, input[type=search], input[type=text] { font: inherit; font-size: 13px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--border-2); border-radius: 7px; padding: 4px 8px; max-width: 100%; }
+.seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--ink-2); padding: 4px 10px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed=true] { background: var(--ink); color: var(--surface); }
+button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible, a:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+.filter-note { font-size: 12px; color: var(--muted); }
+section.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 18px 16px; margin: 18px 0; box-shadow: var(--shadow); min-width: 0; }
+.card-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; align-items: flex-start; margin-bottom: 10px; }
+.card-head .opts { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-2); margin: 4px 0 8px; align-items: center; }
+.legend .key { display: inline-flex; align-items: center; gap: 5px; }
+.legend svg { overflow: visible; }
+.chart { width: 100%; position: relative; }
+.chart svg { display: block; overflow: visible; }
+.chart text { font-family: var(--font); }
+.axis text, .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.axis-title { fill: var(--ink-2); font-size: 12px; }
+.gridline { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
+.baseline { stroke: var(--axis); stroke-width: 1; shape-rendering: crispEdges; }
+.hit { fill: transparent; cursor: pointer; outline: none; }
+.hit:focus-visible { stroke: var(--s1); stroke-width: 2; }
+.empty { padding: 18px; text-align: center; color: var(--muted); border: 1px dashed var(--border-2); border-radius: var(--radius); }
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+table { border-collapse: collapse; font-size: 13px; width: 100%; }
+th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 11px; font-weight: 600; color: var(--ink-2); text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.lb th button { font: inherit; text-transform: inherit; letter-spacing: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
+table.lb th[aria-sort=ascending] button::after { content: " ▲"; font-size: 9px; }
+table.lb th[aria-sort=descending] button::after { content: " ▼"; font-size: 9px; }
+table.lb td:first-child, table.lb th:first-child { position: sticky; left: 0; background: var(--surface); z-index: 1; min-width: 170px; }
+table.lb tr.dim td { color: var(--muted); }
+td.best { background: var(--best); font-weight: 600; }
+.mname { font-weight: 600; }
+.msub { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.minibar { height: 4px; border-radius: 0 2px 2px 0; background: var(--s1); margin-top: 3px; margin-left: auto; }
+.ci { display: block; font-size: 11px; color: var(--muted); }
+.delta-bad { color: var(--bad-text); font-weight: 600; }
+.delta-good { color: var(--good-text); font-weight: 600; }
+details.tv { margin-top: 10px; }
+details.tv > summary { cursor: pointer; font-size: 12px; color: var(--ink-2); }
+details.tv table { margin-top: 6px; }
+.panels { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.panel { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; min-width: 0; }
+.panel h4 { margin: 0 0 4px; font-size: 13px; }
+table.pw { width: auto; }
+table.pw td, table.pw th { text-align: center; padding: 4px; min-width: 54px; border: 1px solid var(--surface); }
+table.pw th.rowh { text-align: left; white-space: nowrap; font-size: 12px; text-transform: none; letter-spacing: 0; color: var(--ink); }
+table.pw td { font-size: 12px; line-height: 1.25; cursor: default; }
+table.pw td .p { display: block; font-size: 10px; color: var(--ink-2); }
+table.pw td.sig { font-weight: 700; }
+table.pw td.diag { background: var(--surface-2); color: var(--muted); }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; }
+.explorer { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 16px; }
+.explorer > * { min-width: 0; }
+.cliplist { max-height: 720px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.cliplist h5 { margin: 0; padding: 6px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); background: var(--surface-2); position: sticky; top: 0; z-index: 1; }
+.clipbtn { display: block; width: 100%; text-align: left; font: inherit; color: inherit; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 7px 10px; cursor: pointer; }
+.clipbtn:hover { background: var(--surface-2); }
+.clipbtn[aria-current=true] { background: color-mix(in srgb, var(--s1) 14%, var(--surface)); }
+.clipbtn .row1 { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+.clipbtn .cid { font-weight: 600; font-size: 13px; }
+.clipbtn .tags { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.heat { display: flex; gap: 2px; margin-top: 4px; }
+.heat i { flex: 1 1 0; height: 8px; border-radius: 2px; min-width: 3px; }
+.heat i.na { background: var(--surface-3); }
+.heat i.err { background: repeating-linear-gradient(45deg, var(--bad) 0 2px, transparent 2px 4px); }
+.clipdetail { min-width: 0; }
+.refbox { background: var(--surface-2); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; }
+.seg-lang { border-bottom: 3px solid; padding-bottom: 1px; }
+.langchip { font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--ink-2); margin: 0 3px 0 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border-2); }
+.out { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; }
+.out-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; justify-content: space-between; }
+.out-metrics { font-size: 12px; color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.diff { margin-top: 6px; line-height: 1.9; overflow-wrap: anywhere; }
+.diff.clamp { max-height: 190px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 75%, transparent); mask-image: linear-gradient(#000 75%, transparent); }
+.diff del { text-decoration: line-through; text-decoration-thickness: 1.5px; background: color-mix(in srgb, var(--neg) 18%, transparent); color: var(--ink-2); border-radius: 3px; padding: 0 2px; }
+.diff ins { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; background: color-mix(in srgb, var(--good) 22%, transparent); border-radius: 3px; padding: 0 2px; }
+.diff .sub { white-space: nowrap; }
+.diff .sub del { border-radius: 3px 0 0 3px; } .diff .sub ins { border-radius: 0 3px 3px 0; background: color-mix(in srgb, var(--warn) 34%, transparent); }
+.errbox { background: color-mix(in srgb, var(--bad) 12%, var(--surface)); border-radius: 8px; padding: 6px 10px; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.linkbtn { font: inherit; font-size: 12px; background: none; border: 0; color: var(--s1); cursor: pointer; padding: 0; }
+.worst { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.worst button { font: inherit; font-size: 13px; text-align: left; background: none; border: 0; border-radius: 6px; padding: 3px 6px; cursor: pointer; color: var(--ink); display: flex; justify-content: space-between; gap: 8px; }
+.worst button:hover { background: var(--surface-2); }
+.list-compact { margin: 4px 0; padding-left: 18px; font-size: 13px; }
+footer { padding: 18px 0 40px; color: var(--ink-2); font-size: 13px; }
+footer dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0; }
+footer dt { font-weight: 600; color: var(--ink); }
+footer dd { margin: 0; }
+#tip { position: fixed; z-index: 50; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--border-2);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: var(--shadow); max-width: 300px; display: none; }
+#tip .tt { font-weight: 600; margin-bottom: 4px; }
+#tip .tr { display: flex; justify-content: space-between; gap: 14px; }
+#tip .tr b { font-variant-numeric: tabular-nums; }
+#tip .tr span { color: var(--ink-2); }
+@media (max-width: 760px) {
+  .explorer { grid-template-columns: minmax(0, 1fr); }
+  .cliplist { max-height: 320px; }
+  h1 { font-size: 22px; }
+  section.card { padding: 14px 12px; border-radius: 12px; }
+  table.lb td:first-child, table.lb th:first-child { min-width: 130px; }
+  footer dl { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .filter-note, .ctl > span { display: none; }
+  .controls .wrap { gap: 6px 8px; padding-top: 6px; padding-bottom: 6px; }
+}
+@media print { .controls { position: static; } section.card { box-shadow: none; break-inside: avoid; } }
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap" id="hdr"></div></header>
+<nav class="controls" aria-label="Filters"><div class="wrap" id="controls"></div></nav>
+<main class="wrap" id="main">
+  <section class="card" id="sec-scatter" aria-labelledby="h-scatter"></section>
+  <section class="card" id="sec-board" aria-labelledby="h-board"></section>
+  <section class="card" id="sec-breakdown" aria-labelledby="h-breakdown"></section>
+  <section class="card" id="sec-conditions" aria-labelledby="h-conditions"></section>
+  <section class="card" id="sec-pairwise" aria-labelledby="h-pairwise"></section>
+  <section class="card" id="sec-latency" aria-labelledby="h-latency"></section>
+  <section class="card" id="sec-explorer" aria-labelledby="h-explorer"></section>
+  <section class="card" id="sec-models" aria-labelledby="h-models"></section>
+</main>
+<footer class="wrap" id="footer"></footer>
+<div id="tip" role="tooltip"></div>
+<script>const DATA = /*__BENCH_DATA__*/null;</script>
+<script>
+"use strict";
+(function () {
+/* ---------------------------------------------------------------- utilities */
+const SVGNS = "http://www.w3.org/2000/svg";
+const $ = (sel, root = document) => root.querySelector(sel);
+const LANG_ORDER = ["de", "en", "fr", "mixed", "none"];
+const LANG_NAME = { de: "German", en: "English", fr: "French", mixed: "Mixed", none: "No speech" };
+const LANG_COLOR = { de: "var(--s1)", en: "var(--s2)", fr: "var(--s3)", mixed: "var(--s4)" };
+const NBSP = " ", MINUS = "−";
+const GB = 1024 ** 3, MB = 1024 ** 2;
+
+function setAttrs(e, a) {
+  if (!a) return;
+  for (const [k, v] of Object.entries(a)) {
+    if (v == null || v === false) continue;
+    if (k === "text") e.textContent = v;
+    else if (k === "style" && typeof v === "object") Object.assign(e.style, v);
+    else if (k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : String(v));
+  }
+}
+function append(e, ...kids) {
+  for (const k of kids.flat(Infinity)) {
+    if (k == null || k === false) continue;
+    e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  }
+  return e;
+}
+function h(tag, attrs, ...kids) { const e = document.createElement(tag); setAttrs(e, attrs); return append(e, kids); }
+function s(tag, attrs, ...kids) { const e = document.createElementNS(SVGNS, tag); setAttrs(e, attrs); return append(e, kids); }
+function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+const isNum = (x) => typeof x === "number" && Number.isFinite(x);
+const sum = (a) => a.reduce((x, y) => x + y, 0);
+function quantile(arr, p) {
+  const a = arr.filter(isNum).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const i = (a.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
+  return a[lo] + (a[hi] - a[lo]) * (i - lo);
+}
+const median = (a) => quantile(a, 0.5);
+
+/* ---------------------------------------------------------------- formatting */
+const fmtPct = (x, d = 1) => (isNum(x) ? (x * 100).toFixed(d) + NBSP + "%" : "—");
+const fmtPP = (x) => (isNum(x) ? (x > 0 ? "+" : x < 0 ? MINUS : "±") + Math.abs(x * 100).toFixed(1) + NBSP + "pp" : "—");
+function fmtMs(ms) {
+  if (!isNum(ms)) return "—";
+  if (ms < 1000) return Math.round(ms) + NBSP + "ms";
+  if (ms < 10000) return (ms / 1000).toFixed(2) + NBSP + "s";
+  if (ms < 60000) return (ms / 1000).toFixed(1) + NBSP + "s";
+  if (ms >= 3600000) { const hr = Math.floor(ms / 3600000), mn = Math.round((ms % 3600000) / 60000); return hr + NBSP + "h " + mn + NBSP + "min"; }
+  const m = Math.floor(ms / 60000), sec = Math.round((ms % 60000) / 1000);
+  return m + NBSP + "min " + String(sec).padStart(2, "0") + NBSP + "s";
+}
+function fmtBytes(b) {
+  if (!isNum(b)) return "—";
+  if (b >= 1000 * MB) return (b / GB).toFixed(2) + NBSP + "GB";
+  if (b >= MB) return Math.round(b / MB) + NBSP + "MB";
+  return Math.round(b / 1024) + NBSP + "KB";
+}
+const fmtRtf = (r) => (isNum(r) ? (r < 0.01 ? r.toFixed(3) : r.toFixed(2)) + "×" : "—");
+function fmtRealtime(r) {
+  if (!isNum(r) || r <= 0) return "—";
+  const x = 1 / r;
+  return x >= 1 ? (x >= 10 ? Math.round(x) : x.toFixed(1)) + "× real time" : x.toFixed(2) + "× real time (slower than real time)";
+}
+const fmtCI = (ci) => (Array.isArray(ci) && isNum(ci[0]) && isNum(ci[1]) ? (ci[0] * 100).toFixed(1) + "–" + (ci[1] * 100).toFixed(1) + NBSP + "%" : "—");
+const fmtInt = (x) => (isNum(x) ? Math.round(x).toLocaleString("en-US") : "—");
+function fmtP(p) { if (!isNum(p)) return "—"; if (p < 0.001) return "p<.001"; return "p=" + (p < 0.01 ? p.toFixed(3) : p.toFixed(2)).replace(/^0/, ""); }
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(iso);
+  if (m) return m[1] + " " + m[2]; // the run's own local time, as recorded
+  const d = new Date(iso);
+  if (isNaN(d)) return String(iso);
+  return d.toLocaleString("en-GB", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+function prettyTag(t) {
+  if (t === "clean") return "clean (no condition)";
+  if (t.startsWith("condition:")) return t.slice(10) + " (condition)";
+  return t;
+}
+
+/* ---------------------------------------------------------------- tooltip */
+const tip = $("#tip");
+function tipContent(title, rows, note) {
+  return [h("div", { class: "tt", text: title }),
+    ...rows.filter(Boolean).map(([k, v]) => h("div", { class: "tr" }, h("span", { text: k }), h("b", { text: v }))),
+    note ? h("div", { class: "small muted", style: { marginTop: "4px" }, text: note }) : null];
+}
+function placeTip(x, y) {
+  const r = tip.getBoundingClientRect();
+  let left = x + 14, top = y + 14;
+  if (left + r.width > window.innerWidth - 8) left = Math.max(8, x - r.width - 14);
+  if (top + r.height > window.innerHeight - 8) top = Math.max(8, y - r.height - 14);
+  tip.style.left = left + "px"; tip.style.top = top + "px";
+}
+function showTip(nodes, x, y) { clear(tip); append(tip, nodes); tip.style.display = "block"; placeTip(x, y); }
+function hideTip() { tip.style.display = "none"; }
+function bindTip(el, content) {
+  el.addEventListener("pointerenter", (e) => showTip(content(), e.clientX, e.clientY));
+  el.addEventListener("pointermove", (e) => placeTip(e.clientX, e.clientY));
+  el.addEventListener("pointerleave", hideTip);
+  el.addEventListener("focus", () => { const r = el.getBoundingClientRect(); showTip(content(), r.right, r.top); });
+  el.addEventListener("blur", hideTip);
+}
+window.addEventListener("scroll", hideTip, { passive: true });
+
+/* ---------------------------------------------------------------- data model */
+if (!DATA || typeof DATA !== "object") {
+  append($("#hdr"), h("h1", { text: "ASR benchmark" }), h("p", { class: "notice", text: "No benchmark data is embedded in this page. Generate it with `blabber-bench run` or `blabber-bench report <run dir>`." }));
+  return;
+}
+const D = {
+  textIncluded: !!DATA.textIncluded,
+  run: DATA.run || {},
+  corpus: DATA.corpus || {},
+  clips: Array.isArray(DATA.clips) ? DATA.clips : [],
+  models: Array.isArray(DATA.models) ? DATA.models : [],
+  rows: Array.isArray(DATA.results) ? DATA.results : [],
+  agg: DATA.aggregates || {},
+};
+const clipById = new Map(D.clips.map((c) => [c.id, c]));
+const modelById = new Map(D.models.map((m) => [m.id, m]));
+for (const r of D.rows) if (!modelById.has(r.model)) { const m = { id: r.model, name: r.model, engine: "?", kind: "batch", load: {}, errors: [], skippedClips: [] }; D.models.push(m); modelById.set(m.id, m); }
+const rowsBy = new Map();      // "model|mode" → rows
+const rowIndex = new Map();    // "model|mode|clip" → row
+for (const r of D.rows) {
+  const k = r.model + "|" + r.mode;
+  if (!rowsBy.has(k)) rowsBy.set(k, []);
+  rowsBy.get(k).push(r);
+  rowIndex.set(k + "|" + r.clip, r);
+}
+const rowsFor = (model, mode) => rowsBy.get(model + "|" + mode) || [];
+const aggFor = (model, mode) => D.agg.byModel?.[model]?.[mode] || null;
+const modes = (() => {
+  const present = new Set(D.rows.map((r) => r.mode));
+  for (const m of Object.values(D.agg.byModel || {})) for (const k of Object.keys(m || {})) present.add(k);
+  for (const k of D.run.settings?.modes || []) present.add(k);
+  return ["app", "raw", ...present].filter((m, i, a) => present.has(m) && a.indexOf(m) === i);
+})();
+const langs = LANG_ORDER.filter((l) => D.clips.some((c) => c.language === l));
+const cats = ["short", "long"].filter((c) => D.clips.some((x) => x.category === c));
+const tags = (() => {
+  const set = new Set();
+  for (const m of Object.values(D.agg.byModel || {})) for (const g of Object.values(m || {})) for (const t of Object.keys(g?.byTag || {})) set.add(t);
+  if (!set.size) for (const c of D.clips) { (c.tags || []).forEach((t) => set.add(t)); set.add(c.condition ? "condition:" + c.condition : "clean"); }
+  const all = [...set];
+  const conds = all.filter((t) => t.startsWith("condition:")).sort();
+  const rest = all.filter((t) => t !== "clean" && !t.startsWith("condition:")).sort();
+  return [...(set.has("clean") ? ["clean"] : []), ...conds, ...rest];
+})();
+const isStreaming = (m) => m?.kind === "streaming";
+const isDerived = (m) => !!m?.derivedFrom;
+
+const state = {
+  mode: modes[0] || "app", lang: "all", cat: "all", tag: "all",
+  xMetric: "latency", xLog: true, latLog: true, sort: { key: "wer", dir: 1 },
+  tagView: tags.some((t) => t.startsWith("condition:")) ? "conditions" : "all",
+  clip: null, clipQuery: "", worstModel: null,
+};
+
+/* ---------------------------------------------------------------- groups */
+function tagMatch(c, tag) {
+  if (tag === "clean") return !c.condition;
+  if (tag.startsWith("condition:")) return c.condition === tag.slice(10);
+  return (c.tags || []).includes(tag);
+}
+function clipMatches(c, f) {
+  if (!c) return f.lang === "all" && f.cat === "all" && f.tag === "all";
+  if (f.lang !== "all" && c.language !== f.lang) return false;
+  if (f.cat !== "all" && c.category !== f.cat) return false;
+  if (f.tag !== "all" && !tagMatch(c, f.tag)) return false;
+  return true;
+}
+const curFilter = () => ({ lang: state.lang, cat: state.cat, tag: state.tag });
+const filteredRows = (model, mode, f) => rowsFor(model, mode).filter((r) => clipMatches(clipById.get(r.clip), f));
+const errorsOf = (c) => c ? c.substitutions + c.deletions + c.insertions : 0;
+
+/** Pooled metrics over rows, mirroring the Rust Group (no ci95: that needs the bootstrap). */
+function computeGroup(rows) {
+  if (!rows.length) return null;
+  const sc = rows.filter((r) => r.scores);
+  const tot = (f) => sum(sc.map(f));
+  const N = tot((r) => r.scores.normalised?.referenceWords || 0);
+  const S = tot((r) => r.scores.normalised?.substitutions || 0), Dl = tot((r) => r.scores.normalised?.deletions || 0), I = tot((r) => r.scores.normalised?.insertions || 0);
+  const rates = sc.map((r) => r.scores.normalised?.rate).filter(isNum);
+  const ratio = (num, den) => (den > 0 ? num / den : null);
+  const fN = tot((r) => r.scores.formatted?.referenceWords || 0), fE = tot((r) => errorsOf(r.scores.formatted));
+  const cN = tot((r) => r.scores.characters?.referenceWords || 0), cE = tot((r) => errorsOf(r.scores.characters));
+  const lang = rows.filter((r) => r.languageCorrect != null);
+  const short = rows.filter((r) => clipById.get(r.clip)?.category === "short");
+  const rtt = short.map((r) => r.timings?.releaseToTextMs).filter(isNum);
+  const fw = short.map((r) => r.timings?.firstWordMs).filter(isNum);
+  return {
+    clips: sc.length, referenceWords: N, substitutions: S, deletions: Dl, insertions: I,
+    werPooled: ratio(S + Dl + I, N), werMacro: rates.length ? sum(rates) / rates.length : null, ci95: null,
+    formattedPooled: ratio(fE, fN), cerPooled: ratio(cE, cN),
+    termRecall: ratio(tot((r) => r.scores.termsFound || 0), tot((r) => r.scores.termsTotal || 0)),
+    numberAccuracy: ratio(tot((r) => r.scores.numbersCorrect || 0), tot((r) => r.scores.numbersTotal || 0)),
+    hallucinations: sc.filter((r) => r.scores.textOnSilence || r.scores.repetitionLoop || (r.scores.insertionBurst || 0) >= 5).length,
+    languageAccuracy: lang.length ? lang.filter((r) => r.languageCorrect).length / lang.length : null,
+    releaseToTextP50: quantile(rtt, 0.5), releaseToTextP95: quantile(rtt, 0.95),
+    firstWordP50: quantile(fw, 0.5), firstWordP95: quantile(fw, 0.95),
+    rtfMedian: median(rows.map((r) => r.timings?.rtf)),
+    failures: rows.filter((r) => r.error).length,
+    _src: "rows",
+  };
+}
+/** Precomputed aggregate when the filter maps onto one, otherwise recomputed from rows. */
+function getGroup(model, mode, f = curFilter()) {
+  const pre = aggFor(model, mode);
+  const active = ["lang", "cat", "tag"].filter((k) => f[k] !== "all");
+  let g = null;
+  if (pre) {
+    if (!active.length) g = pre.overall;
+    else if (active.length === 1 && active[0] === "lang") g = pre.byLanguage?.[f.lang];
+    else if (active.length === 1 && active[0] === "cat") g = pre.byCategory?.[f.cat];
+    else if (active.length === 1 && active[0] === "tag") g = pre.byTag?.[f.tag];
+  }
+  if (g) return { ...g, _src: "agg" };
+  return computeGroup(filteredRows(model, mode, f));
+}
+const modelsInMode = (mode) => D.models.filter((m) => rowsFor(m.id, mode).length || aggFor(m.id, mode));
+
+/* ---------------------------------------------------------------- scales & axes */
+function niceStep(range, count) {
+  const raw = range / Math.max(1, count), p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+}
+function linScale(d0, d1, r0, r1) {
+  const f = (v) => r0 + ((v - d0) / (d1 - d0 || 1)) * (r1 - r0);
+  f.ticks = (n = 5) => { const st = niceStep(d1 - d0, n), out = []; for (let v = Math.ceil(d0 / st) * st; v <= d1 + st * 1e-9; v += st) out.push(+v.toFixed(10)); return out; };
+  f.domain = [d0, d1];
+  return f;
+}
+function logScale(d0, d1, r0, r1) {
+  const l0 = Math.log10(d0), l1 = Math.log10(d1);
+  const f = (v) => r0 + ((Math.log10(Math.max(v, d0 * 1e-3)) - l0) / (l1 - l0 || 1)) * (r1 - r0);
+  f.ticks = () => {
+    const out = [];
+    for (let e = Math.floor(l0); e <= Math.ceil(l1); e++) for (const m of [1, 2, 5]) { const v = m * Math.pow(10, e); if (v >= d0 * 0.999 && v <= d1 * 1.001) out.push(v); }
+    return out;
+  };
+  f.domain = [d0, d1];
+  return f;
+}
+function niceMax(v) { if (!isNum(v) || v <= 0) return 1; const st = niceStep(v, 5); return Math.ceil(v / st) * st; }
+function xScaleFor(values, r0, r1, log) {
+  const v = values.filter((x) => isNum(x) && x > 0);
+  if (!v.length) return linScale(0, 1, r0, r1);
+  const lo = Math.min(...v), hi = Math.max(...v);
+  if (log) return logScale(lo / 1.6, hi * 1.6, r0, r1);
+  return linScale(0, niceMax(hi * 1.05), r0, r1);
+}
+const measureCtx = document.createElement("canvas").getContext("2d");
+function textWidth(t, size = 12, weight = 400) {
+  if (!measureCtx) return t.length * size * 0.58;
+  measureCtx.font = `${weight} ${size}px system-ui, -apple-system, sans-serif`;
+  return measureCtx.measureText(t).width;
+}
+function xAxis(g, sc, y, x0, x1, fmt, gridTop) {
+  let lastRight = -Infinity;
+  for (const t of sc.ticks(Math.max(2, Math.floor((x1 - x0) / 80)))) {
+    const x = sc(t);
+    if (x < x0 - 1 || x > x1 + 1) continue;
+    const label = fmt(t), w = textWidth(label, 11);
+    if (x - w / 2 < lastRight + 8) continue; // keep tick labels from colliding (dense log ticks)
+    lastRight = x + w / 2;
+    if (gridTop != null) g.append(s("line", { class: "gridline", x1: x, x2: x, y1: gridTop, y2: y }));
+    g.append(s("text", { class: "tick", x, y: y + 15, "text-anchor": "middle", text: label }));
+  }
+  g.append(s("line", { class: "baseline", x1: x0, x2: x1, y1: y, y2: y }));
+}
+const fmtTickPct = (v) => (v * 100).toFixed(v * 100 < 10 && v !== 0 && (v * 1000) % 10 ? 1 : 0) + "%";
+function fmtTickMs(v) { return v < 1000 ? Math.round(v) + " ms" : (v / 1000).toFixed(v % 1000 ? 1 : 0) + " s"; }
+const fmtTickRtf = (v) => (v < 0.01 ? v.toFixed(3) : v < 0.1 ? v.toFixed(2) : v < 1 ? v.toFixed(1) : String(+v.toFixed(1))) + "×";
+
+/* ---------------------------------------------------------------- shared bits */
+function sectionHead(sec, id, title, sub, opts) {
+  return h("div", { class: "card-head" },
+    h("div", null, h("h2", { id, text: title }), sub ? h("p", { class: "sub small", text: sub }) : null),
+    opts ? h("div", { class: "opts" }, opts) : null);
+}
+function segmented(options, value, onChange, label) {
+  return h("div", { class: "seg", role: "group", "aria-label": label },
+    options.map(([v, text]) => h("button", { type: "button", "aria-pressed": String(v === value), onclick: () => onChange(v), text })));
+}
+function checkbox(label, checked, onChange) {
+  return h("label", { class: "ctl" }, h("input", { type: "checkbox", checked, onchange: (e) => onChange(e.target.checked) }), label);
+}
+function tableView(summaryText, headers, rows) {
+  return h("details", { class: "tv" }, h("summary", { text: summaryText }),
+    h("div", { class: "scroll-x" }, h("table", null,
+      h("thead", null, h("tr", null, headers.map((x, i) => h("th", { class: i ? "n" : null, text: x })))),
+      h("tbody", null, rows.map((r) => h("tr", null, r.map((x, i) => h("td", { class: i ? "n" : null, text: x }))))))));
+}
+function emptyBox(text) { return h("div", { class: "empty", text }); }
+function filterLabel(f = curFilter()) {
+  const parts = [];
+  if (f.lang !== "all") parts.push(LANG_NAME[f.lang] || f.lang);
+  if (f.cat !== "all") parts.push(f.cat + " clips");
+  if (f.tag !== "all") parts.push("tag " + prettyTag(f.tag));
+  return parts.length ? parts.join(" · ") : "all clips";
+}
+function markShape(m, x, y, color, r = 5) {
+  const hollow = isDerived(m);
+  const attrs = { fill: hollow ? "var(--surface)" : color, stroke: hollow ? color : "var(--surface)", "stroke-width": 2, "paint-order": "stroke" };
+  if (isStreaming(m)) { const d = r * 1.35; return s("path", { d: `M${x} ${y - d}L${x + d} ${y}L${x} ${y + d}L${x - d} ${y}Z`, ...attrs }); }
+  return s("circle", { cx: x, cy: y, r, ...attrs });
+}
+function legendKey(kind, text, color = "var(--ink-2)") {
+  const m = kind === "derived" ? { kind: "streaming", derivedFrom: "x" } : kind === "streaming" ? { kind: "streaming" } : { kind: "batch" };
+  return h("span", { class: "key" }, s("svg", { width: 14, height: 14, viewBox: "0 0 14 14" }, markShape(m, 7, 7, color, 4.5)), text);
+}
+
+/* ---------------------------------------------------------------- header */
+function renderHeader() {
+  const r = D.run, el = clear($("#hdr"));
+  const st = r.settings || {}, git = r.git || {}, mc = r.machine || {}, pw = r.power || {};
+  const dur = r.startedAt && r.finishedAt ? new Date(r.finishedAt) - new Date(r.startedAt) : null;
+  append(el, h("h1", { text: "ASR benchmark" }),
+    h("div", { class: "sub" }, "Run ", h("span", { class: "mono", text: r.id || "—" }), " · ", fmtDate(r.startedAt),
+      isNum(dur) && dur > 0 ? " · took " + fmtMs(dur) : r.finishedAt === null ? " · unfinished" : "",
+      st.quick ? [" ", h("span", { class: "badge warn", text: "quick run" })] : null,
+      st.synthetic ? [" ", h("span", { class: "badge warn", text: "synthetic audio" })] : null));
+  if (!D.textIncluded) el.append(h("div", { class: "notice", role: "note" }, h("b", { text: "Summary export — transcripts omitted. " }), "This file has aggregate and per-clip scores only: no transcripts, references, word diffs or audio. The per-clip explorer is unavailable."));
+  const kv = (k, ...v) => h("div", { class: "kv" }, h("div", { class: "k", text: k }), h("div", { class: "v" }, v));
+  const powerBits = [pw.source || "power source unknown", pw.lowPowerMode ? [" ", h("span", { class: "badge bad", text: "Low Power Mode" })] : null];
+  const thermal = r.thermalAtStart || "—";
+  const byLang = langs.map((l) => {
+    const cs = D.clips.filter((c) => c.language === l);
+    const parts = cats.map((c) => cs.filter((x) => x.category === c).length + NBSP + c).filter((t) => !t.startsWith("0"));
+    return h("div", null, h("span", { class: "swatch", style: { background: LANG_COLOR[l] || "var(--axis)", marginRight: "6px" } }), (LANG_NAME[l] || l) + ": " + cs.length + (parts.length ? " (" + parts.join(", ") + ")" : ""));
+  });
+  const nCond = D.clips.filter((c) => c.condition).length;
+  append(el, h("div", { class: "meta" },
+    kv("Machine", (mc.cpu || "—") + (isNum(mc.cores) ? ` · ${mc.cores} cores` : ""), h("br"), fmtBytes(mc.memoryBytes).replace(".00", "") + " memory · " + (mc.os || "—")),
+    kv("Code", h("span", { class: "mono", text: git.commit ? git.commit.slice(0, 10) : "unknown commit" }), git.dirty ? [" ", h("span", { class: "badge warn", text: "uncommitted changes" })] : null),
+    kv("Power & thermal", powerBits, h("br"), "Thermal at start: ", thermal.startsWith("nominal") ? thermal : h("span", { class: "badge warn", text: thermal })),
+    kv("Settings", `${st.repeats ?? "—"} warm runs/short clip, ${st.longRepeats ?? "—"}/long, ${st.streamRepeats ?? "—"} paced runs (streaming)`, h("br"),
+      `Modes: ${(st.modes || modes).join(", ") || "—"} · language ${st.languageMode || "—"} · cooldown ${st.cooldownSeconds ?? "—"} s`),
+    kv("Scoring", "Normaliser ", h("span", { class: "mono", text: r.normalisationVersion || "—" }), h("br"), "Seed ", h("span", { class: "mono", text: String(r.seed ?? "—") }),
+      ` · ${fmtInt(r.vocabularyTermCount)} vocabulary terms (app mode)`),
+    kv("Corpus", `${D.clips.length || D.corpus.clipCount || 0} clips${nCond ? `, ${nCond} under a condition` : ""}`, h("div", { class: "small" }, byLang),
+      D.corpus.path ? h("div", { class: "small muted mono", text: D.corpus.path }) : null),
+    kv("Models", `${D.models.length} (${D.models.filter(isStreaming).length} streaming)`, h("div", { class: "small muted", text: D.models.map((m) => m.id).join(", ") }))));
+  append(el, h("nav", { class: "toc", "aria-label": "Sections" },
+    [["sec-scatter", "Accuracy vs speed"], ["sec-board", "Leaderboard"], ["sec-breakdown", "Breakdown"], ["sec-conditions", "Conditions"],
+      ["sec-pairwise", "Significance"], ["sec-latency", "Latency"], ["sec-explorer", "Clips"], ["sec-models", "Models"]]
+      .map(([id, t]) => h("a", { href: "#" + id, text: t }))));
+}
+
+/* ---------------------------------------------------------------- controls */
+function renderControls() {
+  const el = clear($("#controls"));
+  const sel = (label, key, options) => h("label", { class: "ctl" }, h("span", { text: label }),
+    h("select", { onchange: (e) => { state[key] = e.target.value; renderFiltered(); } },
+      options.map(([v, t]) => h("option", { value: v, selected: state[key] === v, text: t }))));
+  if (modes.length) el.append(h("div", { class: "ctl" }, h("span", { text: "Mode" }),
+    segmented(modes.map((m) => [m, m]), state.mode, (v) => { state.mode = v; renderControls(); renderFiltered(); }, "Pipeline mode")));
+  el.append(sel("Language", "lang", [["all", "All languages"], ...langs.map((l) => [l, LANG_NAME[l] || l])]));
+  if (cats.length > 1) el.append(sel("Category", "cat", [["all", "All lengths"], ...cats.map((c) => [c, c])]));
+  if (tags.length) el.append(sel("Tag", "tag", [["all", "All tags"], ...tags.map((t) => [t, prettyTag(t)])]));
+  el.append(h("span", { class: "filter-note", id: "filter-note" }));
+}
+function updateFilterNote() {
+  const n = D.clips.filter((c) => clipMatches(c, curFilter())).length;
+  const el = $("#filter-note");
+  if (el) el.textContent = `${n} clip${n === 1 ? "" : "s"} · ${state.mode} mode` + (state.mode === "app" ? " (vocabulary prompt + correction)" : state.mode === "raw" ? " (engine output only)" : "");
+}
+
+/* ---------------------------------------------------------------- scatter */
+function paretoIds(pts) {
+  const sorted = [...pts].sort((a, b) => a.x - b.x || a.y - b.y);
+  const out = []; let best = Infinity;
+  for (const p of sorted) if (p.y < best - 1e-12) { out.push(p); best = p.y; }
+  return out;
+}
+function placeLabels(pts, x0, x1, y0, y1) {
+  const boxes = pts.map((p) => ({ x: p.px - 8, y: p.py - 8, w: 16, h: 16 }));
+  const overlap = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+  const cands = [[9, 4, "start"], [-9, 4, "end"], [9, -9, "start"], [-9, -9, "end"], [9, 16, "start"], [-9, 16, "end"], [0, -13, "middle"], [0, 22, "middle"], [14, -20, "start"], [-14, -20, "end"], [14, 28, "start"], [-14, 28, "end"]];
+  const order = [...pts].sort((a, b) => (b.front - a.front) || a.y - b.y);
+  for (const p of order) {
+    let best = null, bestScore = Infinity;
+    cands.forEach(([dx, dy, anchor], ci) => {
+      const lx = p.px + dx, ly = p.py + dy;
+      const bx = anchor === "start" ? lx : anchor === "end" ? lx - p.w : lx - p.w / 2;
+      const box = { x: bx - 1, y: ly - 11, w: p.w + 2, h: 14 };
+      let clash = 0;
+      if (box.x < x0 - 30 || box.x + box.w > x1 + 10 || box.y < y0 - 10 || box.y + box.h > y1) clash += 10000;
+      for (const b of boxes) clash += overlap(box, b) * 3;
+      const score = clash + ci * 0.5;
+      if (score < bestScore) { bestScore = score; best = { lx, ly, anchor, box, clash }; }
+    });
+    // Selective labels: a label that would collide is dropped (tooltip + leaderboard still name the point),
+    // except on the Pareto frontier, which is always labelled.
+    if (best.clash > 40 && !p.front) { p.label = null; continue; }
+    p.label = best; boxes.push(best.box);
+  }
+}
+function renderScatter() {
+  const sec = clear($("#sec-scatter"));
+  const latency = state.xMetric === "latency";
+  sec.append(sectionHead(sec, "h-scatter", "Accuracy vs speed",
+    latency ? "Lower-left is better. X: median release → text on short clips (batch: whole transcription after release; streaming: release → final text). Y: pooled WER on " + filterLabel() + "."
+      : "Lower-left is better. X: real-time factor (compute ÷ audio duration, all clips). Y: pooled WER on " + filterLabel() + ".",
+    [segmented([["latency", "Release → text"], ["rtf", "RTF"]], state.xMetric, (v) => { state.xMetric = v; renderScatter(); }, "X axis metric"),
+      checkbox("Log scale", state.xLog, (v) => { state.xLog = v; renderScatter(); })]));
+  sec.append(h("div", { class: "legend" }, legendKey("batch", "batch"), legendKey("streaming", "streaming"), legendKey("derived", "derived (live preview text)"),
+    h("span", { class: "key" }, h("span", { class: "swatch", style: { background: "var(--s1)", borderRadius: "50%" } }), "Pareto frontier: nothing is both faster and more accurate"),
+    h("span", { class: "key" }, s("svg", { width: 14, height: 14 }, s("line", { x1: 7, x2: 7, y1: 1, y2: 13, stroke: "var(--ink-2)" })), "95 % CI")));
+  const pts = [], missing = [];
+  for (const m of modelsInMode(state.mode)) {
+    const g = getGroup(m.id, state.mode);
+    const x = latency ? g?.releaseToTextP50 : g?.rtfMedian;
+    if (!g || !isNum(g.werPooled) || !isNum(x) || x <= 0) { missing.push([m, !g ? "no rows" : !isNum(g.werPooled) ? "no scored words" : latency ? "no short clips" : "no RTF"]); continue; }
+    pts.push({ m, g, x, y: g.werPooled, ci: Array.isArray(g.ci95) ? g.ci95 : null });
+  }
+  const box = h("div", { class: "chart" });
+  sec.append(box);
+  if (!pts.length) { box.append(emptyBox("No model has both a WER and " + (latency ? "a short-clip latency" : "an RTF") + " for this filter.")); }
+  else drawScatter(box, pts, latency);
+  if (missing.length) sec.append(h("p", { class: "small muted", text: "Not plotted: " + missing.map(([m, why]) => `${m.name || m.id} (${why})`).join(", ") + "." }));
+}
+function drawScatter(box, pts, latency) {
+  const W = Math.max(300, box.clientWidth || 600), H = Math.round(Math.min(460, Math.max(W < 600 ? 360 : 300, W * 0.55)));
+  const M = { l: 52, r: 18, t: 14, b: 46 };
+  const x0 = M.l, x1 = W - M.r, y0 = M.t, y1 = H - M.b;
+  const xs = xScaleFor(pts.map((p) => p.x), x0, x1, state.xLog);
+  const yMax = niceMax(Math.max(...pts.map((p) => Math.max(p.y, p.ci ? p.ci[1] : 0))) * 1.08);
+  const ys = linScale(0, yMax, y1, y0);
+  const svg = s("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Scatter plot of WER against " + (latency ? "release to text latency" : "real-time factor") });
+  const g = s("g", { class: "axis" });
+  for (const t of ys.ticks(5)) {
+    g.append(s("line", { class: "gridline", x1: x0, x2: x1, y1: ys(t), y2: ys(t) }));
+    g.append(s("text", { class: "tick", x: x0 - 8, y: ys(t) + 4, "text-anchor": "end", text: fmtTickPct(t) }));
+  }
+  xAxis(g, xs, y1, x0, x1, latency ? fmtTickMs : fmtTickRtf, y0);
+  g.append(s("text", { class: "axis-title", x: (x0 + x1) / 2, y: H - 6, "text-anchor": "middle", text: (latency ? "Median release → text, short clips" : "Real-time factor (compute ÷ audio)") + (state.xLog ? " · log scale" : "") + "  →  slower" }));
+  g.append(s("text", { class: "axis-title", x: 12, y: (y0 + y1) / 2, transform: `rotate(-90 12 ${(y0 + y1) / 2})`, "text-anchor": "middle", text: "WER (lower is better)" }));
+  svg.append(g);
+  for (const p of pts) { p.px = xs(p.x); p.py = ys(p.y); }
+  const front = new Set(paretoIds(pts).map((p) => p.m.id));
+  const frontPts = pts.filter((p) => front.has(p.m.id)).sort((a, b) => a.x - b.x);
+  if (frontPts.length > 1) svg.append(s("polyline", { points: frontPts.map((p) => `${p.px},${p.py}`).join(" "), fill: "none", stroke: "var(--s1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round", opacity: 0.55 }));
+  for (const p of pts) {
+    p.front = front.has(p.m.id) ? 1 : 0;
+    p.color = p.front ? "var(--s1)" : "var(--ink-2)";
+    if (p.ci) {
+      const a = ys(p.ci[0]), b = ys(Math.min(p.ci[1], yMax));
+      svg.append(s("path", { d: `M${p.px} ${a}V${b}M${p.px - 4} ${a}H${p.px + 4}M${p.px - 4} ${b}H${p.px + 4}`, stroke: p.color, "stroke-width": 1.2, opacity: 0.6, fill: "none" }));
+    }
+  }
+  const labelled = pts.map((p) => ({ ...p, w: textWidth(p.m.name || p.m.id, 12, p.front ? 600 : 400) }));
+  placeLabels(labelled, x0, x1, y0, y1);
+  for (const p of labelled) {
+    if (!p.label) continue;
+    const L = p.label, b = L.box;
+    const nx = Math.max(b.x, Math.min(p.px, b.x + b.w)), ny = Math.max(b.y, Math.min(p.py, b.y + b.h));
+    if (Math.hypot(nx - p.px, ny - p.py) > 11) svg.append(s("line", { x1: p.px, y1: p.py, x2: nx, y2: ny, stroke: "var(--axis)", "stroke-width": 1 }));
+    svg.append(s("text", { x: L.lx, y: L.ly, "text-anchor": L.anchor, "font-size": 12, "font-weight": p.front ? 600 : 400, fill: p.front ? "var(--ink)" : "var(--ink-2)", text: p.m.name || p.m.id }));
+  }
+  for (const p of [...pts].sort((a, b) => a.front - b.front)) svg.append(markShape(p.m, p.px, p.py, p.color, p.front ? 6 : 5));
+  for (const p of pts) {
+    const hit = s("circle", { class: "hit", cx: p.px, cy: p.py, r: 14, tabindex: 0, role: "button", "aria-label": `${p.m.name}: WER ${fmtPct(p.y)}, ${latency ? fmtMs(p.x) : fmtRtf(p.x)}` });
+    bindTip(hit, () => scatterTip(p));
+    hit.addEventListener("click", () => { state.worstModel = p.m.id; renderExplorer(); });
+    svg.append(hit);
+  }
+  box.append(svg);
+  const dropped = labelled.filter((p) => !p.label).map((p) => p.m.name || p.m.id);
+  if (dropped.length) box.append(h("p", { class: "small muted", text: `Unlabelled to avoid overlap: ${dropped.join(", ")}. Hover or focus a point for details.` }));
+}
+function scatterTip(p) {
+  const g = p.g, m = p.m;
+  return tipContent(m.name || m.id, [
+    ["WER", fmtPct(g.werPooled)], ["95 % CI", g.ci95 ? fmtCI(g.ci95) : "— (not precomputed)"],
+    ["Release → text p50", fmtMs(g.releaseToTextP50)], ["p95", fmtMs(g.releaseToTextP95)],
+    isStreaming(m) ? ["First word p50", fmtMs(g.firstWordP50)] : null,
+    ["RTF", fmtRtf(g.rtfMedian) + " · " + fmtRealtime(g.rtfMedian)],
+    ["Peak memory", fmtBytes(m.peakMemoryBytes)], ["Clips", fmtInt(g.clips)],
+  ], `${m.engine || ""} · ${m.kind || ""}${isDerived(m) ? " · preview text of " + m.derivedFrom : ""}${p.front ? " · on the Pareto frontier" : ""}`);
+}
+
+/* ---------------------------------------------------------------- leaderboard */
+const COLS = [
+  { key: "model", label: "Model", sort: (r) => (r.m.name || r.m.id).toLowerCase() },
+  { key: "wer", label: "WER", title: "Pooled word error rate on normalised text: Σ(S+D+I) ÷ Σ reference words", v: (r) => r.g?.werPooled, low: true },
+  { key: "macro", label: "WER macro", title: "Mean of per-clip WER (every clip weighs the same)", v: (r) => r.g?.werMacro, f: fmtPct, low: true },
+  { key: "fmt", label: "Formatted", title: "Error rate with case and punctuation kept (what gets pasted)", v: (r) => r.g?.formattedPooled, f: fmtPct, low: true },
+  { key: "cer", label: "CER", title: "Character error rate on normalised text", v: (r) => r.g?.cerPooled, f: fmtPct, low: true },
+  { key: "sdi", label: "S / D / I", title: "Substitutions / deletions / insertions (normalised words)", v: (r) => (r.g && r.g.referenceWords ? errorsOf(r.g) / r.g.referenceWords : null), low: true, noBest: true },
+  { key: "terms", label: "Terms", title: "Term recall: key terms found verbatim", v: (r) => r.g?.termRecall, f: (x) => fmtPct(x, 0), low: false },
+  { key: "nums", label: "Numbers", title: "Number and date accuracy after normalisation", v: (r) => r.g?.numberAccuracy, f: (x) => fmtPct(x, 0), low: false },
+  { key: "hall", label: "Halluc.", title: "Rows with text on silence, a repetition loop or an insertion burst ≥ 5 words", v: (r) => r.g?.hallucinations, f: fmtInt, low: true },
+  { key: "lid", label: "Lang ID", title: "Language identification accuracy", v: (r) => r.g?.languageAccuracy, f: (x) => fmtPct(x, 0), low: false },
+  { key: "cold", label: "Cold load", title: "Fresh process → model ready", v: (r) => r.m.load?.coldMs, f: fmtMs, low: true },
+  { key: "p50", label: "Rel→text p50", title: "Median release → text on short clips", v: (r) => r.g?.releaseToTextP50, f: fmtMs, low: true },
+  { key: "p95", label: "p95", title: "95th percentile release → text on short clips", v: (r) => r.g?.releaseToTextP95, f: fmtMs, low: true },
+  { key: "fw", label: "First word", title: "Streaming: paced feed start → first visible word (median)", v: (r) => r.g?.firstWordP50, f: fmtMs, low: true },
+  { key: "rtf", label: "RTF", title: "Median real-time factor (compute ÷ audio duration)", v: (r) => r.g?.rtfMedian, f: fmtRtf, low: true },
+  { key: "mem", label: "Peak mem", title: "Peak phys_footprint (+ wired-memory increase for ANE models)", v: (r) => r.m.peakMemoryBytes, low: true },
+  { key: "fail", label: "Fail", title: "Failed transcriptions", v: (r) => r.g?.failures, f: fmtInt, low: true },
+];
+function renderLeaderboard() {
+  const sec = clear($("#sec-board"));
+  sec.append(sectionHead(sec, "h-board", "Leaderboard", `${state.mode} mode · ${filterLabel()}. Click a column to sort; the best value per column is tinted.`));
+  const ms = D.models;
+  if (!ms.length) { sec.append(emptyBox("No models in this run.")); return; }
+  const rows = ms.map((m) => ({ m, g: getGroup(m.id, state.mode) }));
+  const col = COLS.find((c) => c.key === state.sort.key) || COLS[1];
+  const keyOf = col.sort || col.v;
+  rows.sort((a, b) => {
+    const ea = !a.g, eb = !b.g;
+    if (ea !== eb) return ea ? 1 : -1;
+    const va = keyOf(a), vb = keyOf(b);
+    const na = va == null || (typeof va === "number" && !isNum(va)), nb = vb == null || (typeof vb === "number" && !isNum(vb));
+    if (na !== nb) return na ? 1 : -1;
+    if (na) return 0;
+    return (va < vb ? -1 : va > vb ? 1 : 0) * state.sort.dir;
+  });
+  const best = {};
+  for (const c of COLS) {
+    if (!c.v || c.noBest) continue;
+    const vals = rows.filter((r) => r.g || c.key === "cold" || c.key === "mem").map(c.v).filter(isNum);
+    if (vals.length >= 2 && Math.min(...vals) !== Math.max(...vals)) best[c.key] = c.low ? Math.min(...vals) : Math.max(...vals);
+  }
+  const maxWer = Math.max(0.0001, ...rows.map((r) => r.g?.werPooled).filter(isNum));
+  const thead = h("thead", null, h("tr", null, COLS.map((c, i) => h("th", {
+    class: i ? "n" : null, scope: "col", title: c.title, "aria-sort": state.sort.key === c.key ? (state.sort.dir > 0 ? "ascending" : "descending") : "none",
+  }, h("button", { type: "button", text: c.label, onclick: () => {
+    state.sort = state.sort.key === c.key ? { key: c.key, dir: -state.sort.dir } : { key: c.key, dir: c.low === false ? -1 : 1 };
+    renderLeaderboard();
+    const btn = $(`#sec-board th:nth-child(${i + 1}) button`); if (btn) btn.focus();
+  } })))));
+  const tbody = h("tbody", null, rows.map((r) => h("tr", { class: r.g ? null : "dim" }, COLS.map((c) => cellFor(c, r, best, maxWer)))));
+  sec.append(h("div", { class: "scroll-x" }, h("table", { class: "lb" }, thead, tbody)));
+  const noData = rows.filter((r) => !r.g).map((r) => r.m.name || r.m.id);
+  if (noData.length) sec.append(h("p", { class: "small muted", text: `No rows for ${noData.join(", ")} in ${state.mode} mode with this filter.` }));
+  if (rows.some((r) => r.g && r.g._src === "rows")) sec.append(h("p", { class: "small muted", text: "This filter combination is recomputed from per-clip rows; bootstrap confidence intervals are only available for precomputed groups." }));
+}
+function cellFor(c, r, best, maxWer) {
+  const { m, g } = r;
+  if (c.key === "model") {
+    return h("td", null, h("div", { class: "mname", text: m.name || m.id }),
+      h("div", { class: "msub" }, [m.engine, fmtBytes(m.sizeBytes) !== "—" ? fmtBytes(m.sizeBytes) : null].filter(Boolean).join(" · "),
+        isStreaming(m) ? [" ", h("span", { class: "badge info", text: isDerived(m) ? "preview" : "streaming" })] : null));
+  }
+  const v = c.v(r);
+  const isBest = isNum(v) && best[c.key] === v;
+  const td = h("td", { class: "n" + (isBest ? " best" : "") });
+  if (c.key === "wer") {
+    append(td, fmtPct(v), isNum(v) ? h("span", { class: "ci", text: g?.ci95 ? fmtCI(g.ci95) : "CI —" }) : null,
+      isNum(v) ? h("div", { class: "minibar", style: { width: Math.max(2, (v / maxWer) * 64) + "px" }, "aria-hidden": "true" }) : null);
+  } else if (c.key === "sdi") {
+    append(td, g && g.referenceWords ? `${fmtInt(g.substitutions)} / ${fmtInt(g.deletions)} / ${fmtInt(g.insertions)}` : "—",
+      g && g.referenceWords ? h("span", { class: "ci", text: fmtInt(g.referenceWords) + " words" }) : null);
+  } else if (c.key === "mem") {
+    append(td, fmtBytes(v), isNum(m.wiredDeltaBytes) ? h("span", { class: "ci", text: "+" + fmtBytes(m.wiredDeltaBytes) + " wired" }) : null);
+  } else if (c.key === "cold") {
+    append(td, fmtMs(v), m.load?.perTranscription ? h("span", { class: "ci", text: "per transcription" }) : null);
+  } else append(td, c.f ? c.f(v) : String(v ?? "—"));
+  return td;
+}
+
+/* ---------------------------------------------------------------- breakdown */
+function renderBreakdown() {
+  const sec = clear($("#sec-breakdown"));
+  sec.append(sectionHead(sec, "h-breakdown", "Per-language & per-tag breakdown", `Pooled WER with 95 % CI where precomputed · ${state.mode} mode`));
+  const ms = modelsInMode(state.mode);
+  const L = langs.filter((l) => l !== "none");
+  const base = curFilter();
+  sec.append(h("h3", { text: "WER by language" + (base.cat !== "all" || base.tag !== "all" ? " · " + filterLabel({ ...base, lang: "all" }) : "") }));
+  sec.append(h("div", { class: "legend" }, L.map((l) => h("span", { class: "key" }, h("span", { class: "swatch", style: { background: LANG_COLOR[l] } }), LANG_NAME[l]))));
+  const data = ms.map((m) => ({ m, vals: L.map((l) => ({ key: l, g: getGroup(m.id, state.mode, { ...base, lang: l }) })) }))
+    .filter((d) => d.vals.some((v) => isNum(v.g?.werPooled)));
+  const box = h("div", { class: "chart" });
+  sec.append(box);
+  if (!data.length || !L.length) box.append(emptyBox("No per-language scores for this filter."));
+  else drawGroupedBars(box, data, L);
+  if (data.length) sec.append(tableView("Table view", ["Model", ...L.map((l) => LANG_NAME[l])], data.map((d) => [d.m.name, ...d.vals.map((v) => fmtPct(v.g?.werPooled) + (v.g?.ci95 ? ` (${fmtCI(v.g.ci95)})` : ""))])));
+
+  const condTags = tags.filter((t) => t === "clean" || t.startsWith("condition:"));
+  const viewTags = state.tagView === "conditions" && condTags.length ? condTags : tags;
+  sec.append(h("div", { class: "card-head", style: { marginTop: "18px" } },
+    h("h3", { style: { margin: 0 }, text: "WER by " + (state.tagView === "conditions" ? "recording condition" : "tag") + (base.lang !== "all" || base.cat !== "all" ? " · " + filterLabel({ ...base, tag: "all" }) : "") }),
+    condTags.length ? segmented([["conditions", "Conditions"], ["all", "All tags"]], state.tagView, (v) => { state.tagView = v; renderBreakdown(); }, "Tag view") : null));
+  const panels = h("div", { class: "panels" });
+  const pending = [];
+  let any = false;
+  for (const t of viewTags) {
+    const vals = ms.map((m) => ({ m, g: getGroup(m.id, state.mode, { ...base, tag: t }) })).filter((v) => isNum(v.g?.werPooled));
+    if (!vals.length) continue;
+    any = true;
+    const n = Math.max(...vals.map((v) => v.g.clips || 0));
+    const p = h("div", { class: "panel" }, h("h4", { text: `${prettyTag(t)} · ${n} clip${n === 1 ? "" : "s"}` }));
+    panels.append(p);
+    pending.push([p, vals, t]);
+  }
+  const shared = Math.max(0.01, ...pending.flatMap(([, vals]) => vals.map((v) => Math.max(v.g.werPooled, v.g.ci95?.[1] ?? 0))));
+  for (const [p, vals, t] of pending) drawSimpleBars(p, vals, t, shared);
+  sec.append(any ? panels : emptyBox("No tagged clips with scores for this filter."));
+}
+function drawGroupedBars(box, data, L) {
+  const W = Math.max(300, box.clientWidth || 600);
+  const labelW = W < 520 ? 104 : 150, M = { r: 16, t: 4, b: 30 };
+  const barH = 7, gap = 2, bandPad = 12;
+  const bandH = L.length * (barH + gap) - gap + bandPad;
+  const H = M.t + data.length * bandH + M.b;
+  const x0 = labelW, x1 = W - M.r, yEnd = H - M.b;
+  const maxV = Math.max(...data.flatMap((d) => d.vals.map((v) => Math.max(v.g?.werPooled ?? 0, v.g?.ci95?.[1] ?? 0))));
+  const xs = linScale(0, niceMax(maxV * 1.05), x0, x1);
+  const svg = s("svg", { width: W, height: H, role: "img", "aria-label": "WER by language per model" });
+  const g = s("g", { class: "axis" });
+  xAxis(g, xs, yEnd, x0, x1, fmtTickPct, M.t);
+  svg.append(g);
+  data.forEach((d, i) => {
+    const top = M.t + i * bandH + bandPad / 2;
+    svg.append(s("text", { x: labelW - 10, y: top + (bandH - bandPad) / 2 + 4, "text-anchor": "end", "font-size": W < 520 ? 11 : 12, fill: "var(--ink)", text: truncate(d.m.name || d.m.id, labelW - 14, W < 520 ? 11 : 12) }));
+    d.vals.forEach((v, j) => {
+      const y = top + j * (barH + gap);
+      const val = v.g?.werPooled;
+      if (!isNum(val)) return;
+      const w = Math.max(1, xs(val) - x0);
+      svg.append(s("path", { d: barPath(x0, y, w, barH), fill: LANG_COLOR[v.key] }));
+      if (v.g.ci95) {
+        const a = xs(v.g.ci95[0]), b = xs(v.g.ci95[1]);
+        svg.append(s("path", { d: `M${a} ${y + barH / 2}H${b}M${a} ${y}V${y + barH}M${b} ${y}V${y + barH}`, stroke: "var(--ink-2)", "stroke-width": 1, fill: "none" }));
+      }
+      const hit = s("rect", { class: "hit", x: x0, y: y - 1, width: Math.max(w, 24), height: barH + 2, tabindex: 0, "aria-label": `${d.m.name} ${LANG_NAME[v.key]}: ${fmtPct(val)}` });
+      bindTip(hit, () => tipContent(`${d.m.name} · ${LANG_NAME[v.key]}`, [["WER", fmtPct(val)], ["95 % CI", fmtCI(v.g.ci95)], ["WER macro", fmtPct(v.g.werMacro)], ["Clips", fmtInt(v.g.clips)], ["Words", fmtInt(v.g.referenceWords)]]));
+      svg.append(hit);
+    });
+  });
+  box.append(svg);
+}
+function drawSimpleBars(box, vals, tag, maxV) {
+  const W = Math.max(250, box.clientWidth - 4 || 280);
+  const labelW = 108, barH = 9, gap = 5, M = { t: 2, b: 26, r: 10 };
+  const H = M.t + vals.length * (barH + gap) + M.b;
+  const x0 = labelW, x1 = W - M.r, yEnd = H - M.b;
+  const xs = linScale(0, niceMax(maxV * 1.05), x0, x1);
+  const svg = s("svg", { width: W, height: H, role: "img", "aria-label": "WER per model for " + prettyTag(tag) });
+  const g = s("g", { class: "axis" });
+  xAxis(g, xs, yEnd, x0, x1, fmtTickPct, M.t);
+  svg.append(g);
+  vals.forEach((v, i) => {
+    const y = M.t + i * (barH + gap) + gap / 2;
+    svg.append(s("text", { x: labelW - 8, y: y + barH - 1, "text-anchor": "end", "font-size": 11, fill: "var(--ink-2)", text: truncate(v.m.name || v.m.id, labelW - 10, 11) }));
+    const w = Math.max(1, xs(v.g.werPooled) - x0);
+    svg.append(s("path", { d: barPath(x0, y, w, barH), fill: isDerived(v.m) ? "color-mix(in srgb, var(--s1) 45%, var(--surface))" : "var(--s1)" }));
+    if (v.g.ci95) { const a = xs(v.g.ci95[0]), b = xs(v.g.ci95[1]); svg.append(s("path", { d: `M${a} ${y + barH / 2}H${b}`, stroke: "var(--ink-2)", "stroke-width": 1 })); }
+    const hit = s("rect", { class: "hit", x: x0 - labelW, y: y - 2, width: Math.max(w + labelW, 24), height: barH + 4, tabindex: 0, "aria-label": `${v.m.name}: ${fmtPct(v.g.werPooled)}` });
+    bindTip(hit, () => tipContent(`${v.m.name} · ${prettyTag(tag)}`, [["WER", fmtPct(v.g.werPooled)], ["95 % CI", fmtCI(v.g.ci95)], ["Clips", fmtInt(v.g.clips)]]));
+    svg.append(hit);
+  });
+  box.append(svg);
+}
+function barPath(x, y, w, hgt) { const r = Math.min(4, w, hgt / 2); return `M${x} ${y}H${x + w - r}Q${x + w} ${y} ${x + w} ${y + r}V${y + hgt - r}Q${x + w} ${y + hgt} ${x + w - r} ${y + hgt}H${x}Z`; }
+function truncate(t, maxW, size) { if (textWidth(t, size) <= maxW) return t; let x = t; while (x.length > 3 && textWidth(x + "…", size) > maxW) x = x.slice(0, -1); return x + "…"; }
+
+/* ---------------------------------------------------------------- conditions & raw/app */
+function conditionPairs(model, mode) {
+  const out = {};
+  for (const c of D.clips) {
+    if (!c.condition) continue;
+    const baseId = c.id.split("@")[0], base = clipById.get(baseId);
+    if (state.lang !== "all" && c.language !== state.lang) continue;
+    const rc = rowIndex.get(`${model}|${mode}|${c.id}`), rb = rowIndex.get(`${model}|${mode}|${baseId}`);
+    if (!base || !rc?.scores || !rb?.scores) continue;
+    const e = (out[c.condition] ||= { clips: 0, ce: 0, cn: 0, be: 0, bn: 0 });
+    e.clips++;
+    e.ce += errorsOf(rc.scores.normalised); e.cn += rc.scores.normalised.referenceWords;
+    e.be += errorsOf(rb.scores.normalised); e.bn += rb.scores.normalised.referenceWords;
+  }
+  return Object.fromEntries(Object.entries(out).map(([k, e]) => [k, { clips: e.clips, cleanWer: e.bn ? e.be / e.bn : null, conditionWer: e.cn ? e.ce / e.cn : null }]));
+}
+function renderConditions() {
+  const sec = clear($("#sec-conditions"));
+  sec.append(sectionHead(sec, "h-conditions", "Clean vs condition", `The same script read clean and under a condition, paired per clip · ${state.mode} mode${state.lang !== "all" ? " · " + LANG_NAME[state.lang] : ""}.`));
+  let src = "rows";
+  let table = Object.fromEntries(modelsInMode(state.mode).map((m) => [m.id, conditionPairs(m.id, state.mode)]).filter(([, v]) => Object.keys(v).length));
+  if (!Object.keys(table).length && D.agg.conditions && Object.keys(D.agg.conditions).length && state.lang === "all") { table = D.agg.conditions; src = "agg"; }
+  const conds = [...new Set(Object.values(table).flatMap((o) => Object.keys(o)))].sort();
+  if (!conds.length) sec.append(emptyBox("No paired condition recordings (e.g. de-s05 and de-s05@noisy) with scores."));
+  else {
+    const maxW = Math.max(0.01, ...Object.values(table).flatMap((o) => Object.values(o).flatMap((e) => [e.cleanWer, e.conditionWer]).filter(isNum)));
+    const xs = linScale(0, niceMax(maxW), 4, 96);
+    sec.append(h("div", { class: "legend" }, h("span", { class: "key" }, dumbbell(0.1, 0.2, linScale(0, 0.3, 4, 40), 44), "clean (hollow) → condition (filled)"),
+      h("span", { class: "key" }, "Δ = condition − clean, in percentage points")));
+    const thead = h("thead", null, h("tr", null, h("th", { text: "Model" }), conds.map((c) => h("th", { text: c }))));
+    const tbody = h("tbody", null, Object.entries(table).map(([mid, o]) => h("tr", null,
+      h("td", { class: "mname", text: modelById.get(mid)?.name || mid }),
+      conds.map((c) => condCell(o[c], xs)))));
+    sec.append(h("div", { class: "scroll-x" }, h("table", null, thead, tbody)));
+    if (src === "agg") sec.append(h("p", { class: "small muted", text: "From precomputed aggregates (not split by mode)." }));
+  }
+  renderRawApp(sec);
+}
+function condCell(e, xs) {
+  if (!e || (!isNum(e.cleanWer) && !isNum(e.conditionWer))) return h("td", { class: "muted", text: "—" });
+  const d = isNum(e.cleanWer) && isNum(e.conditionWer) ? e.conditionWer - e.cleanWer : null;
+  return h("td", { style: { minWidth: "150px", whiteSpace: "nowrap" } },
+    h("div", { class: "num" }, fmtPct(e.cleanWer), " → ", fmtPct(e.conditionWer), h("span", { class: "small muted", text: ` · ${e.clips} clip${e.clips === 1 ? "" : "s"}` })),
+    h("div", null, dumbbell(e.cleanWer, e.conditionWer, xs, 90), " ",
+      h("span", { class: "small " + (d > 0.005 ? "delta-bad" : d < -0.005 ? "delta-good" : "muted"), text: (d > 0.005 ? "▲ " : d < -0.005 ? "▼ " : "") + fmtPP(d) })));
+}
+function dumbbell(a, b, xs, w) {
+  const svg = s("svg", { width: w, height: 12, style: "vertical-align:middle", "aria-hidden": "true" });
+  if (isNum(a) && isNum(b)) svg.append(s("line", { x1: xs(a), x2: xs(b), y1: 6, y2: 6, stroke: "var(--axis)", "stroke-width": 2 }));
+  if (isNum(a)) svg.append(s("circle", { cx: xs(a), cy: 6, r: 4, fill: "var(--surface)", stroke: "var(--s1)", "stroke-width": 2 }));
+  if (isNum(b)) svg.append(s("circle", { cx: xs(b), cy: 6, r: 4, fill: "var(--s1)" }));
+  return svg;
+}
+function renderRawApp(sec) {
+  if (!(modes.includes("raw") && modes.includes("app"))) return;
+  const ms = D.models.filter((m) => (rowsFor(m.id, "raw").length || aggFor(m.id, "raw")) && (rowsFor(m.id, "app").length || aggFor(m.id, "app")));
+  sec.append(h("h3", { text: "Vocabulary effect: raw vs app · " + filterLabel() }));
+  if (!ms.length) { sec.append(emptyBox("No model ran in both modes.")); return; }
+  const rows = ms.map((m) => ({ m, r: getGroup(m.id, "raw"), a: getGroup(m.id, "app") }));
+  const deltaSpan = (a, b, lowGood) => {
+    if (!isNum(a) || !isNum(b)) return h("span", { class: "muted", text: "—" });
+    const d = b - a, good = lowGood ? d < -0.0005 : d > 0.0005, bad = lowGood ? d > 0.0005 : d < -0.0005;
+    return h("span", { class: good ? "delta-good" : bad ? "delta-bad" : "muted", text: (good ? "✓ " : bad ? "✗ " : "") + fmtPP(d) });
+  };
+  sec.append(h("div", { class: "scroll-x" }, h("table", null,
+    h("thead", null, h("tr", null, ["Model", "WER raw", "WER app", "Δ WER", "Terms raw", "Terms app", "Δ terms", "Formatted raw", "Formatted app"].map((t, i) => h("th", { class: i ? "n" : null, text: t })))),
+    h("tbody", null, rows.map(({ m, r, a }) => h("tr", null,
+      h("td", { class: "mname", text: m.name || m.id }),
+      h("td", { class: "n", text: fmtPct(r?.werPooled) }), h("td", { class: "n", text: fmtPct(a?.werPooled) }), h("td", { class: "n" }, deltaSpan(r?.werPooled, a?.werPooled, true)),
+      h("td", { class: "n", text: fmtPct(r?.termRecall, 0) }), h("td", { class: "n", text: fmtPct(a?.termRecall, 0) }), h("td", { class: "n" }, deltaSpan(r?.termRecall, a?.termRecall, false)),
+      h("td", { class: "n", text: fmtPct(r?.formattedPooled) }), h("td", { class: "n", text: fmtPct(a?.formattedPooled) })))))));
+}
+
+/* ---------------------------------------------------------------- pairwise */
+function pairLookup(list) {
+  const map = new Map();
+  for (const e of list || []) {
+    map.set(e.a + "|" + e.b, e);
+    map.set(e.b + "|" + e.a, { a: e.b, b: e.a, clips: e.clips, werA: e.werB, werB: e.werA, difference: -e.difference,
+      ci95: Array.isArray(e.ci95) ? [-e.ci95[1], -e.ci95[0]] : null, pValue: e.pValue });
+  }
+  return map;
+}
+function renderPairwise() {
+  const sec = clear($("#sec-pairwise"));
+  const lang = state.lang === "all" ? "all" : state.lang;
+  sec.append(sectionHead(sec, "h-pairwise", "Pairwise significance",
+    `Row model vs column model · paired bootstrap on clips both models scored · ${state.mode} mode · ${lang === "all" ? "all languages" : LANG_NAME[lang]}. Category and tag filters do not apply here.`));
+  const list = D.agg.pairwise?.[state.mode]?.[lang];
+  if (!Array.isArray(list) || !list.length) { sec.append(emptyBox("No pairwise comparisons for this mode and language.")); return; }
+  const map = pairLookup(list);
+  const ids = [...new Set(list.flatMap((e) => [e.a, e.b]))];
+  const werOf = (id) => getGroup(id, state.mode, { lang, cat: "all", tag: "all" })?.werPooled;
+  ids.sort((a, b) => (werOf(a) ?? 9) - (werOf(b) ?? 9));
+  sec.append(h("div", { class: "legend" },
+    h("span", { class: "key" }, h("span", { class: "swatch", style: { background: "color-mix(in srgb, var(--pos) 45%, var(--surface))" } }), "row model has lower WER"),
+    h("span", { class: "key" }, h("span", { class: "swatch", style: { background: "color-mix(in srgb, var(--neg) 45%, var(--surface))" } }), "row model has higher WER"),
+    h("span", { class: "key" }, h("b", { text: "● bold, strong tint" }), " = p < 0.05; pale = not significant"),
+    h("span", { class: "key", text: "Cell: WER difference (row − column) and p-value" })));
+  const name = (id) => modelById.get(id)?.name || id;
+  const thead = h("thead", null, h("tr", null, h("th", { text: "" }), ids.map((id, j) => h("th", { title: name(id), scope: "col", text: String(j + 1) }))));
+  const tbody = h("tbody", null, ids.map((a, i) => h("tr", null,
+    h("th", { class: "rowh", scope: "row" }, h("span", { class: "muted", text: (i + 1) + "  " }), name(a)),
+    ids.map((b) => pairCell(a, b, map, name)))));
+  sec.append(h("div", { class: "scroll-x" }, h("table", { class: "pw" }, thead, tbody)));
+  const sig = list.filter((e) => e.pValue < 0.05).length;
+  sec.append(h("p", { class: "small muted", text: `${sig} of ${list.length} pairs differ significantly (p < 0.05). With many pairs, expect about ${Math.round(list.length * 0.05)} false positives by chance.` }));
+}
+function pairCell(a, b, map, name) {
+  if (a === b) return h("td", { class: "diag", text: "—" });
+  const e = map.get(a + "|" + b);
+  if (!e) return h("td", { class: "muted", text: "n/a" });
+  const sig = e.pValue < 0.05, d = e.difference;
+  const color = d < 0 ? "var(--pos)" : d > 0 ? "var(--neg)" : "var(--axis)";
+  const td = h("td", { class: sig ? "sig" : null, tabindex: 0, style: { background: `color-mix(in srgb, ${color} ${sig ? 42 : 12}%, var(--surface))` },
+    "aria-label": `${name(a)} vs ${name(b)}: difference ${fmtPP(d)}, ${fmtP(e.pValue)}` },
+    (sig ? "● " : "") + (isNum(d) ? (d > 0 ? "+" : d < 0 ? MINUS : "") + Math.abs(d * 100).toFixed(1) : "—"), h("span", { class: "p", text: fmtP(e.pValue) }));
+  bindTip(td, () => tipContent(`${name(a)} vs ${name(b)}`, [
+    ["WER " + name(a), fmtPct(e.werA)], ["WER " + name(b), fmtPct(e.werB)], ["Difference", fmtPP(d)],
+    ["95 % CI of difference", Array.isArray(e.ci95) ? fmtPP(e.ci95[0]) + " … " + fmtPP(e.ci95[1]) : "—"],
+    ["p-value", fmtP(e.pValue)], ["Paired clips", fmtInt(e.clips)]],
+    sig ? (d < 0 ? name(a) : name(b)) + " is significantly better on these clips." : "Not significant at p < 0.05."));
+  return td;
+}
+
+/* ---------------------------------------------------------------- latency */
+function boxStats(vals) {
+  const v = vals.filter(isNum).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const q1 = quantile(v, 0.25), q3 = quantile(v, 0.75), iqr = q3 - q1;
+  const lo = v.find((x) => x >= q1 - 1.5 * iqr), hi = [...v].reverse().find((x) => x <= q3 + 1.5 * iqr);
+  return { n: v.length, min: v[0], max: v[v.length - 1], q1, q3, med: quantile(v, 0.5), p95: quantile(v, 0.95), lo, hi, out: v.filter((x) => x < lo || x > hi) };
+}
+function renderLatency() {
+  const sec = clear($("#sec-latency"));
+  sec.append(sectionHead(sec, "h-latency", "Latency distributions",
+    "Batch: full transcription after release (every warm run of every short clip). Streaming: audio fed at real-time pace, release → final text (every paced run).",
+    checkbox("Log scale", state.latLog, (v) => { state.latLog = v; renderLatency(); })));
+  const f = { ...curFilter(), cat: "short" };
+  if (state.cat === "long") sec.append(h("p", { class: "small muted", text: "Latency is measured on short clips only; the category filter is ignored here." }));
+  const items = [], first = [];
+  for (const m of modelsInMode(state.mode)) {
+    const rs = filteredRows(m.id, state.mode, f);
+    const st = boxStats(rs.flatMap((r) => r.timings?.runsMs || []));
+    if (st) items.push({ m, st });
+    if (isStreaming(m)) { const fw = boxStats(rs.map((r) => r.timings?.firstWordMs)); if (fw) first.push({ m, st: fw }); }
+  }
+  items.sort((a, b) => a.st.med - b.st.med);
+  first.sort((a, b) => a.st.med - b.st.med);
+  sec.append(h("h3", { text: "Release → text, short clips" }));
+  const b1 = h("div", { class: "chart" }); sec.append(b1);
+  if (items.length) drawBoxes(b1, items, "release → text"); else b1.append(emptyBox("No short-clip timings for this filter."));
+  if (first.length) {
+    sec.append(h("h3", { text: "First visible word (streaming)" }), h("p", { class: "small muted", text: "Paced feed start → first non-empty preview, one value per clip (median of its runs)." }));
+    const b2 = h("div", { class: "chart" }); sec.append(b2);
+    drawBoxes(b2, first, "first word");
+  }
+  const tv = [...items.map((i) => [i.m.name, "release → text", i.st.n, fmtMs(i.st.min), fmtMs(i.st.med), fmtMs(i.st.p95), fmtMs(i.st.max)]),
+    ...first.map((i) => [i.m.name, "first word", i.st.n, fmtMs(i.st.min), fmtMs(i.st.med), fmtMs(i.st.p95), fmtMs(i.st.max)])];
+  if (tv.length) sec.append(tableView("Table view", ["Model", "Metric", "Runs", "Min", "Median", "p95", "Max"], tv));
+}
+function drawBoxes(box, items, what) {
+  const W = Math.max(300, box.clientWidth || 600);
+  const labelW = W < 520 ? 110 : 160, rowH = 26, M = { t: 4, b: 32, r: 18 };
+  const H = M.t + items.length * rowH + M.b, x0 = labelW, x1 = W - M.r, yEnd = H - M.b;
+  const all = items.flatMap((i) => [i.st.min, i.st.max]);
+  const xs = xScaleFor(all, x0, x1, state.latLog);
+  const svg = s("svg", { width: W, height: H, role: "img", "aria-label": "Box plots of " + what + " per model" });
+  const g = s("g", { class: "axis" });
+  xAxis(g, xs, yEnd, x0, x1, fmtTickMs, M.t);
+  svg.append(g);
+  const X = (v) => Math.max(x0, Math.min(x1, xs(v)));
+  items.forEach((it, i) => {
+    const cy = M.t + i * rowH + rowH / 2, st = it.st, bh = 12;
+    svg.append(s("text", { x: labelW - 10, y: cy + 4, "text-anchor": "end", "font-size": 12, fill: "var(--ink)", text: truncate((it.m.name || it.m.id), labelW - 14, 12) }));
+    svg.append(s("path", { d: `M${X(st.lo)} ${cy}H${X(st.q1)}M${X(st.q3)} ${cy}H${X(st.hi)}M${X(st.lo)} ${cy - 4}V${cy + 4}M${X(st.hi)} ${cy - 4}V${cy + 4}`, stroke: "var(--ink-2)", "stroke-width": 1, fill: "none" }));
+    svg.append(s("rect", { x: X(st.q1), y: cy - bh / 2, width: Math.max(2, X(st.q3) - X(st.q1)), height: bh, rx: 3,
+      fill: isDerived(it.m) ? "var(--surface)" : "color-mix(in srgb, var(--s1) 28%, var(--surface))", stroke: "var(--s1)", "stroke-width": 1.5 }));
+    svg.append(s("line", { x1: X(st.med), x2: X(st.med), y1: cy - bh / 2, y2: cy + bh / 2, stroke: "var(--ink)", "stroke-width": 2 }));
+    for (const o of st.out) svg.append(s("circle", { cx: X(o), cy, r: 2.5, fill: "var(--ink-2)" }));
+    const hit = s("rect", { class: "hit", x: 0, y: cy - rowH / 2, width: x1, height: rowH, tabindex: 0, "aria-label": `${it.m.name}: median ${fmtMs(st.med)}` });
+    bindTip(hit, () => tipContent(`${it.m.name} · ${what}`, [["Median", fmtMs(st.med)], ["Quartiles", fmtMs(st.q1) + " – " + fmtMs(st.q3)], ["p95", fmtMs(st.p95)], ["Min / max", fmtMs(st.min) + " / " + fmtMs(st.max)], ["Runs", fmtInt(st.n)]],
+      isStreaming(it.m) ? "streaming" + (isDerived(it.m) ? " · preview text" : "") : "batch"));
+    svg.append(hit);
+  });
+  box.append(svg);
+}
+
+/* ---------------------------------------------------------------- explorer */
+const isDark = () => window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+const SEQ = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b"];
+function heatColor(w) {
+  const ramp = isDark() ? [...SEQ].reverse().slice(0, 11) : SEQ;
+  const t = Math.max(0, Math.min(1, w / 0.3));
+  return ramp[Math.round(t * (ramp.length - 1))];
+}
+function renderExplorer() {
+  const sec = clear($("#sec-explorer"));
+  sec.append(sectionHead(sec, "h-explorer", "Per-clip explorer", `Reference vs each model's output · ${state.mode} mode. The word diff is computed on normalised text.`));
+  if (!D.textIncluded) { sec.append(emptyBox("Summary export: transcripts, references and audio are not included, so the clip explorer is unavailable.")); return; }
+  const ms = modelsInMode(state.mode);
+  const clips = D.clips.filter((c) => clipMatches(c, curFilter()));
+  if (!clips.length) { sec.append(emptyBox("No clips match this filter.")); return; }
+  if (!state.clip || !clips.some((c) => c.id === state.clip)) state.clip = clips[0].id;
+  const list = h("div", { class: "cliplist", role: "list" });
+  const search = h("input", { type: "search", placeholder: "Search clips, tags, text…", "aria-label": "Search clips", value: state.clipQuery, style: { width: "100%", marginBottom: "8px" } });
+  const left = h("div", null, search, list, h("p", { class: "small muted", text: `Strip: one cell per model (${ms.map((m) => m.name || m.id).join(", ")}), ${isDark() ? "brighter" : "darker"} = higher WER (0 → ≥ 30 %); striped = failed; grey = no WER (not run or no speech).` }));
+  const right = h("div", { class: "clipdetail" });
+  sec.append(h("div", { class: "explorer" }, left, right));
+  const fillList = () => {
+    clear(list);
+    const q = state.clipQuery.trim().toLowerCase();
+    const shown = clips.filter((c) => !q || [c.id, c.language, c.condition, ...(c.tags || []), c.reference].join(" ").toLowerCase().includes(q));
+    for (const l of LANG_ORDER) {
+      const cs = shown.filter((c) => c.language === l);
+      if (!cs.length) continue;
+      list.append(h("h5", { text: `${LANG_NAME[l]} · ${cs.length}` }));
+      for (const c of cs) list.append(clipButton(c, ms));
+    }
+    if (!shown.length) list.append(h("div", { class: "empty", text: "No match." }));
+  };
+  search.addEventListener("input", debounce(() => { state.clipQuery = search.value; fillList(); }, 120));
+  fillList();
+  renderClipDetail(right, ms);
+  sec.append(renderWorst(ms));
+}
+function clipButton(c, ms) {
+  const strip = h("div", { class: "heat", "aria-hidden": "true" }, ms.map((m) => {
+    const r = rowIndex.get(`${m.id}|${state.mode}|${c.id}`);
+    const w = r?.scores?.normalised?.rate;
+    if (r?.error) return h("i", { class: "err", title: `${m.name}: failed` });
+    if (!isNum(w)) return h("i", { class: "na", title: `${m.name}: ${r?.scores ? (r.scores.textOnSilence ? "text on silence" : "no reference words") : "not run"}` });
+    return h("i", { style: { background: heatColor(w) }, title: `${m.name}: ${fmtPct(w)}` });
+  }));
+  return h("button", { type: "button", class: "clipbtn", role: "listitem", "aria-current": String(c.id === state.clip),
+    onclick: () => { state.clip = c.id; renderExplorer(); const d = $("#sec-explorer .clipdetail"); if (d && window.innerWidth < 760) d.scrollIntoView({ block: "start", behavior: "smooth" }); } },
+  h("div", { class: "row1" }, h("span", { class: "cid", text: c.id }), h("span", { class: "small muted num", text: fmtMs(c.durationMs) })),
+  h("div", { class: "tags", text: [c.category, c.condition ? "⚑ " + c.condition : null, ...(c.tags || [])].filter(Boolean).join(" · ") }), strip);
+}
+function renderClipDetail(el, ms) {
+  const c = clipById.get(state.clip);
+  if (!c) return;
+  append(el, h("h3", { style: { marginTop: 0 } }, c.id, " ", h("span", { class: "badge", text: LANG_NAME[c.language] || c.language }), " ",
+    h("span", { class: "badge", text: c.category }), c.condition ? [" ", h("span", { class: "badge warn", text: c.condition })] : null),
+  h("div", { class: "small muted", text: `${fmtMs(c.durationMs)} · ${fmtInt(c.referenceWords)} reference words${c.script ? " · script " + c.script : ""}${(c.tags || []).length ? " · " + c.tags.join(", ") : ""}` }));
+  if (c.audioHref) {
+    const msg = h("div", { class: "small muted" });
+    const au = h("audio", { controls: true, preload: "none", src: c.audioHref, style: { width: "100%", marginTop: "8px" } });
+    au.addEventListener("error", () => { msg.textContent = "Audio not found at " + c.audioHref + " (the report expects the corpus next to the run folder)."; });
+    append(el, au, msg);
+  }
+  const ref = h("div", { class: "refbox", lang: c.languages?.[0] || null }, h("div", { class: "small muted", text: "Reference" }));
+  if (Array.isArray(c.segments) && c.segments.length) {
+    const p = h("div");
+    c.segments.forEach((sg) => append(p, h("span", { class: "langchip", text: sg.lang }), h("span", { class: "seg-lang", lang: sg.lang, style: { borderColor: LANG_COLOR[sg.lang] || "var(--axis)" }, text: sg.text }), " "));
+    ref.append(p);
+  } else ref.append(h("div", { text: c.reference || "(empty reference: no speech expected)" }));
+  el.append(ref);
+  if ((c.terms || []).length) el.append(h("div", { class: "chips", style: { marginBottom: "8px" } }, h("span", { class: "small muted", text: "Terms:" }), c.terms.map((t) => h("span", { class: "chip", text: t }))));
+  const outs = ms.map((m) => ({ m, r: rowIndex.get(`${m.id}|${state.mode}|${c.id}`) })).filter((x) => x.r);
+  outs.sort((a, b) => (a.r.scores?.normalised?.rate ?? (a.r.error ? 99 : 98)) - (b.r.scores?.normalised?.rate ?? (b.r.error ? 99 : 98)));
+  if (!outs.length) el.append(emptyBox("No model ran this clip in " + state.mode + " mode."));
+  for (const { m, r } of outs) el.append(outputCard(m, r, c));
+  const notRun = ms.filter((m) => !rowIndex.has(`${m.id}|${state.mode}|${c.id}`));
+  if (notRun.length) el.append(h("p", { class: "small muted", text: "Not run on this clip: " + notRun.map((m) => {
+    const sk = (m.skippedClips || []).find((x) => x.clip === c.id);
+    return m.name + (sk ? ` (${sk.reason})` : "");
+  }).join("; ") }));
+}
+function outputCard(m, r, c) {
+  const card = h("div", { class: "out" });
+  const sc = r.scores, t = r.timings || {};
+  const flags = [];
+  if (sc?.repetitionLoop) flags.push("repetition loop");
+  if ((sc?.insertionBurst || 0) >= 5) flags.push(`insertion burst (${sc.insertionBurst} words)`);
+  if (sc?.textOnSilence) flags.push("text on silence");
+  if (r.languageCorrect === false) flags.push(`language detected: ${r.detectedLanguage || "?"}`);
+  card.append(h("div", { class: "out-head" },
+    h("div", null, h("span", { class: "mname", text: m.name || m.id }), " ", isStreaming(m) ? h("span", { class: "badge info", text: isDerived(m) ? "preview" : "streaming" }) : null,
+      flags.map((f) => [" ", h("span", { class: "badge bad", text: "⚠ " + f })])),
+    sc ? h("b", { class: "num", text: "WER " + fmtPct(sc.normalised?.rate) }) : null));
+  if (r.error) card.append(h("div", { class: "errbox", text: r.error }));
+  if (sc) {
+    const n = sc.normalised || {};
+    card.append(h("div", { class: "out-metrics" },
+      h("span", { text: `S/D/I ${n.substitutions}/${n.deletions}/${n.insertions}` }),
+      h("span", { text: "formatted " + fmtPct(sc.formatted?.rate) }),
+      sc.termsTotal ? h("span", { text: `terms ${sc.termsFound}/${sc.termsTotal}` }) : null,
+      sc.numbersTotal ? h("span", { text: `numbers ${sc.numbersCorrect}/${sc.numbersTotal}` }) : null,
+      isNum(t.releaseToTextMs) ? h("span", { text: "release → text " + fmtMs(t.releaseToTextMs) }) : null,
+      isNum(t.releaseToTextEarlyMs) ? h("span", { text: "with early ASR " + fmtMs(t.releaseToTextEarlyMs) }) : null,
+      isNum(t.firstWordMs) ? h("span", { text: "first word " + fmtMs(t.firstWordMs) }) : null,
+      isNum(t.rtf) ? h("span", { text: "RTF " + fmtRtf(t.rtf) }) : null,
+      r.detectedLanguage ? h("span", { text: "lang " + r.detectedLanguage }) : null));
+  }
+  if (Array.isArray(r.alignment) && r.alignment.length) {
+    const diff = h("div", { class: "diff" + (r.alignment.length > 120 ? " clamp" : "") }, alignmentNodes(r.alignment));
+    card.append(diff);
+    if (r.alignment.length > 120) card.append(h("button", { type: "button", class: "linkbtn", text: "Show full diff", onclick: (e) => { diff.classList.toggle("clamp"); e.target.textContent = diff.classList.contains("clamp") ? "Show full diff" : "Collapse"; } }));
+  } else if (!r.error) card.append(h("div", { class: "diff", text: r.text ? r.text : "(no text)" }));
+  if (r.text) card.append(h("details", null, h("summary", { class: "small muted", text: "Formatted output" }), h("div", { class: "small", style: { marginTop: "4px" }, lang: c.languages?.[0] || null, text: r.text })));
+  return card;
+}
+function alignmentNodes(al) {
+  const out = [];
+  for (const [op, ref, hyp] of al) {
+    if (op === "=") out.push(ref ?? hyp ?? "");
+    else if (op === "S") out.push(h("span", { class: "sub", title: `substitution: “${ref}” → “${hyp}”` }, h("del", { text: ref }), h("ins", { text: hyp })));
+    else if (op === "D") out.push(h("del", { title: "deleted reference word", text: ref }));
+    else if (op === "I") out.push(h("ins", { title: "inserted word", text: hyp }));
+    out.push(" ");
+  }
+  return out;
+}
+function renderWorst(ms) {
+  const wrap = h("div", { style: { marginTop: "18px" } });
+  if (!ms.length) return wrap;
+  if (!state.worstModel || !ms.some((m) => m.id === state.worstModel)) state.worstModel = ms[0].id;
+  const sel = h("select", { "aria-label": "Model for worst clips", onchange: (e) => { state.worstModel = e.target.value; renderExplorer(); } },
+    ms.map((m) => h("option", { value: m.id, selected: m.id === state.worstModel, text: m.name || m.id })));
+  wrap.append(h("div", { class: "ctl" }, h("h3", { style: { margin: 0 }, text: "Worst clips for" }), sel));
+  const rows = filteredRows(state.worstModel, state.mode, curFilter())
+    .map((r) => ({ r, w: r.scores?.normalised?.rate, bad: r.error || r.scores?.textOnSilence || r.scores?.repetitionLoop }))
+    .filter((x) => isNum(x.w) || x.bad)
+    .sort((a, b) => (b.bad ? 1 : 0) - (a.bad ? 1 : 0) || (b.w ?? 0) - (a.w ?? 0)).slice(0, 8);
+  const list = h("div", { class: "worst" }, rows.map(({ r, w }) => h("button", { type: "button", onclick: () => { state.clip = r.clip; renderExplorer(); $("#sec-explorer").scrollIntoView({ behavior: "smooth" }); } },
+    h("span", null, h("span", { class: "mono", text: r.clip }), r.error ? h("span", { class: "badge bad", text: " failed" }) : r.scores?.textOnSilence ? h("span", { class: "badge bad", text: " text on silence" }) : r.scores?.repetitionLoop ? h("span", { class: "badge bad", text: " repetition loop" }) : null),
+    h("span", { class: "num", text: isNum(w) ? fmtPct(w) + ` (${r.scores.normalised.substitutions}/${r.scores.normalised.deletions}/${r.scores.normalised.insertions})` : "—" }))));
+  wrap.append(rows.length ? list : emptyBox("No scored clips for this model and filter."));
+  return wrap;
+}
+
+/* ---------------------------------------------------------------- models detail */
+function renderModels() {
+  const sec = clear($("#sec-models"));
+  sec.append(sectionHead(sec, "h-models", "Models", "Load times, memory, errors and skipped clips. Not affected by the filters."));
+  if (!D.models.length) { sec.append(emptyBox("No models.")); return; }
+  sec.append(h("div", { class: "scroll-x" }, h("table", null,
+    h("thead", null, h("tr", null, ["Model", "Engine", "Size", "Cold load", "Warm load", "CoreML compile", "Peak memory", "Wired Δ", "Errors", "Skipped"].map((t, i) => h("th", { class: i > 1 ? "n" : null, text: t })))),
+    h("tbody", null, D.models.map((m) => h("tr", null,
+      h("td", null, h("div", { class: "mname", text: m.name || m.id }), h("div", { class: "msub mono", text: m.id + (m.appModelId && m.appModelId !== m.id ? " · " + m.appModelId : "") }),
+        m.derivedFrom ? h("div", { class: "msub", text: "derived from " + m.derivedFrom + " (same runs, live preview text)" }) : null),
+      h("td", { style: { whiteSpace: "nowrap" } }, m.engine || "—", h("div", { class: "msub", text: m.kind || "" })),
+      h("td", { class: "n", text: fmtBytes(m.sizeBytes) }),
+      h("td", { class: "n" }, fmtMs(m.load?.coldMs), m.load?.perTranscription ? h("span", { class: "ci", text: "worker per transcription" }) : null),
+      h("td", { class: "n", text: fmtMs(m.load?.warmMs) }),
+      h("td", { class: "n", text: fmtMs(m.load?.coremlCompileMs) }),
+      h("td", { class: "n", text: fmtBytes(m.peakMemoryBytes) }),
+      h("td", { class: "n", text: fmtBytes(m.wiredDeltaBytes) }),
+      h("td", { class: "n" + ((m.errors || []).length ? " delta-bad" : ""), text: String((m.errors || []).length) }),
+      h("td", { class: "n", text: String((m.skippedClips || []).length) })))))));
+  const per = D.models.filter((m) => m.load?.perTranscription);
+  if (per.length) sec.append(h("p", { class: "small muted", text: `${per.map((m) => m.name).join(", ")} start a worker for every transcription, so model loading is included in each of their timings (release → text and RTF).` }));
+  const ane = D.models.filter((m) => isNum(m.wiredDeltaBytes));
+  if (ane.length) sec.append(h("p", { class: "small muted", text: "Wired Δ: peak system wired-memory increase while the model ran (Neural Engine models keep weights in wired memory, which phys_footprint does not show)." }));
+  for (const m of D.models) {
+    const errs = m.errors || [], sk = m.skippedClips || [];
+    if (!errs.length && !sk.length) continue;
+    const reasons = {};
+    for (const x of sk) (reasons[x.reason] ||= []).push(x.clip);
+    sec.append(h("details", { class: "tv", open: errs.length > 0 },
+      h("summary", { text: `${m.name || m.id}: ${errs.length} error${errs.length === 1 ? "" : "s"}, ${sk.length} skipped clip${sk.length === 1 ? "" : "s"}` }),
+      errs.length ? h("ul", { class: "list-compact" }, errs.map((e) => h("li", null, h("span", { class: "mono", text: e.clip || "(model)" }), ": ", e.message))) : null,
+      sk.length ? h("ul", { class: "list-compact" }, Object.entries(reasons).map(([why, ids]) => h("li", null, why, ": ", h("span", { class: "mono small", text: ids.join(", ") })))) : null));
+  }
+}
+
+/* ---------------------------------------------------------------- footer */
+function renderFooter() {
+  const f = clear($("#footer"));
+  const dl = h("dl");
+  const item = (k, v) => append(dl, h("dt", { text: k }), h("dd", { text: v }));
+  item("WER", "(S + D + I) ÷ N, on normalised text (case, punctuation, number spelling and umlauts folded; normaliser " + (D.run.normalisationVersion || "—") + "). Pooled = Σ errors ÷ Σ reference words; macro = mean of per-clip WER.");
+  item("Formatted", "The same error rate with case and punctuation kept, closer to what gets pasted.");
+  item("Release → text", "Batch models: wall time of a warm transcription of the whole short clip. Streaming models: audio is fed at real-time pace (paced runs), then the time from the end of audio to the final text. Early-ASR figures simulate the app's windowed transcription for dictations over 31 s.");
+  item("RTF", "Median compute wall time ÷ audio duration (unpaced). 0.05× = 20× faster than real time.");
+  item("CI", "95 % bootstrap interval over clips (pooled WER, whole clips resampled).");
+  item("p-values", "Paired bootstrap on the clips both models scored; p < 0.05 marks a difference unlikely to be chance for this corpus.");
+  item("Hallucinations", "Rows with text on silence, a repeated-n-gram loop, or a burst of ≥ 5 inserted words.");
+  append(f, h("h3", { text: "How to read this report" }), dl, h("p", { class: "muted" }, "Generated by blabber-bench", D.run.id ? " · run " + D.run.id : ""));
+}
+
+/* ---------------------------------------------------------------- orchestration */
+function safe(fn, el) {
+  try { fn(); } catch (e) {
+    console.error(e);
+    if (el) append(clear(el), h("div", { class: "errbox", text: "This section failed to render: " + (e && e.message ? e.message : e) }));
+  }
+}
+function renderFiltered() {
+  updateFilterNote();
+  safe(renderScatter, $("#sec-scatter"));
+  safe(renderLeaderboard, $("#sec-board"));
+  safe(renderBreakdown, $("#sec-breakdown"));
+  safe(renderConditions, $("#sec-conditions"));
+  safe(renderPairwise, $("#sec-pairwise"));
+  safe(renderLatency, $("#sec-latency"));
+  safe(renderExplorer, $("#sec-explorer"));
+}
+function renderAll() {
+  safe(renderHeader, $("#hdr"));
+  safe(renderControls, $("#controls"));
+  renderFiltered();
+  safe(renderModels, $("#sec-models"));
+  safe(renderFooter, $("#footer"));
+}
+renderAll();
+let lastW = window.innerWidth;
+window.addEventListener("resize", debounce(() => {
+  if (window.innerWidth === lastW) return;
+  lastW = window.innerWidth;
+  safe(renderScatter, $("#sec-scatter")); safe(renderBreakdown, $("#sec-breakdown")); safe(renderLatency, $("#sec-latency"));
+}, 150));
+if (window.matchMedia) window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => safe(renderExplorer, $("#sec-explorer")));
+})();
+</script>
+</body>
+</html>

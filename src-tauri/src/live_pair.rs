@@ -1246,6 +1246,163 @@ fn choose_text(done: &Message) -> (String, Option<String>) {
     }
 }
 
+// MARK: Headless (benchmarks)
+
+/// Load timings of a headless helper.
+#[allow(dead_code)] // used by the blabber-bench binary through the library
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeadlessLoad {
+    /// Process start → both models loaded (wall clock).
+    pub load_ms: u64,
+    /// Model load as reported by the helper (includes a first CoreML compile).
+    pub helper_load_ms: f64,
+    pub warmup_ms: u64,
+    pub rss_bytes: u64,
+}
+
+/// One helper process driven directly from 16 kHz samples, with the same
+/// protocol and chunking as live dictation but without the supervisor.
+#[allow(dead_code)] // used by the blabber-bench binary through the library
+pub struct HeadlessLivePair {
+    process: Process,
+    chunk_ms: u32,
+    sessions: u64,
+}
+#[allow(dead_code)] // used by the blabber-bench binary through the library
+impl HeadlessLivePair {
+    pub fn load(
+        helper: &Path,
+        nemotron: &Path,
+        parakeet: &Path,
+        chunk_ms: u32,
+    ) -> Result<(Self, HeadlessLoad)> {
+        let began = Instant::now();
+        let mut process = Process::launch(helper)?;
+        let none = || Ok(());
+        let ready = process.exchange(
+            "load",
+            "ctl-load",
+            0,
+            json!({"nemotronPath": nemotron, "parakeetPath": parakeet}),
+            LOAD_TIMEOUT,
+            &none,
+        )?;
+        if ready.kind != "ready" || ready.chunk_ms != chunk_ms {
+            bail!("LIVE_PAIR_SETUP: The live-pair models do not match the selected chunk size.");
+        }
+        let load_ms = began.elapsed().as_millis() as u64;
+        let warming = Instant::now();
+        let warm = process.exchange("warmup", "ctl-warm", 0, json!({}), LOAD_TIMEOUT, &none)?;
+        if warm.kind != "warm" {
+            bail!("LIVE_PAIR_PROTOCOL: Unexpected warm-up response.");
+        }
+        let load = HeadlessLoad {
+            load_ms,
+            helper_load_ms: ready.load_ms,
+            warmup_ms: warming.elapsed().as_millis() as u64,
+            rss_bytes: warm.rss_bytes.max(ready.rss_bytes),
+        };
+        Ok((
+            Self {
+                process,
+                chunk_ms,
+                sessions: 0,
+            },
+            load,
+        ))
+    }
+
+    /// `language` is "auto" or a code accepted by `source_language`.
+    pub fn transcribe(
+        &mut self,
+        samples: &[f32],
+        language: &str,
+        paced: bool,
+    ) -> Result<crate::r2t2::HeadlessRun> {
+        if samples.len() > crate::r2t2::MAX_SAMPLES {
+            bail!("LIVE_PAIR_LIMIT: The live pair accepts at most 300 seconds of audio.");
+        }
+        self.sessions += 1;
+        let id = format!("bench-{}", self.sessions);
+        let none = || Ok(());
+        let feed = crate::r2t2::HeadlessFeed::new(samples, paced);
+        let started = self.process.exchange(
+            "start",
+            &id,
+            0,
+            json!({"language": language, "chunkMs": self.chunk_ms}),
+            REQUEST_TIMEOUT,
+            &none,
+        )?;
+        let mut peak_rss = started.rss_bytes;
+        let chunk = self.chunk_ms as usize * 16;
+        let mut sequence = 0;
+        let mut cursor = 0;
+        let mut committed = String::new();
+        let mut first_text_ms = None;
+        loop {
+            let count = feed.next_chunk(cursor, chunk);
+            if count == 0 {
+                break;
+            }
+            sequence += 1;
+            let progress = self.process.exchange(
+                "audio",
+                &id,
+                sequence,
+                json!({"startSample": cursor, "samples": feed.chunk(cursor, count)}),
+                REQUEST_TIMEOUT,
+                &none,
+            )?;
+            cursor += count;
+            if progress.kind != "progress"
+                || progress.ack_sample != cursor
+                || !progress.committed_text.starts_with(&committed)
+            {
+                bail!("LIVE_PAIR_PROTOCOL: Inconsistent live preview.");
+            }
+            peak_rss = peak_rss.max(progress.rss_bytes);
+            if first_text_ms.is_none()
+                && !(progress.committed_text.trim().is_empty()
+                    && progress.tentative_text.trim().is_empty())
+            {
+                first_text_ms = Some(feed.started().elapsed().as_millis() as u64);
+            }
+            committed = progress.committed_text;
+        }
+        sequence += 1;
+        let done = self.process.exchange(
+            "finish",
+            &id,
+            sequence,
+            json!({"expectedSamples": cursor}),
+            FINISH_TIMEOUT,
+            &none,
+        )?;
+        let finished = Instant::now();
+        if done.kind != "final" || done.ack_sample != cursor {
+            bail!("LIVE_PAIR_PROTOCOL: Incomplete final response.");
+        }
+        let (text, warning) = choose_text(&done);
+        Ok(crate::r2t2::HeadlessRun {
+            text,
+            stream_text: Some(done.stream_text.trim().to_string()),
+            language: (!done.language.is_empty()).then(|| done.language.clone()),
+            first_text_ms,
+            release_to_text_ms: paced
+                .then(|| finished.saturating_duration_since(feed.release()).as_millis() as u64),
+            total_ms: finished.duration_since(feed.started()).as_millis() as u64,
+            peak_rss_bytes: Some(peak_rss.max(done.rss_bytes)),
+            warning,
+        })
+    }
+
+    pub fn helper_pid(&self) -> u32 {
+        self.process.child.id()
+    }
+}
+
 /// Normalizes captured audio to 16 kHz mono as it arrives (as in R2T2).
 fn spawn_capture(
     session: &LiveSession,

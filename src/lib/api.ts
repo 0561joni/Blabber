@@ -125,6 +125,7 @@ const mockDownloadableModels: DownloadableModel[] = [
     requirements: null,
     artifactCount: 1,
     capability: "asr",
+    origin: "retired",
   },
   {
     id: "ggml-medium-bin",
@@ -140,6 +141,7 @@ const mockDownloadableModels: DownloadableModel[] = [
     requirements: null,
     artifactCount: 1,
     capability: "asr",
+    origin: "retired",
   },
   {
     id: "ggml-large-v3-turbo-bin",
@@ -155,6 +157,7 @@ const mockDownloadableModels: DownloadableModel[] = [
     requirements: null,
     artifactCount: 1,
     capability: "asr",
+    origin: "retired",
   },
   {
     id: "ggml-large-v3-turbo-q5_0-bin",
@@ -511,14 +514,37 @@ export async function openModelsFolder(): Promise<void> {
 
 export async function listDownloadableModels(): Promise<DownloadableModel[]> {
   if (!isTauriRuntime()) {
-    return mockDownloadableModels.map((model) => ({
-      ...model,
-      installed:
-        model.installed ||
-        mockModels.some((installed) => installed.id === model.id),
-    }));
+    return mockDownloadableModels
+      .map((model) => ({
+        ...model,
+        installed:
+          model.installed ||
+          mockModels.some((installed) => installed.id === model.id),
+      }))
+      .filter((model) => model.origin !== "retired" || model.installed);
   }
   return invoke<DownloadableModel[]>("list_downloadable_models");
+}
+
+/** Deletes an installed model's files; selections that used it fall back to
+ * another installed model. */
+export async function deleteModel(modelId: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    const index = mockModels.findIndex((model) => model.id === modelId);
+    if (index >= 0) mockModels.splice(index, 1);
+    const entry = mockDownloadableModels.find((model) => model.id === modelId);
+    if (entry) entry.installed = false;
+    return;
+  }
+  return invoke<void>("delete_model", { modelId });
+}
+
+/** Re-reads the models folder so files added or removed by hand show up. */
+export async function rescanModelsFolder(): Promise<InstalledModel[]> {
+  if (!isTauriRuntime()) {
+    return mockModels;
+  }
+  return invoke<InstalledModel[]>("rescan_models_folder");
 }
 
 export async function getModelDownloadStatuses(): Promise<

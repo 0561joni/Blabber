@@ -1,0 +1,1469 @@
+{
+  "version": 1,
+  "purpose": "Read-aloud dictation scripts for blabber-bench (docs/asr-benchmark-plan.md). The text field is the starting reference; the review step corrects it to what was actually said.",
+  "conditions": {
+    "noisy": "Play café noise, music without lyrics, or a podcast quietly in the background (speech at a lower level than your voice).",
+    "far": "Sit about 2 metres away from the microphone.",
+    "fast": "Read noticeably faster than normal, as when you are in a hurry.",
+    "quiet": "Speak softly, almost whispering, as in an open-plan office.",
+    "other-speaker": "Ask another person to read it (different voice, accent or gender)."
+  },
+  "scripts": [
+    {
+      "id": "de-s01",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "very-short"
+      ],
+      "terms": [],
+      "words": 3,
+      "estSeconds": 2,
+      "text": "Ja, passt so."
+    },
+    {
+      "id": "de-s02",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "very-short"
+      ],
+      "terms": [],
+      "words": 6,
+      "estSeconds": 3,
+      "text": "Bitte ruf mich morgen früh zurück."
+    },
+    {
+      "id": "de-s03",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "email",
+        "names",
+        "numbers"
+      ],
+      "terms": [
+        "Özdemir"
+      ],
+      "words": 20,
+      "estSeconds": 10,
+      "text": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung. Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr."
+    },
+    {
+      "id": "de-s04",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "business",
+        "numbers"
+      ],
+      "terms": [
+        "EBITDA-Marge"
+      ],
+      "words": 24,
+      "estSeconds": 12,
+      "text": "Im dritten Quartal ist der Umsatz um 12 Prozent gestiegen, aber die EBITDA-Marge liegt mit 8,5 Prozent noch unter unserem Ziel von 11 Prozent."
+    },
+    {
+      "id": "de-s05",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "engineering",
+        "software",
+        "denglisch"
+      ],
+      "terms": [
+        "Pull Request",
+        "Datenbankmigration",
+        "Staging"
+      ],
+      "words": 21,
+      "estSeconds": 10,
+      "text": "Der Pull Request für die Datenbankmigration ist fertig. Kannst du bitte das Review übernehmen, bevor wir heute Abend auf Staging deployen?"
+    },
+    {
+      "id": "de-s06",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "engineering",
+        "hardware",
+        "numbers"
+      ],
+      "terms": [
+        "Lastenheft",
+        "Spritzgussserie"
+      ],
+      "words": 25,
+      "estSeconds": 12,
+      "text": "Laut Lastenheft muss das Gehäuse eine Toleranz von plus minus 0,05 Millimetern einhalten. Die erste Spritzgussserie hat das bei drei von zwanzig Teilen nicht geschafft."
+    },
+    {
+      "id": "de-s07",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "names"
+      ],
+      "terms": [
+        "Schäfer",
+        "Weißgerber",
+        "Krzysztof Nowak",
+        "Siobhan Gallagher"
+      ],
+      "words": 17,
+      "estSeconds": 8,
+      "text": "Für den Workshop in München haben zugesagt: Herr Schäfer, Frau Dr. Weißgerber, Krzysztof Nowak und Siobhan Gallagher."
+    },
+    {
+      "id": "de-s08",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "numbers"
+      ],
+      "terms": [],
+      "words": 17,
+      "estSeconds": 8,
+      "text": "Die Rechnung über 3.480 Euro ist am 15. November fällig. Bitte überweise den Betrag bis spätestens Freitag."
+    },
+    {
+      "id": "de-s09",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "business",
+        "list",
+        "denglisch"
+      ],
+      "terms": [
+        "Jour fixe",
+        "Roadmap",
+        "Make-or-Buy",
+        "Steering Committee"
+      ],
+      "words": 34,
+      "estSeconds": 17,
+      "text": "Kurze Notiz zum Jour fixe: Erstens, die Roadmap für Q1 wird bis Ende des Monats finalisiert. Zweitens, wir brauchen eine Entscheidung zum Make-or-Buy beim Sensormodul. Drittens, das nächste Steering Committee ist am 3. Dezember."
+    },
+    {
+      "id": "de-s10",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "engineering",
+        "software",
+        "numbers"
+      ],
+      "terms": [
+        "Latenz",
+        "API",
+        "p95",
+        "Rollback"
+      ],
+      "words": 29,
+      "estSeconds": 14,
+      "text": "Seit dem letzten Release liegt die Latenz der API im p95 bei über 800 Millisekunden. Ich schlage einen Rollback auf Version 2.3 vor, bis wir die Ursache gefunden haben."
+    },
+    {
+      "id": "de-s11",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "casual"
+      ],
+      "terms": [],
+      "words": 16,
+      "estSeconds": 8,
+      "text": "Bin gleich da, stehe noch im Stau auf der A9. Fangt ruhig schon ohne mich an."
+    },
+    {
+      "id": "de-s12",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "umlauts",
+        "engineering"
+      ],
+      "terms": [
+        "Göttingen",
+        "Fürth",
+        "Abnahme"
+      ],
+      "words": 25,
+      "estSeconds": 12,
+      "text": "Wegen der geänderten Maße an der Übergabestelle müssen wir die Prüfstände in Göttingen und Fürth neu kalibrieren. Das verzögert die Abnahme um etwa zwei Wochen."
+    },
+    {
+      "id": "de-s13",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "email",
+        "business",
+        "numbers",
+        "near-60s"
+      ],
+      "terms": [
+        "Hansen Logistik GmbH",
+        "SAP",
+        "Change Request"
+      ],
+      "words": 85,
+      "estSeconds": 42,
+      "text": "Hallo Thomas, kurzes Update zum Kundenprojekt bei der Hansen Logistik GmbH. Das Kick-off am Dienstag lief gut, der Kunde war mit dem Zeitplan einverstanden. Allerdings möchten sie die Schnittstelle zu ihrem SAP-System schon in der ersten Projektphase haben und nicht erst im März. Das bedeutet für uns etwa zwanzig zusätzliche Personentage. Ich würde vorschlagen, dass wir dafür einen Change Request mit einem Festpreis von 18.500 Euro anbieten. Kannst du mir bis morgen Mittag sagen, ob wir die Kapazität im Team haben? Danke und viele Grüße."
+    },
+    {
+      "id": "de-s14",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "business",
+        "finance",
+        "legal",
+        "denglisch"
+      ],
+      "terms": [
+        "Term Sheet",
+        "Due Diligence",
+        "Pensionsrückstellungen",
+        "Change-of-Control-Klauseln"
+      ],
+      "words": 26,
+      "estSeconds": 13,
+      "text": "Bevor wir das Term Sheet unterschreiben, sollte die Due Diligence abgeschlossen sein. Insbesondere die Pensionsrückstellungen und die Change-of-Control-Klauseln in den Lieferverträgen müssen wir uns genauer ansehen."
+    },
+    {
+      "id": "de-s15",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "compounds"
+      ],
+      "terms": [
+        "Kundenzufriedenheitsumfrage",
+        "Reaktionszeit"
+      ],
+      "words": 13,
+      "estSeconds": 6,
+      "text": "Die Kundenzufriedenheitsumfrage hat ergeben, dass die Reaktionszeit unseres Kundendienstes das größte Ärgernis ist."
+    },
+    {
+      "id": "en-s01",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "very-short"
+      ],
+      "terms": [],
+      "words": 3,
+      "estSeconds": 1,
+      "text": "Sounds good, thanks."
+    },
+    {
+      "id": "en-s02",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "very-short"
+      ],
+      "terms": [],
+      "words": 9,
+      "estSeconds": 4,
+      "text": "Can you send me the slides before the call?"
+    },
+    {
+      "id": "en-s03",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "email",
+        "names",
+        "numbers"
+      ],
+      "terms": [
+        "Priya",
+        "statement of work",
+        "sign-off"
+      ],
+      "words": 25,
+      "estSeconds": 11,
+      "text": "Hi Priya, thanks for the quick turnaround. I've attached the revised statement of work, and I'd like to get sign-off by Thursday at 3 pm."
+    },
+    {
+      "id": "en-s04",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "business",
+        "numbers"
+      ],
+      "terms": [
+        "annual recurring revenue",
+        "net revenue retention",
+        "churn",
+        "mid-market"
+      ],
+      "words": 25,
+      "estSeconds": 11,
+      "text": "Our annual recurring revenue grew to 4.2 million dollars, but net revenue retention dropped to 96 percent because churn in the mid-market segment picked up."
+    },
+    {
+      "id": "en-s05",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "engineering",
+        "software"
+      ],
+      "terms": [
+        "Kubernetes",
+        "pods",
+        "evicted",
+        "CI pipeline"
+      ],
+      "words": 24,
+      "estSeconds": 10,
+      "text": "The Kubernetes cluster ran out of memory during the nightly batch job, so the pods kept getting evicted and the CI pipeline timed out."
+    },
+    {
+      "id": "en-s06",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "engineering",
+        "software",
+        "numbers"
+      ],
+      "terms": [
+        "feature flag",
+        "checkout flow",
+        "error rate"
+      ],
+      "words": 33,
+      "estSeconds": 14,
+      "text": "Let's add a feature flag around the new checkout flow and roll it out to 5 percent of users first. If the error rate stays below 0.1 percent, we ramp up on Monday."
+    },
+    {
+      "id": "en-s07",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "names"
+      ],
+      "terms": [
+        "Siobhan Gallagher",
+        "Nguyen Van Minh",
+        "Joaquín Herrera",
+        "procurement"
+      ],
+      "words": 15,
+      "estSeconds": 7,
+      "text": "Please loop in Siobhan Gallagher, Nguyen Van Minh, and Joaquín Herrera from the procurement team."
+    },
+    {
+      "id": "en-s08",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "numbers"
+      ],
+      "terms": [
+        "purchase order"
+      ],
+      "words": 17,
+      "estSeconds": 7,
+      "text": "The purchase order for 1,250 units at 18.40 dollars each comes to 23,000 dollars, not including shipping."
+    },
+    {
+      "id": "en-s09",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "engineering",
+        "list",
+        "names"
+      ],
+      "terms": [
+        "standup",
+        "integration test",
+        "OAuth",
+        "postmortem"
+      ],
+      "words": 27,
+      "estSeconds": 12,
+      "text": "Action items from today's standup: Marcus will fix the flaky integration test, Elena owns the OAuth token refresh bug, and I'll write the postmortem for Tuesday's outage."
+    },
+    {
+      "id": "en-s10",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "engineering",
+        "hardware",
+        "numbers"
+      ],
+      "terms": [
+        "thermal simulation",
+        "heat sink",
+        "junction temperature",
+        "spec sheet"
+      ],
+      "words": 29,
+      "estSeconds": 13,
+      "text": "The thermal simulation shows the heat sink is undersized. At full load, the junction temperature hits 105 degrees Celsius, which is right at the limit of the spec sheet."
+    },
+    {
+      "id": "en-s11",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "casual"
+      ],
+      "terms": [
+        "Paddington"
+      ],
+      "words": 10,
+      "estSeconds": 4,
+      "text": "Running ten minutes late, the train is stuck outside Paddington."
+    },
+    {
+      "id": "en-s12",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "business",
+        "software"
+      ],
+      "terms": [
+        "Q2",
+        "roadmap",
+        "single sign-on",
+        "audit logs",
+        "RFP"
+      ],
+      "words": 23,
+      "estSeconds": 10,
+      "text": "For the Q2 roadmap, I'd prioritize single sign-on and audit logs, because three enterprise prospects listed them as blockers in the last RFP."
+    },
+    {
+      "id": "en-s13",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "engineering",
+        "data",
+        "numbers",
+        "near-60s"
+      ],
+      "terms": [
+        "Hadoop",
+        "Spark",
+        "Databricks",
+        "stored procedures",
+        "schema drift"
+      ],
+      "words": 102,
+      "estSeconds": 44,
+      "text": "Quick status update on the data platform migration. We've moved 70 percent of the batch jobs from the old Hadoop cluster to the new Spark setup on Databricks, and the nightly runtime dropped from six hours to just under two. The remaining jobs are the ones with complex dependencies on legacy stored procedures, so they'll take longer. We also found a schema drift issue in the customer table that was silently dropping records with null postal codes. That's fixed now, and we've added a data quality check to the pipeline. Next milestone is decommissioning the old cluster by the end of November."
+    },
+    {
+      "id": "en-s14",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "business",
+        "finance"
+      ],
+      "terms": [
+        "EBITDA",
+        "free cash flow",
+        "sensitivity analysis",
+        "offsite"
+      ],
+      "words": 25,
+      "estSeconds": 11,
+      "text": "The board wants a revised forecast with EBITDA, free cash flow, and a sensitivity analysis on the exchange rate, ideally before the offsite in October."
+    },
+    {
+      "id": "en-s15",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "homophones"
+      ],
+      "terms": [],
+      "words": 21,
+      "estSeconds": 9,
+      "text": "Their team said they're going to review the two proposals over there, and the lead engineer will lead the review too."
+    },
+    {
+      "id": "mx-s01",
+      "language": "mixed",
+      "languages": [
+        "de",
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "sentence-switch",
+        "numbers"
+      ],
+      "terms": [],
+      "words": 16,
+      "estSeconds": 8,
+      "text": "Ich bin heute bis 16 Uhr im Büro. After that, I'm only reachable on my phone.",
+      "segments": [
+        {
+          "lang": "de",
+          "text": "Ich bin heute bis 16 Uhr im Büro."
+        },
+        {
+          "lang": "en",
+          "text": "After that, I'm only reachable on my phone."
+        }
+      ]
+    },
+    {
+      "id": "mx-s02",
+      "language": "mixed",
+      "languages": [
+        "en",
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "sentence-switch",
+        "engineering"
+      ],
+      "terms": [
+        "build logs",
+        "Abhängigkeit"
+      ],
+      "words": 15,
+      "estSeconds": 7,
+      "text": "Can you check the build logs? Ich glaube, der Fehler kommt von der neuen Abhängigkeit.",
+      "segments": [
+        {
+          "lang": "en",
+          "text": "Can you check the build logs?"
+        },
+        {
+          "lang": "de",
+          "text": "Ich glaube, der Fehler kommt von der neuen Abhängigkeit."
+        }
+      ]
+    },
+    {
+      "id": "mx-s03",
+      "language": "mixed",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "intra-sentence",
+        "denglisch",
+        "business"
+      ],
+      "terms": [
+        "Weekly",
+        "syncen",
+        "Deadline",
+        "Pitch Deck"
+      ],
+      "words": 19,
+      "estSeconds": 9,
+      "text": "Lass uns das im nächsten Weekly kurz syncen, die Deadline für das Pitch Deck ist ja schon am Freitag.",
+      "segments": [
+        {
+          "lang": "de",
+          "text": "Lass uns das im nächsten Weekly kurz syncen, die Deadline für das Pitch Deck ist ja schon am Freitag."
+        }
+      ]
+    },
+    {
+      "id": "mx-s04",
+      "language": "mixed",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "intra-sentence",
+        "denglisch",
+        "engineering"
+      ],
+      "terms": [
+        "Merge-Konflikt",
+        "Refactoring",
+        "Auth-Service",
+        "Rebase",
+        "pushe"
+      ],
+      "words": 15,
+      "estSeconds": 7,
+      "text": "Der Merge-Konflikt kommt vom Refactoring im Auth-Service, ich mache einen Rebase und pushe danach nochmal.",
+      "segments": [
+        {
+          "lang": "de",
+          "text": "Der Merge-Konflikt kommt vom Refactoring im Auth-Service, ich mache einen Rebase und pushe danach nochmal."
+        }
+      ]
+    },
+    {
+      "id": "mx-s05",
+      "language": "mixed",
+      "languages": [
+        "en",
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "sentence-switch",
+        "business"
+      ],
+      "terms": [
+        "Budgetplanung",
+        "outsource"
+      ],
+      "words": 34,
+      "estSeconds": 16,
+      "text": "Good morning everyone. Heute geht es um die Budgetplanung für nächstes Jahr. The main question is whether we hire two more engineers or outsource the mobile app. Ich bin eher für die interne Lösung.",
+      "segments": [
+        {
+          "lang": "en",
+          "text": "Good morning everyone."
+        },
+        {
+          "lang": "de",
+          "text": "Heute geht es um die Budgetplanung für nächstes Jahr."
+        },
+        {
+          "lang": "en",
+          "text": "The main question is whether we hire two more engineers or outsource the mobile app."
+        },
+        {
+          "lang": "de",
+          "text": "Ich bin eher für die interne Lösung."
+        }
+      ]
+    },
+    {
+      "id": "mx-s06",
+      "language": "mixed",
+      "languages": [
+        "en",
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "sentence-switch",
+        "legal",
+        "numbers"
+      ],
+      "terms": [
+        "Paragraf 7",
+        "Haftung"
+      ],
+      "words": 20,
+      "estSeconds": 10,
+      "text": "I'll forward you the contract. Bitte prüf vor allem Paragraf 7 zur Haftung. Let me know if anything looks off.",
+      "segments": [
+        {
+          "lang": "en",
+          "text": "I'll forward you the contract."
+        },
+        {
+          "lang": "de",
+          "text": "Bitte prüf vor allem Paragraf 7 zur Haftung."
+        },
+        {
+          "lang": "en",
+          "text": "Let me know if anything looks off."
+        }
+      ]
+    },
+    {
+      "id": "mx-s07",
+      "language": "mixed",
+      "languages": [
+        "de",
+        "fr"
+      ],
+      "category": "short",
+      "tags": [
+        "sentence-switch",
+        "french"
+      ],
+      "terms": [],
+      "words": 15,
+      "estSeconds": 7,
+      "text": "Ich schicke dir gleich die Unterlagen. Merci beaucoup pour ton aide, on se parle demain.",
+      "segments": [
+        {
+          "lang": "de",
+          "text": "Ich schicke dir gleich die Unterlagen."
+        },
+        {
+          "lang": "fr",
+          "text": "Merci beaucoup pour ton aide, on se parle demain."
+        }
+      ]
+    },
+    {
+      "id": "mx-s08",
+      "language": "mixed",
+      "languages": [
+        "en",
+        "fr"
+      ],
+      "category": "short",
+      "tags": [
+        "sentence-switch",
+        "french"
+      ],
+      "terms": [
+        "Lyon"
+      ],
+      "words": 15,
+      "estSeconds": 7,
+      "text": "The supplier in Lyon confirmed the delivery. Ils livreront les pièces mardi prochain, avant midi.",
+      "segments": [
+        {
+          "lang": "en",
+          "text": "The supplier in Lyon confirmed the delivery."
+        },
+        {
+          "lang": "fr",
+          "text": "Ils livreront les pièces mardi prochain, avant midi."
+        }
+      ]
+    },
+    {
+      "id": "mx-s09",
+      "language": "mixed",
+      "languages": [
+        "de"
+      ],
+      "category": "short",
+      "tags": [
+        "names",
+        "intra-sentence"
+      ],
+      "terms": [
+        "Jean-Baptiste Moreau",
+        "Airbus",
+        "Emily Clarke",
+        "Rolls-Royce",
+        "Kick-off"
+      ],
+      "words": 14,
+      "estSeconds": 7,
+      "text": "Kannst du Jean-Baptiste Moreau von Airbus und Emily Clarke von Rolls-Royce zum Kick-off einladen?",
+      "segments": [
+        {
+          "lang": "de",
+          "text": "Kannst du Jean-Baptiste Moreau von Airbus und Emily Clarke von Rolls-Royce zum Kick-off einladen?"
+        }
+      ]
+    },
+    {
+      "id": "mx-s10",
+      "language": "mixed",
+      "languages": [
+        "de",
+        "en"
+      ],
+      "category": "short",
+      "tags": [
+        "sentence-switch",
+        "rapid-switch",
+        "engineering"
+      ],
+      "terms": [
+        "API migration",
+        "load test"
+      ],
+      "words": 21,
+      "estSeconds": 10,
+      "text": "Okay, kurzer Status. The API migration is done. Die Tests laufen alle grün. Next step is the load test on Wednesday.",
+      "segments": [
+        {
+          "lang": "de",
+          "text": "Okay, kurzer Status."
+        },
+        {
+          "lang": "en",
+          "text": "The API migration is done."
+        },
+        {
+          "lang": "de",
+          "text": "Die Tests laufen alle grün."
+        },
+        {
+          "lang": "en",
+          "text": "Next step is the load test on Wednesday."
+        }
+      ]
+    },
+    {
+      "id": "fr-s01",
+      "language": "fr",
+      "languages": [
+        "fr"
+      ],
+      "category": "short",
+      "tags": [
+        "very-short"
+      ],
+      "terms": [],
+      "words": 5,
+      "estSeconds": 2,
+      "text": "D'accord, ça marche pour moi."
+    },
+    {
+      "id": "fr-s02",
+      "language": "fr",
+      "languages": [
+        "fr"
+      ],
+      "category": "short",
+      "tags": [
+        "email",
+        "names",
+        "numbers"
+      ],
+      "terms": [
+        "Lefèvre",
+        "devis"
+      ],
+      "words": 20,
+      "estSeconds": 9,
+      "text": "Bonjour Madame Lefèvre, je vous remercie pour votre retour. Je vous envoie le devis révisé d'ici jeudi à 14 heures."
+    },
+    {
+      "id": "fr-s03",
+      "language": "fr",
+      "languages": [
+        "fr"
+      ],
+      "category": "short",
+      "tags": [
+        "business",
+        "numbers"
+      ],
+      "terms": [
+        "chiffre d'affaires",
+        "marge brute"
+      ],
+      "words": 21,
+      "estSeconds": 9,
+      "text": "Le chiffre d'affaires du troisième trimestre a augmenté de 7 pour cent, mais la marge brute reste inférieure à nos prévisions."
+    },
+    {
+      "id": "fr-s04",
+      "language": "fr",
+      "languages": [
+        "fr"
+      ],
+      "category": "short",
+      "tags": [
+        "engineering",
+        "software"
+      ],
+      "terms": [
+        "déploiement",
+        "migration de la base de données",
+        "retour arrière"
+      ],
+      "words": 28,
+      "estSeconds": 12,
+      "text": "Le déploiement de la nouvelle version a échoué à cause d'une erreur dans la migration de la base de données. Nous allons faire un retour arrière ce soir."
+    },
+    {
+      "id": "fr-s05",
+      "language": "fr",
+      "languages": [
+        "fr"
+      ],
+      "category": "short",
+      "tags": [
+        "numbers"
+      ],
+      "terms": [
+        "hors taxes"
+      ],
+      "words": 17,
+      "estSeconds": 7,
+      "text": "La commande porte sur 2 500 pièces à 3,20 euros l'unité, soit 8 000 euros hors taxes."
+    },
+    {
+      "id": "fr-s06",
+      "language": "fr",
+      "languages": [
+        "fr"
+      ],
+      "category": "short",
+      "tags": [
+        "names",
+        "business"
+      ],
+      "terms": [
+        "Benoît Girard",
+        "Amélie Chevalier",
+        "Valeo"
+      ],
+      "words": 18,
+      "estSeconds": 8,
+      "text": "Pour la réunion de lancement, j'ai invité Benoît Girard, Amélie Chevalier et le responsable des achats de Valeo."
+    },
+    {
+      "id": "de-l01",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "long",
+      "tags": [
+        "business",
+        "engineering",
+        "hardware",
+        "numbers",
+        "names"
+      ],
+      "terms": [
+        "Nordlicht",
+        "B-Muster",
+        "Leistungshalbleiter",
+        "pin-kompatibles",
+        "Regressionstests",
+        "CAN-Bus",
+        "Over-the-Air-Update",
+        "Weißgerber",
+        "Release-Branch",
+        "FMEA",
+        "ISO 26262",
+        "Stückliste",
+        "Lenkungskreis"
+      ],
+      "words": 404,
+      "estSeconds": 202,
+      "text": "Guten Morgen zusammen, hier ist der Statusbericht für das Projekt Nordlicht, Stand Kalenderwoche 41.\n\nZuerst die gute Nachricht: Der Prototyp der neuen Steuereinheit hat die Umweltprüfung bestanden. Wir haben die Platine über 72 Stunden bei minus 20 bis plus 85 Grad Celsius getestet, und es gab keinen einzigen Ausfall. Damit ist der Meilenstein B-Muster formal erreicht, zwei Wochen früher als im Projektplan vorgesehen.\n\nWeniger erfreulich ist die Situation beim Lieferanten für die Leistungshalbleiter. Die Lieferzeit hat sich von 16 auf 26 Wochen verlängert, und der Stückpreis steigt ab Januar um 9 Prozent. Herr Schäfer aus dem Einkauf verhandelt gerade mit einem zweiten Lieferanten in Taiwan. Ein Angebot erwarten wir bis Ende nächster Woche. Falls das nicht klappt, müssen wir das Layout anpassen, damit wir auf ein pin-kompatibles Bauteil ausweichen können. Das würde etwa 40.000 Euro zusätzlich kosten und den Serienanlauf um sechs Wochen verschieben.\n\nAuf der Softwareseite läuft es weitgehend nach Plan. Die Firmware ist auf Version 1.8 gestiegen, und die automatisierten Regressionstests decken inzwischen 83 Prozent des Codes ab. Offen sind noch zwei kritische Bugs: Erstens verliert der CAN-Bus nach einem Warmstart gelegentlich die Verbindung, und zweitens schlägt das Over-the-Air-Update fehl, wenn die Mobilfunkverbindung während des Downloads abbricht. Für beide Fehler gibt es bereits einen Lösungsansatz, und Frau Dr. Weißgerber rechnet damit, dass die Fixes bis zum 24. Oktober im Release-Branch sind.\n\nBeim Thema funktionale Sicherheit sind wir etwas im Verzug. Die FMEA für das Gesamtsystem ist zu etwa 70 Prozent fertig, aber für die Bewertung nach ISO 26262 fehlen uns noch Daten zur Ausfallrate der Sensorik. Ich schlage vor, dass wir dafür kurzfristig einen externen Gutachter hinzuziehen. Die Kosten dafür liegen bei ungefähr 15.000 Euro und sind im Risikobudget bereits eingeplant.\n\nZum Budget insgesamt: Wir haben bisher 1,2 Millionen Euro von geplanten 1,75 Millionen ausgegeben. Das entspricht 69 Prozent bei einem Projektfortschritt von etwa 65 Prozent. Wir liegen also leicht über dem Plan, aber noch im grünen Bereich. Wenn der zweite Lieferant nicht zustande kommt, wird das Budget allerdings knapp.\n\nDie nächsten Schritte sind folgende: Bis Freitag entscheiden wir, ob wir das Layout vorsorglich anpassen. Am 30. Oktober findet das Design Review mit dem Kunden in Stuttgart statt, und dafür brauchen wir bis spätestens 27. Oktober die aktualisierte Stückliste und die Testberichte. Außerdem möchte ich im nächsten Lenkungskreis über eine mögliche Verschiebung des Serienstarts sprechen, damit wir keine Überraschungen erleben.\n\nWenn es Fragen gibt, meldet euch gern direkt bei mir. Vielen Dank."
+    },
+    {
+      "id": "de-l02",
+      "language": "de",
+      "languages": [
+        "de"
+      ],
+      "category": "long",
+      "tags": [
+        "engineering",
+        "software",
+        "cloud",
+        "numbers",
+        "denglisch"
+      ],
+      "terms": [
+        "Auftragsverwaltung",
+        "Monolith",
+        "Oracle",
+        "Kubernetes-Cluster",
+        "Strangler-Fig-Pattern",
+        "PostgreSQL",
+        "Change Data Capture",
+        "DSGVO",
+        "Auftragsverarbeitungsvertrag",
+        "Hardware-Sicherheitsmodul",
+        "Infrastructure as Code",
+        "Terraform",
+        "CI/CD-Pipeline",
+        "Prometheus",
+        "Grafana",
+        "Service Level Objectives",
+        "Perzentil",
+        "Observability"
+      ],
+      "words": 394,
+      "estSeconds": 197,
+      "text": "Ich möchte kurz das technische Konzept für die Migration unserer Auftragsverwaltung in die Cloud zusammenfassen.\n\nHeute läuft das System auf drei physischen Servern in unserem Rechenzentrum in Frankfurt. Die Anwendung ist ein Monolith in Java, die Daten liegen in einer Oracle-Datenbank mit ungefähr 2,3 Terabyte. Die größten Probleme sind die langen Release-Zyklen, die fehlende Skalierbarkeit zum Monatsende und die hohen Lizenzkosten.\n\nUnser Ziel ist eine Architektur mit Containern auf einem verwalteten Kubernetes-Cluster. Wir wollen den Monolithen nicht auf einmal neu schreiben, sondern Schritt für Schritt einzelne Funktionen herauslösen. Man nennt dieses Vorgehen auch das Strangler-Fig-Pattern. Als Erstes nehmen wir uns die Rechnungsstellung vor, weil sie klar abgegrenzt ist und die meiste Last verursacht.\n\nFür die Datenbank planen wir einen Wechsel auf PostgreSQL. Die Migration erfolgt in drei Phasen. In der ersten Phase replizieren wir die Daten mit Change Data Capture fortlaufend in die neue Datenbank. In der zweiten Phase lesen die neuen Services bereits aus PostgreSQL, während die Schreibzugriffe noch auf Oracle laufen. Erst in der dritten Phase schalten wir die Schreibzugriffe um und nehmen die alte Datenbank außer Betrieb.\n\nEin wichtiger Punkt ist der Datenschutz. Da wir personenbezogene Kundendaten verarbeiten, muss das Rechenzentrum des Cloud-Anbieters in der Europäischen Union liegen, und wir brauchen einen Auftragsverarbeitungsvertrag nach DSGVO. Außerdem werden alle Daten im Ruhezustand und bei der Übertragung verschlüsselt. Die Schlüssel verwalten wir selbst über ein Hardware-Sicherheitsmodul.\n\nFür den Betrieb setzen wir auf Infrastructure as Code mit Terraform. Jede Änderung an der Infrastruktur läuft durch dieselbe CI/CD-Pipeline wie der Anwendungscode, inklusive Code-Review und automatisierter Tests. Für das Monitoring verwenden wir Prometheus und Grafana, und wir definieren für jeden Service klare Service Level Objectives. Für die Rechnungsstellung zum Beispiel soll die Antwortzeit im 95. Perzentil unter 300 Millisekunden liegen, bei einer Verfügbarkeit von 99,9 Prozent.\n\nZu den Kosten: Die laufenden Infrastrukturkosten schätzen wir auf etwa 18.000 Euro pro Monat. Das ist zunächst mehr als heute, aber durch den Wegfall der Oracle-Lizenzen sparen wir ab dem zweiten Jahr rund 250.000 Euro jährlich. Die einmaligen Migrationskosten liegen bei ungefähr 600.000 Euro, vor allem für interne Entwicklerkapazität und externe Beratung.\n\nDie größten Risiken sehe ich bei der Datenkonsistenz während der Übergangsphase und beim Know-how im Team. Deshalb planen wir eine zweiwöchige Schulung zu Kubernetes und Observability, bevor die eigentliche Migration beginnt. Wenn alles nach Plan läuft, ist die Rechnungsstellung bis Ende des zweiten Quartals vollständig in der Cloud."
+    },
+    {
+      "id": "en-l01",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "long",
+      "tags": [
+        "business",
+        "finance",
+        "numbers"
+      ],
+      "terms": [
+        "reserved instances",
+        "payment processor",
+        "Fortune 500",
+        "average contract value",
+        "proof-of-concept",
+        "churn",
+        "net revenue retention",
+        "QuickBooks",
+        "Xero",
+        "health score",
+        "solutions architects",
+        "cost per qualified lead",
+        "free cash flow",
+        "EBITDA",
+        "bookings",
+        "SOC 2 Type II",
+        "GDPR",
+        "data processing agreement"
+      ],
+      "words": 460,
+      "estSeconds": 200,
+      "text": "Here's a summary of our third quarter business review.\n\nOverall, it was a solid quarter. Revenue came in at 12.4 million dollars, which is 6 percent above plan and 18 percent higher than the same quarter last year. Gross margin improved from 61 to 64 percent, mainly because we moved our hosting to reserved instances and renegotiated the contract with our payment processor.\n\nNew business was strong in the enterprise segment. We closed 14 new enterprise accounts, including two Fortune 500 companies in logistics. The average contract value went up to 86,000 dollars, and the sales cycle shortened from 120 to about 95 days. Most of that improvement came from the new proof-of-concept program, where prospects get a two-week sandbox with their own data.\n\nThe mid-market segment was weaker. Churn increased to 2.8 percent per month, and the main reasons in exit interviews were pricing and missing integrations with accounting software. Net revenue retention across all segments dropped slightly to 108 percent. To address this, the product team has moved the QuickBooks and Xero integrations up the roadmap, and customer success is launching a health score that flags at-risk accounts 60 days before renewal.\n\nOn the cost side, operating expenses were 3 percent over budget. The main driver was hiring: we brought on 22 people this quarter, mostly engineers and solutions architects, and recruiting fees were higher than expected. Marketing spend was on target, but the cost per qualified lead went up by roughly 15 percent, so we're shifting budget from paid search to partner programs and events.\n\nCash flow remains healthy. We ended the quarter with 31 million dollars in cash and generated positive free cash flow for the second quarter in a row. EBITDA margin was 9 percent, compared with minus 4 percent a year ago.\n\nLooking ahead to the fourth quarter, we have three priorities. First, hit our bookings target of 15 million dollars, which requires closing at least four of the six large deals currently in late stage. Second, reduce mid-market churn below 2 percent by the end of the year. Third, finish the SOC 2 Type II audit, because several European prospects have made it a hard requirement, along with GDPR documentation and a data processing agreement.\n\nThere are two risks I want to flag. The first is currency: about 30 percent of our revenue is billed in euros and pounds, and a stronger dollar would hurt reported revenue. The second is the timing of the large deals, since two of them depend on budget approvals that could slip into January.\n\nI'd like to discuss the hiring plan and the pricing changes for the mid-market tier in more detail at the offsite next month. Please send me your comments on the draft forecast by Friday."
+    },
+    {
+      "id": "en-l02",
+      "language": "en",
+      "languages": [
+        "en"
+      ],
+      "category": "long",
+      "tags": [
+        "engineering",
+        "software",
+        "incident",
+        "numbers",
+        "names"
+      ],
+      "terms": [
+        "postmortem",
+        "503",
+        "webhooks",
+        "authentication service",
+        "connection pool",
+        "Redis",
+        "on-call",
+        "load balancer",
+        "health checks",
+        "flapping",
+        "rollback",
+        "YAML",
+        "canary deployment",
+        "Kubernetes",
+        "autoscaler",
+        "status page",
+        "saturation",
+        "Slack channel"
+      ],
+      "words": 433,
+      "estSeconds": 188,
+      "text": "This is the postmortem for the outage on Tuesday, October 7.\n\nSummary: For 47 minutes, between 2:13 and 3:00 pm Central European Time, about 35 percent of API requests failed with a 503 error. Customers using the mobile app could not log in, and webhooks to partners were delayed by up to two hours. No data was lost.\n\nTimeline: At 1:58 pm, we deployed version 4.12 of the authentication service. The release included a change to the connection pool settings for the Redis cache. At 2:13 pm, the error rate alarm fired, and the on-call engineer, Daniel, was paged. At first, he suspected a problem with the load balancer, because the health checks were flapping. At 2:31 pm, he escalated to the platform team. At 2:44 pm, we correlated the errors with the deployment and started a rollback. The rollback finished at 2:58 pm, and error rates returned to normal two minutes later.\n\nRoot cause: The new configuration reduced the maximum number of Redis connections per pod from 50 to 5. This was a typo in a YAML file; the intended value was 500. Under normal traffic, five connections were enough, so the canary deployment looked healthy. When the afternoon traffic peak arrived, requests started queuing for a connection, the latency went above the 2 second timeout, and the pods were marked as unhealthy by Kubernetes. Because all pods were affected at the same time, the autoscaler could not compensate.\n\nWhat went well: The alert fired within one minute, the rollback procedure worked as documented, and the status page was updated within ten minutes.\n\nWhat went wrong: The canary phase only lasted 15 minutes and ran during low traffic, so it did not catch a capacity problem. Our dashboards did not show connection pool saturation, which made the diagnosis slower. Also, it took 31 minutes to connect the incident to the deployment, because the deploy notifications go to a different Slack channel than the alerts.\n\nAction items: First, add validation for connection pool settings in the configuration schema, with sane minimum and maximum values. Owner: Priya, due October 17. Second, extend the canary phase to at least one hour, or until it has handled a defined amount of traffic. Owner: platform team. Third, add a connection pool saturation panel to the service dashboard and an alert at 80 percent. Owner: Daniel. Fourth, post deployment events into the incident channel automatically, so that on-call engineers see them next to the alerts.\n\nWe'll review the progress on these action items in the reliability sync in two weeks. Thanks to everyone who helped resolve this quickly."
+    },
+    {
+      "id": "mx-l01",
+      "language": "mixed",
+      "languages": [
+        "de",
+        "en"
+      ],
+      "category": "long",
+      "tags": [
+        "sentence-switch",
+        "business",
+        "software",
+        "numbers",
+        "names"
+      ],
+      "terms": [
+        "Boston",
+        "Launch-Termin",
+        "race condition",
+        "offline cache",
+        "Pricing",
+        "Lokalisierung",
+        "senior backend engineer",
+        "Las Vegas"
+      ],
+      "words": 352,
+      "estSeconds": 168,
+      "text": "Hallo zusammen, schön, dass ihr alle da seid. Since we have colleagues from the Boston office joining today, I'll switch between German and English. Wenn etwas unklar ist, fragt einfach nach.\n\nLet's start with the product launch. Der Launch-Termin bleibt der 12. November, daran ändert sich nichts. However, the marketing team needs the final feature list by the end of this week. Lena, kannst du die Liste bis Donnerstag mit dem Engineering abstimmen?\n\nNext topic: the beta feedback. We had about 340 beta users, and the overall satisfaction score was 4.3 out of 5. Die häufigste Beschwerde war die Synchronisation zwischen Desktop und Smartphone. Manche Nutzer mussten die App neu starten, damit ihre Notizen angezeigt wurden. The engineering team has already identified the cause, it's a race condition in the offline cache. Der Fix ist im aktuellen Sprint eingeplant.\n\nJetzt zum Thema Pricing. We're still debating between a single plan at 12 dollars per month and a tiered model with a free version. Ich persönlich bin für das gestaffelte Modell, weil wir damit mehr Nutzer gewinnen. On the other hand, a free tier increases our support costs and infrastructure spend. Mark, could you run the numbers for both scenarios before our next meeting?\n\nEin weiterer Punkt ist die Lokalisierung. Für den Start planen wir Deutsch, Englisch und Französisch. Spanish and Japanese will follow in the first quarter of next year. Die Übersetzungen macht eine Agentur, aber die Fachbegriffe prüfen wir intern.\n\nRegarding hiring, we've opened two positions: a senior backend engineer and a product designer. Die Stellenanzeigen sind seit Montag online, und wir haben schon über 60 Bewerbungen. If you know anyone who might be a good fit, please send them my way.\n\nLast but not least, the budget. Wir liegen aktuell bei 92 Prozent des geplanten Budgets für dieses Jahr. That leaves us with roughly 80,000 euros for the launch campaign. Das ist knapp, aber machbar, wenn wir auf die geplante Messe in Las Vegas verzichten.\n\nOkay, das war's von meiner Seite. Any questions before we wrap up? Wenn nicht, dann sehen wir uns nächste Woche zur gleichen Zeit. Thanks, everyone.",
+      "segments": [
+        {
+          "lang": "de",
+          "text": "Hallo zusammen, schön, dass ihr alle da seid."
+        },
+        {
+          "lang": "en",
+          "text": "Since we have colleagues from the Boston office joining today, I'll switch between German and English."
+        },
+        {
+          "lang": "de",
+          "text": "Wenn etwas unklar ist, fragt einfach nach."
+        },
+        {
+          "lang": "en",
+          "text": "Let's start with the product launch."
+        },
+        {
+          "lang": "de",
+          "text": "Der Launch-Termin bleibt der 12. November, daran ändert sich nichts."
+        },
+        {
+          "lang": "en",
+          "text": "However, the marketing team needs the final feature list by the end of this week."
+        },
+        {
+          "lang": "de",
+          "text": "Lena, kannst du die Liste bis Donnerstag mit dem Engineering abstimmen?"
+        },
+        {
+          "lang": "en",
+          "text": "Next topic: the beta feedback."
+        },
+        {
+          "lang": "en",
+          "text": "We had about 340 beta users, and the overall satisfaction score was 4.3 out of 5."
+        },
+        {
+          "lang": "de",
+          "text": "Die häufigste Beschwerde war die Synchronisation zwischen Desktop und Smartphone."
+        },
+        {
+          "lang": "de",
+          "text": "Manche Nutzer mussten die App neu starten, damit ihre Notizen angezeigt wurden."
+        },
+        {
+          "lang": "en",
+          "text": "The engineering team has already identified the cause, it's a race condition in the offline cache."
+        },
+        {
+          "lang": "de",
+          "text": "Der Fix ist im aktuellen Sprint eingeplant."
+        },
+        {
+          "lang": "de",
+          "text": "Jetzt zum Thema Pricing."
+        },
+        {
+          "lang": "en",
+          "text": "We're still debating between a single plan at 12 dollars per month and a tiered model with a free version."
+        },
+        {
+          "lang": "de",
+          "text": "Ich persönlich bin für das gestaffelte Modell, weil wir damit mehr Nutzer gewinnen."
+        },
+        {
+          "lang": "en",
+          "text": "On the other hand, a free tier increases our support costs and infrastructure spend."
+        },
+        {
+          "lang": "en",
+          "text": "Mark, could you run the numbers for both scenarios before our next meeting?"
+        },
+        {
+          "lang": "de",
+          "text": "Ein weiterer Punkt ist die Lokalisierung."
+        },
+        {
+          "lang": "de",
+          "text": "Für den Start planen wir Deutsch, Englisch und Französisch."
+        },
+        {
+          "lang": "en",
+          "text": "Spanish and Japanese will follow in the first quarter of next year."
+        },
+        {
+          "lang": "de",
+          "text": "Die Übersetzungen macht eine Agentur, aber die Fachbegriffe prüfen wir intern."
+        },
+        {
+          "lang": "en",
+          "text": "Regarding hiring, we've opened two positions: a senior backend engineer and a product designer."
+        },
+        {
+          "lang": "de",
+          "text": "Die Stellenanzeigen sind seit Montag online, und wir haben schon über 60 Bewerbungen."
+        },
+        {
+          "lang": "en",
+          "text": "If you know anyone who might be a good fit, please send them my way."
+        },
+        {
+          "lang": "en",
+          "text": "Last but not least, the budget."
+        },
+        {
+          "lang": "de",
+          "text": "Wir liegen aktuell bei 92 Prozent des geplanten Budgets für dieses Jahr."
+        },
+        {
+          "lang": "en",
+          "text": "That leaves us with roughly 80,000 euros for the launch campaign."
+        },
+        {
+          "lang": "de",
+          "text": "Das ist knapp, aber machbar, wenn wir auf die geplante Messe in Las Vegas verzichten."
+        },
+        {
+          "lang": "de",
+          "text": "Okay, das war's von meiner Seite."
+        },
+        {
+          "lang": "en",
+          "text": "Any questions before we wrap up?"
+        },
+        {
+          "lang": "de",
+          "text": "Wenn nicht, dann sehen wir uns nächste Woche zur gleichen Zeit."
+        },
+        {
+          "lang": "en",
+          "text": "Thanks, everyone."
+        }
+      ]
+    },
+    {
+      "id": "fr-l01",
+      "language": "fr",
+      "languages": [
+        "fr"
+      ],
+      "category": "long",
+      "tags": [
+        "business",
+        "engineering",
+        "manufacturing",
+        "numbers",
+        "names"
+      ],
+      "terms": [
+        "compte rendu",
+        "réunion de pilotage",
+        "Amélie Chevalier",
+        "Benoît Girard",
+        "Sophie Martin",
+        "bureau d'études",
+        "Clermont-Ferrand",
+        "mise en service",
+        "convoyeurs",
+        "taux de rebut",
+        "moule d'injection",
+        "contrat à prix fixe",
+        "techniciens de maintenance",
+        "alternance"
+      ],
+      "words": 374,
+      "estSeconds": 163,
+      "text": "Voici le compte rendu de la réunion de pilotage du 9 octobre.\n\nÉtaient présents : Amélie Chevalier, directrice des opérations, Benoît Girard, responsable du bureau d'études, Sophie Martin pour les achats, et moi-même.\n\nPremier point : l'avancement du projet de nouvelle ligne d'assemblage à l'usine de Clermont-Ferrand. L'installation des robots est terminée à 80 pour cent. Les essais de mise en service commenceront le 3 novembre, avec une semaine de retard par rapport au planning initial. Ce retard s'explique par la livraison tardive des convoyeurs, mais il ne devrait pas avoir d'impact sur le démarrage de la production en janvier.\n\nDeuxième point : la qualité. Le taux de rebut sur la ligne actuelle est passé de 2,1 à 3,4 pour cent au cours du dernier mois. Benoît a présenté une analyse des causes. Il s'agit principalement d'un problème d'usure sur un moule d'injection et d'un réglage de température mal adapté. Le moule sera remplacé la semaine prochaine, et une procédure de contrôle renforcée est déjà en place.\n\nTroisième point : les achats. Le prix de l'aluminium a augmenté de 12 pour cent depuis le début de l'année. Sophie propose de signer un contrat à prix fixe sur 18 mois avec notre fournisseur principal, afin de sécuriser nos coûts. Le comité est favorable à cette proposition, sous réserve d'une validation par la direction financière.\n\nQuatrième point : les ressources humaines. Nous devons recruter six techniciens de maintenance avant le démarrage de la nouvelle ligne. Trois postes sont déjà pourvus. Pour les autres, nous allons travailler avec une agence spécialisée et proposer des contrats en alternance avec le lycée technique de la région.\n\nCinquième point : le budget. Les dépenses engagées s'élèvent à 4,6 millions d'euros sur un budget total de 5,2 millions. Il reste donc environ 600 000 euros pour la fin du projet, ce qui paraît suffisant si aucun imprévu majeur ne survient.\n\nDécisions prises : le remplacement du moule est validé, le contrat à prix fixe pour l'aluminium sera présenté au directeur financier, et la date de démarrage de la production est maintenue au 15 janvier.\n\nLa prochaine réunion de pilotage aura lieu le 6 novembre à 10 heures, dans la salle de conférence du deuxième étage. Merci à tous pour votre participation."
+    },
+    {
+      "id": "noise-01",
+      "language": "none",
+      "languages": [],
+      "category": "short",
+      "tags": [
+        "silence"
+      ],
+      "terms": [],
+      "words": 0,
+      "estSeconds": 20,
+      "text": "",
+      "title": "Room silence",
+      "instruction": "20 seconds of normal room silence. Do not speak."
+    },
+    {
+      "id": "noise-02",
+      "language": "none",
+      "languages": [],
+      "category": "short",
+      "tags": [
+        "silence",
+        "noise"
+      ],
+      "terms": [],
+      "words": 0,
+      "estSeconds": 20,
+      "text": "",
+      "title": "Keyboard typing",
+      "instruction": "20 seconds of typing on your keyboard, close to the mic. Do not speak."
+    },
+    {
+      "id": "noise-03",
+      "language": "none",
+      "languages": [],
+      "category": "short",
+      "tags": [
+        "silence",
+        "noise"
+      ],
+      "terms": [],
+      "words": 0,
+      "estSeconds": 20,
+      "text": "",
+      "title": "Background noise",
+      "instruction": "20 seconds of a fan, street noise or café ambience without understandable speech. Do not speak."
+    }
+  ],
+  "variants": [
+    {
+      "id": "de-s03@noisy",
+      "of": "de-s03",
+      "condition": "noisy"
+    },
+    {
+      "id": "de-s05@noisy",
+      "of": "de-s05",
+      "condition": "noisy"
+    },
+    {
+      "id": "en-s05@noisy",
+      "of": "en-s05",
+      "condition": "noisy"
+    },
+    {
+      "id": "mx-s05@noisy",
+      "of": "mx-s05",
+      "condition": "noisy"
+    },
+    {
+      "id": "de-s04@far",
+      "of": "de-s04",
+      "condition": "far"
+    },
+    {
+      "id": "en-s04@far",
+      "of": "en-s04",
+      "condition": "far"
+    },
+    {
+      "id": "de-s13@fast",
+      "of": "de-s13",
+      "condition": "fast"
+    },
+    {
+      "id": "en-s13@fast",
+      "of": "en-s13",
+      "condition": "fast"
+    },
+    {
+      "id": "de-s02@quiet",
+      "of": "de-s02",
+      "condition": "quiet"
+    },
+    {
+      "id": "en-s02@quiet",
+      "of": "en-s02",
+      "condition": "quiet"
+    },
+    {
+      "id": "de-s10@other-speaker",
+      "of": "de-s10",
+      "condition": "other-speaker"
+    },
+    {
+      "id": "en-s06@other-speaker",
+      "of": "en-s06",
+      "condition": "other-speaker"
+    },
+    {
+      "id": "mx-s03@other-speaker",
+      "of": "mx-s03",
+      "condition": "other-speaker"
+    }
+  ]
+}

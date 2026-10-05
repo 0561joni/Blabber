@@ -4,10 +4,24 @@ version = "0.1.0"
 description = "Local-first desktop transcription app"
 authors = ["Codex"]
 edition = "2021"
+default-run = "speech-to-text"
 
 [lib]
 name = "speech_to_text_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# Builds the `blabber-bench` model benchmark CLI (docs/asr-benchmark-plan.md).
+bench = []
+
+[[bin]]
+name = "speech-to-text"
+path = "src/main.rs"
+
+[[bin]]
+name = "blabber-bench"
+path = "src/bin/blabber-bench/main.rs"
+required-features = ["bench"]
 
 [build-dependencies]
 tauri-build = { version = "2.5.6", features = [] }

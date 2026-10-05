@@ -158,7 +158,7 @@ export function getModelPresentation(
     sizeBytes: model.sizeBytes,
     speed: ratings.speed,
     accuracy: ratings.accuracy,
-    description: "A custom local transcription model added to Blabber.",
+    description: "Added to the models folder by hand. Blabber has not verified it; use it at your own risk.",
     technicalDetails: [model.engine, model.variant].filter(Boolean).join(" · "),
     requirements: model.requirements ?? null,
     recommendedFor: [],

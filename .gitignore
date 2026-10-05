@@ -33,3 +33,6 @@ benchmark-results/semantic-cache/
 benchmark-results/*-evaluate.json
 benchmark-results/*-model-bench.json
 Claude outputs/signing-diagnostic.txt
+
+# blabber-bench generated previews
+src-tauri/src/bin/blabber-bench/fixtures/sample-*.html

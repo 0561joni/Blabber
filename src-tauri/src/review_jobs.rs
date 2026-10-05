@@ -136,6 +136,11 @@ impl ProcessingQueue {
                 .0;
         }
     }
+    /// A job holds the queue or waits for it.
+    pub fn busy(&self) -> bool {
+        let state = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
+        state.active.is_some() || !state.pending.is_empty()
+    }
     pub fn evict_idle(&self) {
         // Drop under the same lock used by admission and warm reuse.
         let mut state = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());

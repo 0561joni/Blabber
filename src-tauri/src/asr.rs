@@ -564,10 +564,8 @@ pub fn discover_whisper_models(models_dir: &Path) -> Result<Vec<InstalledModel>>
         }
 
         let model_name = entry.file_name().to_string_lossy().to_string();
-        if model_name.to_ascii_lowercase().starts_with("ggml-tiny") {
-            // Tiny was retired. Files added manually after the one-time cleanup stay ignored.
-            continue;
-        }
+        // Any other whisper.cpp file added by hand is listed as a custom model,
+        // including Tiny after its one-time retirement (use at your own risk).
         if model_name.to_ascii_lowercase().contains("silero")
             || model_name.to_ascii_lowercase().contains("vad")
         {

@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference review</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f2f1ed; --surface-3: #e9e8e3;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #75736d;
+  --border: rgba(11,11,11,.10); --border-2: rgba(11,11,11,.20);
+  --accent: #2a78d6; --accent-ink: #ffffff;
+  --good: #0ca30c; --good-text: #006300; --bad: #d03b3b; --warn: #fab219;
+  --diff: color-mix(in srgb, #eda100 32%, transparent);
+  --suspect: color-mix(in srgb, #e34948 26%, transparent); --suspect-line: #d03b3b;
+  --radius: 10px; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 4px 16px rgba(0,0,0,.06);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321; --surface-3: #2c2c2a;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #9a988f;
+    --border: rgba(255,255,255,.10); --border-2: rgba(255,255,255,.20);
+    --accent: #3987e5; --good-text: #0ca30c;
+    --diff: color-mix(in srgb, #c98500 40%, transparent);
+    --suspect: color-mix(in srgb, #e66767 32%, transparent); --suspect-line: #ee7070;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.35);
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.5 var(--font); overflow-x: hidden; }
+button { font: inherit; }
+.app { display: grid; grid-template-columns: 300px minmax(0, 1fr); height: 100vh; }
+aside { border-right: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+.side-head { padding: 14px 14px 10px; border-bottom: 1px solid var(--border); }
+.side-head h1 { font-size: 16px; margin: 0 0 6px; }
+.progress-text { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; margin: 6px 0 10px; }
+.bar > i { display: block; height: 100%; background: var(--good); border-radius: 3px; }
+.seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--ink-2); padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed=true] { background: var(--ink); color: var(--surface); }
+#list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
+#list li button { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--border); background: none; color: inherit; padding: 8px 14px; cursor: pointer; }
+#list li button:hover { background: var(--surface-2); }
+#list li button[aria-current=true] { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); box-shadow: inset 3px 0 0 var(--accent); }
+.li-row { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+.li-id { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li-meta { font-size: 11px; color: var(--muted); }
+.badges { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+.badge { display: inline-block; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 18px; background: var(--surface-3); color: var(--ink-2); white-space: nowrap; }
+.badge.verified { background: color-mix(in srgb, var(--good) 22%, var(--surface)); color: var(--ink); }
+.badge.sus { background: color-mix(in srgb, var(--bad) 20%, var(--surface)); color: var(--ink); }
+.dirty-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); display: inline-block; }
+.side-foot { padding: 10px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); }
+.side-foot kbd, .hint kbd { font-family: var(--mono); font-size: 10px; border: 1px solid var(--border-2); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--surface-2); color: var(--ink-2); }
+.side-foot dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 8px; margin: 0; }
+.side-foot dd { margin: 0; }
+main { overflow-y: auto; min-height: 0; }
+.main-inner { max-width: 920px; margin: 0 auto; padding: 16px 20px 80px; }
+details.conv { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 12px; }
+details.conv summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+details.conv pre { white-space: pre-wrap; font: inherit; margin: 6px 0 2px; color: var(--ink-2); }
+.banner { padding: 8px 12px; border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 22%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent); margin-bottom: 12px; font-size: 13px; }
+.banner.err { background: color-mix(in srgb, var(--bad) 14%, var(--surface)); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
+.clip-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin: 4px 0 10px; }
+.clip-head h2 { margin: 0; font-size: 22px; letter-spacing: -.01em; }
+.clip-head .meta { color: var(--muted); font-size: 13px; }
+.unsaved { color: var(--ink); font-size: 12px; font-weight: 600; display: inline-flex; gap: 6px; align-items: center; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 10px 0; box-shadow: var(--shadow); }
+.card h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+audio { width: 100%; height: 44px; }
+.player-ctl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.btn { border: 1px solid var(--border-2); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+.btn:hover { background: var(--surface-2); }
+.btn[aria-pressed=true] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.small { padding: 2px 8px; font-size: 12px; }
+button:focus-visible, textarea:focus-visible, input:focus-visible, [tabindex]:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.audio-msg { font-size: 12px; color: var(--muted); }
+.script-text { color: var(--ink-2); white-space: pre-wrap; }
+.draft { margin: 6px 0 10px; }
+.draft-name { font-size: 12px; font-weight: 600; color: var(--ink-2); margin-bottom: 2px; }
+.draft-text { line-height: 1.8; }
+.dseg { border-radius: 4px; cursor: pointer; padding: 1px 0; }
+.dseg:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.dseg.nolink { cursor: default; }
+.dseg .ts { font-size: 10px; color: var(--muted); font-family: var(--mono); margin-right: 3px; }
+mark { color: inherit; border-radius: 3px; padding: 0 1px; }
+mark.d { background: var(--diff); }
+mark.sus { background: var(--suspect); box-shadow: inset 0 -2px 0 var(--suspect-line); cursor: pointer; }
+.caret-sus { font-size: 11px; background: var(--suspect); border-radius: 3px; padding: 0 3px; margin: 0 2px; cursor: pointer; color: var(--ink-2); }
+.mirror { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-2); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; line-height: 1.8; min-height: 2.2em; }
+.mirror.empty { color: var(--muted); font-style: italic; }
+textarea, input[type=text] { width: 100%; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border-2); border-radius: 8px; padding: 8px 10px; }
+textarea.ref { font-size: 16px; line-height: 1.6; resize: vertical; min-height: 80px; overflow: hidden; }
+textarea.notes { min-height: 60px; resize: vertical; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+label.fl { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.actions { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 0; background: linear-gradient(transparent, var(--page) 30%); }
+.hint { font-size: 12px; color: var(--muted); }
+.sus-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }
+.legend { font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 12px; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 8px 16px; border-radius: 10px; background: var(--ink); color: var(--surface); font-size: 13px; box-shadow: var(--shadow); opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30; max-width: 90vw; }
+#toast.show { opacity: 1; }
+#toast.err { background: var(--bad); color: #fff; }
+.empty { padding: 30px; text-align: center; color: var(--muted); }
+@media (max-width: 800px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: auto; min-height: 100vh; }
+  aside { border-right: 0; border-bottom: 1px solid var(--border); max-height: 42vh; }
+  main { overflow: visible; }
+  .side-foot { display: none; }
+  .grid2 { grid-template-columns: 1fr; }
+  .main-inner { padding: 12px 16px 80px; }
+  .actions { background: var(--page); border-top: 1px solid var(--border); gap: 6px; padding: 8px 0; }
+  .actions .btn { padding: 4px 10px; }
+  .actions .hint { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside aria-label="Clips">
+    <div class="side-head">
+      <h1>Reference review</h1>
+      <div class="progress-text" id="progress">Loading…</div>
+      <div class="bar" aria-hidden="true"><i id="progress-bar" style="width:0"></i></div>
+      <div class="seg" role="group" aria-label="Filter clips" id="filter"></div>
+    </div>
+    <ul id="list" aria-label="Clip list"></ul>
+    <div class="side-foot">
+      <dl>
+        <dt><kbd>⌘/Ctrl</kbd>+<kbd>Enter</kbd></dt><dd>save, verify, next</dd>
+        <dt><kbd>⌘/Ctrl</kbd>+<kbd>S</kbd></dt><dd>save</dd>
+        <dt><kbd>⌘/Ctrl</kbd>+<kbd>↓</kbd>/<kbd>↑</kbd></dt><dd>next / previous clip</dd>
+        <dt><kbd>Space</kbd></dt><dd>play / pause (outside text fields)</dd>
+        <dt><kbd>Esc</kbd></dt><dd>leave the text field</dd>
+      </dl>
+    </div>
+  </aside>
+  <main id="main"><div class="main-inner" id="content"><div class="empty">Loading clips…</div></div></main>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+(function () {
+/* ------------------------------------------------------------ helpers */
+const $ = (sel, root = document) => root.querySelector(sel);
+function h(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "text") e.textContent = v;
+    else if (k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  return e;
+}
+const clear = (el) => { while (el.firstChild) el.removeChild(el.firstChild); return el; };
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+function fmtDur(ms) { if (typeof ms !== "number") return "—"; const s = Math.round(ms / 1000); return s < 60 ? s + " s" : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") + " min"; }
+const fmtTs = (ms) => { const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } } };
+let toastTimer;
+function toast(msg, isErr) {
+  const t = $("#toast"); t.textContent = msg; t.className = "show" + (isErr ? " err" : "");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = ""; }, isErr ? 5000 : 2200);
+}
+
+/* ------------------------------------------------------------ word alignment */
+/** Words with character offsets; `n` is the case- and punctuation-insensitive form used for matching. */
+function tokenize(text) {
+  const out = [];
+  const re = /\S+/g;
+  let m;
+  while ((m = re.exec(text || ""))) {
+    const n = m[0].toLowerCase().normalize("NFC").replace(/[^\p{L}\p{N}]+/gu, "");
+    if (n) out.push({ w: m[0], n, start: m.index, end: m.index + m[0].length });
+  }
+  return out;
+}
+/** Levenshtein alignment on normalised words → [{op: "=", "S", "D", "I", r, h}] (r/h are token indices). */
+function align(ref, hyp) {
+  const n = ref.length, m = hyp.length, W = m + 1;
+  const d = new Uint32Array((n + 1) * W);
+  for (let i = 0; i <= n; i++) d[i * W] = i;
+  for (let j = 0; j <= m; j++) d[j] = j;
+  for (let i = 1; i <= n; i++) {
+    const rn = ref[i - 1].n;
+    for (let j = 1; j <= m; j++) {
+      const sub = d[(i - 1) * W + j - 1] + (rn === hyp[j - 1].n ? 0 : 1);
+      const del = d[(i - 1) * W + j] + 1, ins = d[i * W + j - 1] + 1;
+      d[i * W + j] = sub < del ? (sub < ins ? sub : ins) : (del < ins ? del : ins);
+    }
+  }
+  const ops = [];
+  let i = n, j = m;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && d[i * W + j] === d[(i - 1) * W + j - 1] + (ref[i - 1].n === hyp[j - 1].n ? 0 : 1)) { ops.push({ op: ref[i - 1].n === hyp[j - 1].n ? "=" : "S", r: i - 1, h: j - 1 }); i--; j--; }
+    else if (i > 0 && d[i * W + j] === d[(i - 1) * W + j] + 1) { ops.push({ op: "D", r: i - 1, h: null }); i--; }
+    else { ops.push({ op: "I", r: null, h: j - 1 }); j--; }
+  }
+  return ops.reverse();
+}
+/** Per reference word: what this draft has there; plus words the draft inserts before each reference word. */
+function mapDraft(refToks, draftToks) {
+  const ops = align(refToks, draftToks);
+  const at = new Array(refToks.length), gaps = Array.from({ length: refToks.length + 1 }, () => []), diffHyp = new Set();
+  let next = 0;
+  for (const o of ops) {
+    if (o.op === "I") { gaps[next].push(o.h); diffHyp.add(o.h); continue; }
+    at[o.r] = o; next = o.r + 1;
+    if (o.op === "S") diffHyp.add(o.h);
+  }
+  return { at, gaps, diffHyp };
+}
+/** Positions where both drafts agree with each other but not with the reference (likely misreads or typos). */
+function findSuspects(refToks, d1, d2) {
+  const out = [];
+  if (!d1 || !d2) return out;
+  for (let i = 0; i <= refToks.length; i++) {
+    const g1 = d1.map.gaps[i].map((k) => d1.toks[k].n).join(" "), g2 = d2.map.gaps[i].map((k) => d2.toks[k].n).join(" ");
+    if (g1 && g1 === g2) out.push({ i, kind: "extra", alt: d1.map.gaps[i].map((k) => d1.toks[k].w).join(" "), h1: d1.map.gaps[i][0] });
+    if (i === refToks.length) break;
+    const a = d1.map.at[i], b = d2.map.at[i];
+    if (!a || !b || a.op === "=" || b.op === "=") continue;
+    if (a.op === "D" && b.op === "D") out.push({ i, kind: "missing", alt: "", h1: null });
+    else if (a.op === "S" && b.op === "S" && d1.toks[a.h].n === d2.toks[b.h].n) out.push({ i, kind: "sub", alt: d1.toks[a.h].w, h1: a.h });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------ state */
+const params = new URLSearchParams(location.search);
+const S = {
+  fixture: params.get("fixture"), conventions: "", clips: [], byId: new Map(),
+  current: null, filter: store.get("review.filter") || "all", edits: new Map(), analysis: new Map(), suspectIdx: -1,
+};
+const draftCache = new Map(); // clip id → [{model, toks, segs}]
+function draftsOf(c) {
+  if (draftCache.has(c.id)) return draftCache.get(c.id);
+  const out = (c.drafts || []).map((d) => {
+    const segs = Array.isArray(d.segments) && d.segments.length ? d.segments : [{ startMs: null, endMs: null, text: d.text || "" }];
+    const toks = [];
+    segs.forEach((sg, si) => tokenize(sg.text).forEach((t) => toks.push({ ...t, seg: si })));
+    return { model: d.model, segs, toks };
+  });
+  draftCache.set(c.id, out);
+  return out;
+}
+const valuesOf = (c) => S.edits.get(c.id) || { reference: c.reference || "", terms: (c.terms || []).join(", "), notes: c.notes || "" };
+function isDirty(c) {
+  const e = S.edits.get(c.id);
+  if (!e) return false;
+  return e.reference !== (c.reference || "") || e.terms !== (c.terms || []).join(", ") || e.notes !== (c.notes || "");
+}
+/** Drafts aligned to the clip's current reference, cached by reference text. */
+function analyse(c) {
+  const ref = valuesOf(c).reference;
+  const hit = S.analysis.get(c.id);
+  if (hit && hit.ref === ref) return hit;
+  const refToks = tokenize(ref);
+  const drafts = draftsOf(c).map((d) => ({ ...d, map: mapDraft(refToks, d.toks) }));
+  const res = { ref, refToks, drafts, suspects: findSuspects(refToks, drafts[0], drafts[1]) };
+  S.analysis.set(c.id, res);
+  return res;
+}
+const visibleClips = () => S.clips.filter((c) => S.filter === "all" || (S.filter === "unverified" ? c.referenceStatus !== "verified" : analyse(c).suspects.length > 0));
+
+/* ------------------------------------------------------------ loading */
+async function load() {
+  try {
+    let data;
+    if (S.fixture) {
+      const names = S.fixture.includes("/") ? [S.fixture] : ["fixtures/" + S.fixture, S.fixture];
+      let lastErr;
+      for (const n of names) {
+        try { const r = await fetch(n, { cache: "no-store" }); if (r.ok) { data = await r.json(); break; } lastErr = new Error(`${n}: HTTP ${r.status}`); }
+        catch (e) { lastErr = e; }
+      }
+      if (!data) throw lastErr || new Error("fixture not found");
+    } else {
+      const r = await fetch("/api/clips", { cache: "no-store" });
+      if (!r.ok) throw new Error("GET /api/clips: HTTP " + r.status);
+      data = await r.json();
+    }
+    init(data);
+  } catch (e) {
+    showLoadError(e);
+  }
+}
+function showLoadError(e) {
+  const input = h("input", { type: "file", accept: "application/json,.json" });
+  input.addEventListener("change", async () => {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    try { S.fixture = f.name; init(JSON.parse(await f.text())); } catch (err) { toast("Could not read " + f.name + ": " + err.message, true); }
+  });
+  append(clear($("#content")), h("div", { class: "banner err" }, h("b", { text: "Could not load clips. " }), String(e && e.message ? e.message : e)),
+    h("p", null, "Start the server with ", h("code", { text: "npm run bench -- corpus review" }), ". To preview without it, open this page over http with ", h("code", { text: "?fixture=sample-clips.json" }), " or load a clips JSON file here (saves stay in memory):"),
+    input);
+  $("#progress").textContent = "No clips loaded";
+}
+function append(el, ...kids) { for (const k of kids) el.append(k); return el; }
+function init(data) {
+  S.conventions = data.conventions || "";
+  S.clips = Array.isArray(data.clips) ? data.clips : [];
+  S.byId = new Map(S.clips.map((c) => [c.id, c]));
+  draftCache.clear(); S.analysis.clear(); S.edits.clear();
+  renderFilter();
+  const fromHash = decodeURIComponent(location.hash.slice(1));
+  const first = S.byId.get(fromHash) || S.clips.find((c) => c.referenceStatus !== "verified") || S.clips[0];
+  if (first) select(first.id, { keepHash: S.byId.has(fromHash) });
+  else { clear($("#content")).append(h("div", { class: "empty", text: "The corpus has no clips yet. Import recordings with `corpus import`." })); renderList(); }
+}
+
+/* ------------------------------------------------------------ sidebar */
+function renderFilter() {
+  const el = clear($("#filter"));
+  for (const [v, t] of [["all", "All"], ["unverified", "Unverified"], ["suspects", "Suspects"]]) {
+    el.append(h("button", { type: "button", "aria-pressed": String(S.filter === v), text: t, onclick: () => { S.filter = v; store.set("review.filter", v); renderFilter(); renderList(); } }));
+  }
+}
+function renderProgress() {
+  const done = S.clips.filter((c) => c.referenceStatus === "verified").length, total = S.clips.length;
+  $("#progress").textContent = `${done} / ${total} verified`;
+  $("#progress-bar").style.width = total ? (100 * done / total) + "%" : "0";
+}
+function renderList() {
+  renderProgress();
+  const ul = clear($("#list"));
+  const items = visibleClips();
+  if (!items.length) { ul.append(h("li", { class: "empty", text: S.filter === "all" ? "No clips." : "Nothing left in this filter." })); return; }
+  for (const c of items) ul.append(h("li", null, listButton(c)));
+  const cur = ul.querySelector("[aria-current=true]");
+  if (cur) cur.scrollIntoView({ block: "nearest" });
+}
+function listButton(c) {
+  const n = analyse(c).suspects.length;
+  return h("button", { type: "button", "aria-current": String(c.id === S.current), onclick: () => select(c.id) },
+    h("div", { class: "li-row" }, h("span", { class: "li-id", text: c.id }),
+      h("span", { class: "badges" },
+        isDirty(c) ? h("span", { class: "dirty-dot", title: "Unsaved changes" }) : null,
+        n ? h("span", { class: "badge sus", title: `${n} suspected misread${n === 1 ? "" : "s"}`, text: "⚠ " + n }) : null,
+        h("span", { class: "badge" + (c.referenceStatus === "verified" ? " verified" : ""), text: c.referenceStatus === "verified" ? "verified" : "draft" }))),
+    h("div", { class: "li-meta", text: [c.language, c.condition, fmtDur(c.durationMs)].filter(Boolean).join(" · ") }));
+}
+
+/* ------------------------------------------------------------ main panel */
+let els = {};
+function select(id, opts = {}) {
+  const c = S.byId.get(id);
+  if (!c) return;
+  S.current = id; S.suspectIdx = -1;
+  if (!opts.keepHash && decodeURIComponent(location.hash.slice(1)) !== id) history.replaceState(null, "", "#" + encodeURIComponent(id));
+  renderMain(c);
+  renderList();
+  if (!opts.noFocus) $("#main").scrollTop = 0;
+}
+function langOf(c) { return ["de", "en", "fr"].includes(c.language) ? c.language : (c.languages || [])[0] || null; }
+function renderMain(c) {
+  const root = clear($("#content"));
+  const v = valuesOf(c);
+  if (S.conventions) {
+    const det = h("details", { class: "conv", open: store.get("review.conv") !== "closed" }, h("summary", { text: "Transcription conventions" }), h("pre", { text: S.conventions }));
+    det.addEventListener("toggle", () => store.set("review.conv", det.open ? "open" : "closed"));
+    root.append(det);
+  }
+  if (S.fixture) root.append(h("div", { class: "banner", text: `Preview mode (${S.fixture}): saves are kept in memory only and audio may be unavailable.` }));
+  els.unsaved = h("span", { class: "unsaved", hidden: true }, h("span", { class: "dirty-dot" }), "Unsaved changes");
+  root.append(h("div", { class: "clip-head" }, h("h2", { text: c.id }),
+    h("span", { class: "badge" + (c.referenceStatus === "verified" ? " verified" : ""), text: c.referenceStatus === "verified" ? "verified" : "draft" }),
+    h("span", { class: "meta", text: [c.language + ((c.languages || []).length > 1 ? ` (${c.languages.join("+")})` : ""), c.category, c.condition ? "condition: " + c.condition : null, fmtDur(c.durationMs), (c.tags || []).join(", ")].filter(Boolean).join(" · ") }),
+    els.unsaved));
+  root.append(playerCard(c));
+  if (c.scriptText) root.append(h("div", { class: "card" }, h("h3", { text: "Script" + (c.script ? " · " + c.script : "") }), h("div", { class: "script-text", lang: langOf(c), text: c.scriptText })));
+  els.drafts = h("div");
+  root.append(h("div", { class: "card" }, h("h3", null, h("span", { text: "Drafts" }), h("span", { class: "legend" }, h("span", null, h("mark", { class: "d", text: "word" }), " differs from the reference"), h("span", { text: "click a segment to play it" }))), els.drafts));
+  root.append(referenceCard(c, v));
+  els.terms = h("input", { type: "text", id: "terms", value: v.terms, placeholder: "Comma-separated key terms, e.g. Özdemir, Pull Request", spellcheck: "false" });
+  els.notes = h("textarea", { class: "notes", id: "notes", placeholder: "Anything unusual about this recording", lang: langOf(c) });
+  els.notes.value = v.notes;
+  for (const el of [els.terms, els.notes]) el.addEventListener("input", onEdit);
+  root.append(h("div", { class: "card grid2" }, h("div", null, h("label", { class: "fl", for: "terms", text: "Terms" }), els.terms), h("div", null, h("label", { class: "fl", for: "notes", text: "Notes" }), els.notes)));
+  els.saveBtn = h("button", { type: "button", class: "btn", text: "Save", onclick: () => save(false) });
+  els.verifyBtn = h("button", { type: "button", class: "btn primary", text: "Save & verify", onclick: () => saveAndNext() });
+  root.append(h("div", { class: "actions" }, els.saveBtn, els.verifyBtn,
+    h("button", { type: "button", class: "btn", text: "Next unverified", onclick: () => goNextUnverified() }),
+    h("span", { class: "hint" }, h("kbd", { text: "⌘↵" }), " save, verify & next")));
+  refreshAnalysis(c);
+  autoGrow(els.ref);
+}
+function playerCard(c) {
+  const audio = h("audio", { controls: true, preload: "auto", src: "/audio/" + encodeURIComponent(c.id) });
+  const msg = h("span", { class: "audio-msg" });
+  audio.addEventListener("error", () => { msg.textContent = S.fixture ? "Audio unavailable in preview mode (no server)." : "Audio could not be loaded from /audio/" + c.id + "."; });
+  audio.addEventListener("ratechange", () => syncRateButtons());
+  els.audio = audio;
+  const rates = [1, 1.25, 1.5].map((r) => h("button", { type: "button", class: "btn small", "data-rate": r, "aria-pressed": String(r === (+store.get("review.rate") || 1)), text: r + "×", onclick: () => { audio.playbackRate = r; store.set("review.rate", String(r)); } }));
+  audio.playbackRate = +store.get("review.rate") || 1;
+  audio.addEventListener("loadedmetadata", () => { audio.playbackRate = +store.get("review.rate") || 1; });
+  return h("div", { class: "card" }, audio,
+    h("div", { class: "player-ctl" },
+      h("button", { type: "button", class: "btn small", title: "Back 3 seconds", text: "⟲ 3 s", onclick: () => { audio.currentTime = Math.max(0, audio.currentTime - 3); } }),
+      rates,
+      h("button", { type: "button", class: "btn small", title: "Play from the text cursor in the reference (via the drafts' timestamps)", text: "▶ from cursor", onclick: playFromCursor }),
+      msg));
+}
+function syncRateButtons() {
+  if (!els.audio) return;
+  document.querySelectorAll("[data-rate]").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.rate === els.audio.playbackRate)));
+}
+function referenceCard(c, v) {
+  els.mirror = h("div", { class: "mirror", "aria-label": "Reference with suspected misreads highlighted" });
+  els.ref = h("textarea", { class: "ref", id: "reference", spellcheck: "true", lang: langOf(c), rows: 3, "aria-describedby": "sus-info" });
+  els.ref.value = v.reference;
+  els.ref.addEventListener("input", () => { autoGrow(els.ref); onEdit(); });
+  els.susInfo = h("span", { id: "sus-info" });
+  els.susFirst = h("button", { type: "button", class: "btn small", text: "Jump to first suspect", onclick: () => jumpSuspect(0) });
+  els.susNext = h("button", { type: "button", class: "btn small", text: "Next ›", onclick: () => jumpSuspect(S.suspectIdx + 1) });
+  return h("div", { class: "card" },
+    h("h3", null, h("label", { for: "reference", text: "Reference" }), h("span", { class: "legend" }, h("span", null, h("mark", { class: "sus", text: "word" }), " both drafts heard something else"))),
+    els.mirror, els.ref,
+    h("div", { class: "sus-bar", style: "margin-top:8px" }, els.susInfo, els.susFirst, els.susNext));
+}
+function autoGrow(t) { if (!t) return; t.style.height = "auto"; t.style.height = Math.max(80, t.scrollHeight + 2) + "px"; }
+
+/* ------------------------------------------------------------ live analysis */
+const reanalyse = debounce(() => { const c = S.byId.get(S.current); if (c) { refreshAnalysis(c); renderList(); } }, 150);
+function onEdit() {
+  const c = S.byId.get(S.current);
+  if (!c) return;
+  S.edits.set(c.id, { reference: els.ref.value, terms: els.terms.value, notes: els.notes.value });
+  if (!isDirty(c)) S.edits.delete(c.id);
+  els.unsaved.hidden = !isDirty(c);
+  reanalyse();
+}
+function refreshAnalysis(c) {
+  const a = analyse(c);
+  renderDrafts(c, a);
+  renderMirror(a);
+  const n = a.suspects.length;
+  els.susInfo.textContent = n ? `⚠ ${n} suspected misread${n === 1 ? "" : "s"}` : (a.drafts.length >= 2 ? "No suspected misreads." : "Suspects need two drafts.");
+  els.susFirst.disabled = !n; els.susNext.disabled = n < 2;
+  els.unsaved.hidden = !isDirty(c);
+}
+function renderDrafts(c, a) {
+  const root = clear(els.drafts);
+  if (!a.drafts.length) { root.append(h("div", { class: "hint", text: "No drafts for this clip yet (run `corpus draft`)." })); return; }
+  for (const d of a.drafts) {
+    const text = h("div", { class: "draft-text", lang: langOf(c) });
+    d.segs.forEach((sg, si) => {
+      const linked = typeof sg.startMs === "number";
+      const span = h("span", { class: "dseg" + (linked ? "" : " nolink"), role: linked ? "button" : null, tabindex: linked ? 0 : null, title: linked ? `Play from ${fmtTs(sg.startMs)}` : null });
+      if (linked) {
+        span.append(h("span", { class: "ts", text: fmtTs(sg.startMs) }));
+        const go = () => seek(sg.startMs, true);
+        span.addEventListener("click", go);
+        span.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
+      }
+      d.toks.forEach((t, k) => { if (t.seg === si) { span.append(d.map.diffHyp.has(k) ? h("mark", { class: "d", text: t.w }) : t.w, " "); } });
+      if (!d.toks.some((t) => t.seg === si) && sg.text) span.append(sg.text, " ");
+      text.append(span);
+    });
+    if (!d.toks.length) text.append(h("span", { class: "hint", text: "(empty: no speech detected)" }));
+    root.append(h("div", { class: "draft" }, h("div", { class: "draft-name", text: d.model }), text));
+  }
+}
+function renderMirror(a) {
+  const m = clear(els.mirror);
+  if (!a.ref.trim()) { m.classList.add("empty"); m.textContent = "Empty reference (no speech expected)."; return; }
+  m.classList.remove("empty");
+  const byWord = new Map(), before = new Map();
+  a.suspects.forEach((s, idx) => { if (s.kind === "extra") before.set(s.i, [s, idx]); else byWord.set(s.i, [s, idx]); });
+  let pos = 0;
+  a.refToks.forEach((t, i) => {
+    m.append(a.ref.slice(pos, t.start));
+    if (before.has(i)) m.append(extraMark(...before.get(i)));
+    if (byWord.has(i)) {
+      const [s, idx] = byWord.get(i);
+      const mk = h("mark", { class: "sus", tabindex: 0, title: s.kind === "missing" ? "Neither draft has this word" : `Both drafts heard “${s.alt}”`, text: a.ref.slice(t.start, t.end) });
+      bindSuspect(mk, idx);
+      m.append(mk);
+    } else m.append(a.ref.slice(t.start, t.end));
+    pos = t.end;
+  });
+  m.append(a.ref.slice(pos));
+  if (before.has(a.refToks.length)) m.append(extraMark(...before.get(a.refToks.length)));
+}
+function extraMark(s, idx) {
+  const mk = h("span", { class: "caret-sus", tabindex: 0, title: `Both drafts have extra words here: “${s.alt}”`, text: "‸ " + s.alt });
+  bindSuspect(mk, idx);
+  return mk;
+}
+function bindSuspect(el, idx) {
+  el.addEventListener("click", () => jumpSuspect(idx));
+  el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); jumpSuspect(idx); } });
+}
+
+/* ------------------------------------------------------------ audio */
+function seek(ms, play) {
+  const a = els.audio;
+  if (!a || typeof ms !== "number") return;
+  a.currentTime = Math.max(0, ms / 1000);
+  if (play) a.play().catch(() => {});
+}
+/** Start time of the draft segment that covers reference word i (falls back to the nearest aligned word before it). */
+function timeForRefWord(a, i) {
+  for (const d of a.drafts) {
+    for (let k = Math.min(i, a.refToks.length - 1); k >= 0; k--) {
+      const o = d.map.at[k];
+      if (o && o.h != null) { const sg = d.segs[d.toks[o.h].seg]; if (typeof sg?.startMs === "number") return sg.startMs; }
+    }
+    if (typeof d.segs[0]?.startMs === "number") return d.segs[0].startMs;
+  }
+  return null;
+}
+function jumpSuspect(idx) {
+  const c = S.byId.get(S.current); if (!c) return;
+  const a = analyse(c);
+  if (!a.suspects.length) return;
+  S.suspectIdx = ((idx % a.suspects.length) + a.suspects.length) % a.suspects.length;
+  const s = a.suspects[S.suspectIdx];
+  const t = a.refToks[Math.min(s.i, a.refToks.length - 1)];
+  if (t) { els.ref.focus({ preventScroll: true }); s.i < a.refToks.length ? els.ref.setSelectionRange(t.start, t.end) : els.ref.setSelectionRange(t.end, t.end); }
+  const ms = timeForRefWord(a, s.i);
+  if (ms != null) seek(Math.max(0, ms - 300), true);
+  els.susInfo.textContent = `⚠ ${S.suspectIdx + 1} of ${a.suspects.length}: ` + (s.kind === "missing" ? "neither draft has this word" : s.kind === "extra" ? `both drafts add “${s.alt}”` : `both drafts heard “${s.alt}”`);
+}
+function playFromCursor() {
+  const c = S.byId.get(S.current); if (!c) return;
+  const a = analyse(c), caret = els.ref.selectionStart || 0;
+  let i = a.refToks.findIndex((t) => t.end >= caret);
+  if (i < 0) i = a.refToks.length - 1;
+  const ms = i >= 0 ? timeForRefWord(a, i) : 0;
+  seek(Math.max(0, (ms ?? 0) - 200), true);
+}
+
+/* ------------------------------------------------------------ saving */
+let saving = false;
+async function save(verify) {
+  const c = S.byId.get(S.current);
+  if (!c || saving) return false;
+  const v = valuesOf(c);
+  const body = {
+    reference: v.reference.trim(),
+    referenceStatus: verify ? "verified" : c.referenceStatus === "verified" ? "verified" : "draft",
+    terms: v.terms.split(",").map((t) => t.trim()).filter(Boolean),
+    notes: v.notes,
+  };
+  saving = true; els.saveBtn.disabled = els.verifyBtn.disabled = true;
+  try {
+    if (!S.fixture) {
+      const r = await fetch("/api/clips/" + encodeURIComponent(c.id), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      let res = null;
+      try { res = await r.json(); } catch { /* non-JSON error body */ }
+      if (!r.ok || !res || res.ok !== true) throw new Error((res && res.error) || "HTTP " + r.status);
+    }
+    Object.assign(c, { reference: body.reference, referenceStatus: body.referenceStatus, terms: body.terms, notes: body.notes });
+    S.edits.delete(c.id); S.analysis.delete(c.id);
+    toast(`${verify ? "Verified" : "Saved"} ${c.id}${S.fixture ? " (in memory only)" : ""}`);
+    return true;
+  } catch (e) {
+    toast(`Save failed for ${c.id}: ${e.message}`, true);
+    return false;
+  } finally {
+    saving = false;
+    if (els.saveBtn) els.saveBtn.disabled = els.verifyBtn.disabled = false;
+  }
+}
+async function saveAndNext() {
+  const id = S.current;
+  if (!(await save(true))) return;
+  if (S.current !== id) return;
+  if (!goNextUnverified(true)) select(id);
+}
+async function saveCurrent() {
+  const id = S.current;
+  if (await save(false)) { if (S.current === id) { const c = S.byId.get(id); renderMain(c); renderList(); } }
+}
+function goNextUnverified(afterVerify) {
+  const n = S.clips.length, start = Math.max(0, S.clips.findIndex((c) => c.id === S.current));
+  for (let k = 1; k <= n; k++) {
+    const c = S.clips[(start + k) % n];
+    if (c.referenceStatus !== "verified" && c.id !== S.current) { select(c.id); return true; }
+  }
+  toast(afterVerify ? "All clips are verified." : "No other unverified clips.");
+  return false;
+}
+function stepClip(dir) {
+  const list = visibleClips();
+  if (!list.length) return;
+  const i = list.findIndex((c) => c.id === S.current);
+  const next = list[i < 0 ? 0 : Math.max(0, Math.min(list.length - 1, i + dir))];
+  if (next && next.id !== S.current) select(next.id);
+}
+
+/* ------------------------------------------------------------ keyboard & lifecycle */
+const isTextField = (el) => el && (el.tagName === "TEXTAREA" || el.isContentEditable || el.tagName === "SELECT" || (el.tagName === "INPUT" && !["button", "checkbox", "radio", "range", "file"].includes(el.type)));
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key === "Enter") { e.preventDefault(); saveAndNext(); return; }
+  if (mod && (e.key === "s" || e.key === "S")) { e.preventDefault(); saveCurrent(); return; }
+  if (mod && e.key === "ArrowDown") { e.preventDefault(); stepClip(1); return; }
+  if (mod && e.key === "ArrowUp") { e.preventDefault(); stepClip(-1); return; }
+  if (e.key === "Escape" && isTextField(document.activeElement)) { document.activeElement.blur(); return; }
+  if ((e.key === " " || e.code === "Space") && !mod && !e.altKey && !isTextField(e.target) && e.target.tagName !== "AUDIO" && els.audio) {
+    e.preventDefault();
+    if (els.audio.paused) els.audio.play().catch(() => {}); else els.audio.pause();
+  }
+});
+window.addEventListener("hashchange", () => {
+  const id = decodeURIComponent(location.hash.slice(1));
+  if (id && id !== S.current && S.byId.has(id)) select(id, { keepHash: true });
+});
+window.addEventListener("beforeunload", (e) => {
+  if (S.clips.some(isDirty)) { e.preventDefault(); e.returnValue = ""; }
+});
+load();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1131 @@
+{
+ "conventions": "Write what was said, and write numbers as you would type them.\nDo not transcribe filler words (\"äh\", \"um\").\nThe normaliser makes \"9:30\" and \"neun Uhr dreißig\" equivalent, so either spelling is fine.",
+ "clips": [
+  {
+   "id": "de-s02",
+   "language": "de",
+   "languages": [
+    "de"
+   ],
+   "category": "short",
+   "tags": [
+    "very-short"
+   ],
+   "condition": null,
+   "script": "de-s02",
+   "durationMs": 3850,
+   "reference": "Bitte ruf mich morgen früh zurück.",
+   "referenceStatus": "draft",
+   "scriptText": "Bitte ruf mich morgen früh zurück.",
+   "terms": [],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Bitte ruf mich morgen Vormitta zurück.",
+     "segments": [
+      {
+       "startMs": 493,
+       "endMs": 3743,
+       "text": "Bitte ruf mich morgen Vormitta zurück."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Bitte ruf a mich morgen Vormittag zurück",
+     "segments": [
+      {
+       "startMs": 461,
+       "endMs": 3711,
+       "text": "Bitte ruf a mich morgen Vormittag zurück"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "de-s03",
+   "language": "de",
+   "languages": [
+    "de"
+   ],
+   "category": "short",
+   "tags": [
+    "email",
+    "names",
+    "numbers"
+   ],
+   "condition": null,
+   "script": "de-s03",
+   "durationMs": 9863,
+   "reference": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung. Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr.",
+   "referenceStatus": "verified",
+   "scriptText": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung. Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr.",
+   "terms": [
+    "Özdemir"
+   ],
+   "notes": "Checked twice, 'Ösdemir' is the speaker's pronunciation.",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung. Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr.",
+     "segments": [
+      {
+       "startMs": 331,
+       "endMs": 4715,
+       "text": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung."
+      },
+      {
+       "startMs": 4715,
+       "endMs": 9594,
+       "text": "Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung. Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr.",
+     "segments": [
+      {
+       "startMs": 348,
+       "endMs": 4732,
+       "text": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung."
+      },
+      {
+       "startMs": 4732,
+       "endMs": 9611,
+       "text": "Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "de-s05",
+   "language": "de",
+   "languages": [
+    "de"
+   ],
+   "category": "short",
+   "tags": [
+    "engineering",
+    "software",
+    "denglisch"
+   ],
+   "condition": null,
+   "script": "de-s05",
+   "durationMs": 10776,
+   "reference": "Der Pull Request für die Datenbankmigration ist fertig. Kannst du bitte das Review übernehmen, bevor wir heute Abend auf Staging deployen?",
+   "referenceStatus": "draft",
+   "scriptText": "Der Pull Request für die Datenbankmigration ist fertig. Kannst du bitte das Review übernehmen, bevor wir heute Abend auf Staging deployen?",
+   "terms": [
+    "Pull Request",
+    "Datenbankmigration",
+    "Staging"
+   ],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Der Pull Request für die Datenbankmigration ist fertig. Kannst du bitte das Review machen, bevor wir heute Abend auf Staging deployen?",
+     "segments": [
+      {
+       "startMs": 353,
+       "endMs": 4561,
+       "text": "Der Pull Request für die Datenbankmigration ist fertig."
+      },
+      {
+       "startMs": 4561,
+       "endMs": 10529,
+       "text": "Kannst du bitte das Review machen, bevor wir heute Abend auf Staging deployen?"
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Der Pull Request für die ist fertig. Kannst du bitte das Review machen, bevor wir heute Abend auf Staging deployen?",
+     "segments": [
+      {
+       "startMs": 338,
+       "endMs": 3551,
+       "text": "Der Pull Request für die ist fertig."
+      },
+      {
+       "startMs": 3551,
+       "endMs": 10514,
+       "text": "Kannst du bitte das Review machen, bevor wir heute Abend auf Staging deployen?"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "de-s08",
+   "language": "de",
+   "languages": [
+    "de"
+   ],
+   "category": "short",
+   "tags": [
+    "numbers"
+   ],
+   "condition": null,
+   "script": "de-s08",
+   "durationMs": 9242,
+   "reference": "Die Rechnung über 3.480 Euro ist am 15. November fällig. Bitte überweise den Betrag bis spätestens Freitag.",
+   "referenceStatus": "verified",
+   "scriptText": "Die Rechnung über 3.480 Euro ist am 15. November fällig. Bitte überweise den Betrag bis spätestens Freitag.",
+   "terms": [],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Die Rechnung über 3.480 Euro ist am 15. November fällig. Bitte überweise den Betrag bis spätestens Freitag.",
+     "segments": [
+      {
+       "startMs": 466,
+       "endMs": 3676,
+       "text": "Die Rechnung über 3.480 Euro ist am 15."
+      },
+      {
+       "startMs": 3676,
+       "endMs": 4993,
+       "text": "November fällig."
+      },
+      {
+       "startMs": 4993,
+       "endMs": 9108,
+       "text": "Bitte überweise den Betrag bis spätestens Freitag."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Dien Rechnung über 3.480 Euro ist am 15. November fällig. Bitte überweise den Betrag bis spätestens Freitag.",
+     "segments": [
+      {
+       "startMs": 331,
+       "endMs": 3592,
+       "text": "Dien Rechnung über 3.480 Euro ist am 15."
+      },
+      {
+       "startMs": 3592,
+       "endMs": 4896,
+       "text": "November fällig."
+      },
+      {
+       "startMs": 4896,
+       "endMs": 8972,
+       "text": "Bitte überweise den Betrag bis spätestens Freitag."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "de-s10",
+   "language": "de",
+   "languages": [
+    "de"
+   ],
+   "category": "short",
+   "tags": [
+    "engineering",
+    "software",
+    "numbers"
+   ],
+   "condition": null,
+   "script": "de-s10",
+   "durationMs": 14998,
+   "reference": "Seit dem letzten Release liegt die Latenz der API im p95 bei über 800 Millisekunden. Ich schlage einen Rollback auf Version 2.3 vor, bis wir die Ursache gefunden haben.",
+   "referenceStatus": "verified",
+   "scriptText": "Seit dem letzten Release liegt die Latenz der API im p95 bei über 800 Millisekunden. Ich schlage einen Rollback auf Version 2.3 vor, bis wir die Ursache gefunden haben.",
+   "terms": [
+    "Latenz",
+    "API",
+    "p95",
+    "Rollback"
+   ],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Seit dem letzten Release liegt die Latenz der API im p95 bei über 800 Millisekunden. Ich schlage einen Rollback aufn Version 2.3 vor, bis wir die Ursache gefunden haben.",
+     "segments": [
+      {
+       "startMs": 419,
+       "endMs": 7618,
+       "text": "Seit dem letzten Release liegt die Latenz der API im p95 bei über 800 Millisekunden."
+      },
+      {
+       "startMs": 7618,
+       "endMs": 14817,
+       "text": "Ich schlage einen Rollback aufn Version 2.3 vor, bis wir die Ursache gefunden haben."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Seit dem letzten Release liegt die Latenz der im p95 bei über 800 Millisekunden. Ich schlage einen Rollback auf Version 2.3 vor, bis wir die Ursache gefunden haben.",
+     "segments": [
+      {
+       "startMs": 435,
+       "endMs": 7502,
+       "text": "Seit dem letzten Release liegt die Latenz der im p95 bei über 800 Millisekunden."
+      },
+      {
+       "startMs": 7502,
+       "endMs": 14833,
+       "text": "Ich schlage einen Rollback auf Version 2.3 vor, bis wir die Ursache gefunden haben."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "de-s03@noisy",
+   "language": "de",
+   "languages": [
+    "de"
+   ],
+   "category": "short",
+   "tags": [
+    "email",
+    "names",
+    "numbers"
+   ],
+   "condition": "noisy",
+   "script": "de-s03",
+   "durationMs": 10029,
+   "reference": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung. Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr.",
+   "referenceStatus": "draft",
+   "scriptText": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung. Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr.",
+   "terms": [
+    "Özdemir"
+   ],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung. Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr.",
+     "segments": [
+      {
+       "startMs": 456,
+       "endMs": 4919,
+       "text": "Hallo Frau Özdemir, vielen Dank für Ihre schnelle Rückmeldung."
+      },
+      {
+       "startMs": 4919,
+       "endMs": 9885,
+       "text": "Ich schicke Ihnen das überarbeitete Angebot bis Donnerstag um 14 Uhr."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Hallo Fraun Özdemir, vielen Dank für Ihre schnelle Rückmeldung. Ich schicke Ihnens das überarbeitete Angebot bis Donnerstag um 14 Uhr.",
+     "segments": [
+      {
+       "startMs": 433,
+       "endMs": 4899,
+       "text": "Hallo Fraun Özdemir, vielen Dank für Ihre schnelle Rückmeldung."
+      },
+      {
+       "startMs": 4899,
+       "endMs": 9862,
+       "text": "Ich schicke Ihnens das überarbeitete Angebot bis Donnerstag um 14 Uhr."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "en-s02",
+   "language": "en",
+   "languages": [
+    "en"
+   ],
+   "category": "short",
+   "tags": [
+    "very-short"
+   ],
+   "condition": null,
+   "script": "en-s02",
+   "durationMs": 4901,
+   "reference": "Can you send me the slides before the call?",
+   "referenceStatus": "draft",
+   "scriptText": "Can you send me the slides before the call?",
+   "terms": [],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Can you send me the slides before the call?",
+     "segments": [
+      {
+       "startMs": 426,
+       "endMs": 4727,
+       "text": "Can you send me the slides before the call?"
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Can you send me the slides before the call?",
+     "segments": [
+      {
+       "startMs": 356,
+       "endMs": 4657,
+       "text": "Can you send me the slides before the call?"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "en-s05",
+   "language": "en",
+   "languages": [
+    "en"
+   ],
+   "category": "short",
+   "tags": [
+    "engineering",
+    "software"
+   ],
+   "condition": null,
+   "script": "en-s05",
+   "durationMs": 12158,
+   "reference": "The Kubernetes cluster ran out of memory during the nightly batch job, so the pods kept getting evicted and the CI pipeline timed out.",
+   "referenceStatus": "draft",
+   "scriptText": "The Kubernetes cluster ran out of memory during the nightly batch job, so the pods kept getting evicted and the CI pipeline timed out.",
+   "terms": [
+    "Kubernetes",
+    "pods",
+    "evicted",
+    "CI pipeline"
+   ],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "The Kubernetes cluster ran out of memoryn during the weekly batch job, so the pods were getting evicted and the CI pipeline timed out.",
+     "segments": [
+      {
+       "startMs": 301,
+       "endMs": 11859,
+       "text": "The Kubernetes cluster ran out of memoryn during the weekly batch job, so the pods were getting evicted and the CI pipeline timed out."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "The Kubernetes cluster ran out of memory during the weekly batch job, so the pods were getting evicted and the CI pipeline timed out.",
+     "segments": [
+      {
+       "startMs": 314,
+       "endMs": 11872,
+       "text": "The Kubernetes cluster ran out of memory during the weekly batch job, so the pods were getting evicted and the CI pipeline timed out."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "en-s08",
+   "language": "en",
+   "languages": [
+    "en"
+   ],
+   "category": "short",
+   "tags": [
+    "numbers"
+   ],
+   "condition": null,
+   "script": "en-s08",
+   "durationMs": 10130,
+   "reference": "The purchase order for 1,250 units at 18.40 dollars each comes to 23,000 dollars, not including shipping.",
+   "referenceStatus": "draft",
+   "scriptText": "The purchase order for 1,250 units at 18.40 dollars each comes to 23,000 dollars, not including shipping.",
+   "terms": [
+    "purchase order"
+   ],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "The purchase order for 1,250 units at 18.40 dollars each comes to 23,000 dollars, not including shipping.",
+     "segments": [
+      {
+       "startMs": 357,
+       "endMs": 9887,
+       "text": "The purchase order for 1,250 units at 18.40 dollars each comes to 23,000 dollars, not including shipping."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "The purchase order for 1,250 units at 18.40 dollars each comes to 23,000 dollars, not including shipping.",
+     "segments": [
+      {
+       "startMs": 452,
+       "endMs": 9982,
+       "text": "The purchase order for 1,250 units at 18.40 dollars each comes to 23,000 dollars, not including shipping."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "en-s13",
+   "language": "en",
+   "languages": [
+    "en"
+   ],
+   "category": "short",
+   "tags": [
+    "engineering",
+    "data",
+    "numbers",
+    "near-60s"
+   ],
+   "condition": null,
+   "script": "en-s13",
+   "durationMs": 49471,
+   "reference": "Quick status update on the data platform migration. We've moved 70 percent of the batch jobs from the old Hadoop cluster to the new Spark setup on Databricks, and the nightly runtime dropped from six hours to just under two. The remaining jobs are the ones with complex dependencies on legacy stored procedures, so they'll take longer. We also found a schema drift issue in the customer table that was silently dropping records with null postal codes. That's fixed now, and we've added a data quality check to the pipeline. Next milestone is decommissioning the old cluster by the end of November.",
+   "referenceStatus": "draft",
+   "scriptText": "Quick status update on the data platform migration. We've moved 70 percent of the batch jobs from the old Hadoop cluster to the new Spark setup on Databricks, and the nightly runtime dropped from six hours to just under two. The remaining jobs are the ones with complex dependencies on legacy stored procedures, so they'll take longer. We also found a schema drift issue in the customer table that was silently dropping records with null postal codes. That's fixed now, and we've added a data quality check to the pipeline. Next milestone is decommissioning the old cluster by the end of November.",
+   "terms": [
+    "Hadoop",
+    "Spark",
+    "Databricks",
+    "stored procedures",
+    "schema drift"
+   ],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Quick status update on the data platform migration. We've die 70 percent of the batch jobs from the old Hadoop cluster to the new Spark setup on Databricks, and the nightly runtime dropped from six hours to just under two. The remaining jobs are the ones with complex dependencies on legacy stored procedures, so they'll take longer. We also found a schema drift issue in the customer table that was silently dropping records with null postal codesn. That's das fixed now, and we've added a data quality check to the pipeline. Next milestone is decommissioning the in old cluster by the end of November.",
+     "segments": [
+      {
+       "startMs": 456,
+       "endMs": 4624,
+       "text": "Quick status update on the data platform migration."
+      },
+      {
+       "startMs": 4624,
+       "endMs": 18517,
+       "text": "We've die 70 percent of the batch jobs from the old Hadoop cluster to the new Spark setup on Databricks, and the nightly runtime dropped from six hours to just under two."
+      },
+      {
+       "startMs": 18517,
+       "endMs": 27507,
+       "text": "The remaining jobs are the ones with complex dependencies on legacy stored procedures, so they'll take longer."
+      },
+      {
+       "startMs": 27507,
+       "endMs": 36987,
+       "text": "We also found a schema drift issue in the customer table that was silently dropping records with null postal codesn."
+      },
+      {
+       "startMs": 36987,
+       "endMs": 43116,
+       "text": "That's das fixed now, and we've added a data quality check to the pipeline."
+      },
+      {
+       "startMs": 43116,
+       "endMs": 49327,
+       "text": "Next milestone is decommissioning the in old cluster by the end of November."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Quick status update on the data platform migration. We've moved 70 percent of the batch jobs from the old Hadoop to the new Spark setup on Databricks, and the nightly runtime dropped from six hours to just under two. The remaining jobs are the ones weths complex dependencies on legacy stored procedures, so they'll take longer. We also found a schema drift issue in the customer table that was silently dropping records with null postal codes. That's fixed now, andn we've added a data quality check to the pipeline. Next milestone is decommissioning the old cluster by the end of November.",
+     "segments": [
+      {
+       "startMs": 428,
+       "endMs": 4681,
+       "text": "Quick status update on the data platform migration."
+      },
+      {
+       "startMs": 4681,
+       "endMs": 18358,
+       "text": "We've moved 70 percent of the batch jobs from the old Hadoop to the new Spark setup on Databricks, and the nightly runtime dropped from six hours to just under two."
+      },
+      {
+       "startMs": 18358,
+       "endMs": 27615,
+       "text": "The remaining jobs are the ones weths complex dependencies on legacy stored procedures, so they'll take longer."
+      },
+      {
+       "startMs": 27615,
+       "endMs": 37206,
+       "text": "We also found a schema drift issue in the customer table that was silently dropping records with null postal codes."
+      },
+      {
+       "startMs": 37206,
+       "endMs": 43211,
+       "text": "That's fixed now, andn we've added a data quality check to the pipeline."
+      },
+      {
+       "startMs": 43211,
+       "endMs": 49299,
+       "text": "Next milestone is decommissioning the old cluster by the end of November."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "mx-s01",
+   "language": "mixed",
+   "languages": [
+    "de",
+    "en"
+   ],
+   "category": "short",
+   "tags": [
+    "sentence-switch",
+    "numbers"
+   ],
+   "condition": null,
+   "script": "mx-s01",
+   "durationMs": 8543,
+   "reference": "Ich bin heute bis 16 Uhr im Büro. After that, I'm only reachable on my phone.",
+   "referenceStatus": "draft",
+   "scriptText": "Ich bin heute bis 16 Uhr im Büro. After that, I'm only reachable on my phone.",
+   "terms": [],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Ich bin heute bis 17 Uhr im Büro. After that, I'm only reachable on my phone.",
+     "segments": [
+      {
+       "startMs": 366,
+       "endMs": 3815,
+       "text": "Ich bin heute bis 17 Uhr im Büro."
+      },
+      {
+       "startMs": 3815,
+       "endMs": 8309,
+       "text": "After that, I'm only reachable on my phone."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Ich bin heute bess 17 Uhr im Büro. After that, only reachable on my phone.",
+     "segments": [
+      {
+       "startMs": 493,
+       "endMs": 4192,
+       "text": "Ich bin heute bess 17 Uhr im Büro."
+      },
+      {
+       "startMs": 4192,
+       "endMs": 8436,
+       "text": "After that, only reachable on my phone."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "mx-s07",
+   "language": "mixed",
+   "languages": [
+    "de",
+    "fr"
+   ],
+   "category": "short",
+   "tags": [
+    "sentence-switch",
+    "french"
+   ],
+   "condition": null,
+   "script": "mx-s07",
+   "durationMs": 7843,
+   "reference": "Ich schicke dir gleich die Unterlagen. Merci beaucoup pour ton aide, on se parle demain.",
+   "referenceStatus": "draft",
+   "scriptText": "Ich schicke dir gleich die Unterlagen. Merci beaucoup pour ton aide, on se parle demain.",
+   "terms": [],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Ichn schicken dir gleich die Unterlagen. Merci beaucoup pou ton aide, on se parle demain.",
+     "segments": [
+      {
+       "startMs": 335,
+       "endMs": 3627,
+       "text": "Ichn schicken dir gleich die Unterlagen."
+      },
+      {
+       "startMs": 3627,
+       "endMs": 7578,
+       "text": "Merci beaucoup pou ton aide, on se parle demain."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Ich schicke dir gleich die Unterlagen. Merci beaucoup pour ton aid, on se parle demain.",
+     "segments": [
+      {
+       "startMs": 334,
+       "endMs": 3534,
+       "text": "Ich schicke dir gleich die Unterlagen."
+      },
+      {
+       "startMs": 3534,
+       "endMs": 7577,
+       "text": "Merci beaucoup pour ton aid, on se parle demain."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "fr-s02",
+   "language": "fr",
+   "languages": [
+    "fr"
+   ],
+   "category": "short",
+   "tags": [
+    "email",
+    "names",
+    "numbers"
+   ],
+   "condition": null,
+   "script": "fr-s02",
+   "durationMs": 9971,
+   "reference": "Bonjour Madame Lefèvre, je vous remercie pour votre retour. Je vous envoie le devis révisé d'ici jeudi à 14 heures.",
+   "referenceStatus": "draft",
+   "scriptText": "Bonjour Madame Lefèvre, je vous remercie pour votre retour. Je vous envoie le devis révisé d'ici jeudi à 14 heures.",
+   "terms": [
+    "Lefèvre",
+    "devis"
+   ],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Bonjour Madame Lefèvre je vous pour votre retour. Je vous envoie le devis révisé d'ici jeudi à 14 heures.",
+     "segments": [
+      {
+       "startMs": 419,
+       "endMs": 4834,
+       "text": "Bonjour Madame Lefèvre je vous pour votre retour."
+      },
+      {
+       "startMs": 4834,
+       "endMs": 9790,
+       "text": "Je vous envoie le devis révisé d'ici jeudi à 14 heures."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Benjours Madame Lefèvre, jes vous remercie pour votre retour. Je vous envoie le devis révisé d'ici jeudi à 14 heures.",
+     "segments": [
+      {
+       "startMs": 343,
+       "endMs": 5271,
+       "text": "Benjours Madame Lefèvre, jes vous remercie pour votre retour."
+      },
+      {
+       "startMs": 5271,
+       "endMs": 9714,
+       "text": "Je vous envoie le devis révisé d'ici jeudi à 14 heures."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "noise-01",
+   "language": "none",
+   "languages": [],
+   "category": "short",
+   "tags": [
+    "silence"
+   ],
+   "condition": null,
+   "script": "noise-01",
+   "durationMs": 21916,
+   "reference": "",
+   "referenceStatus": "draft",
+   "scriptText": null,
+   "terms": [],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "",
+     "segments": []
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "",
+     "segments": []
+    }
+   ]
+  },
+  {
+   "id": "de-l01",
+   "language": "de",
+   "languages": [
+    "de"
+   ],
+   "category": "long",
+   "tags": [
+    "business",
+    "engineering",
+    "hardware",
+    "numbers",
+    "names"
+   ],
+   "condition": null,
+   "script": "de-l01",
+   "durationMs": 79163,
+   "reference": "Guten Morgen zusammen, hier ist der Statusbericht für das Projekt Nordlicht, Stand Kalenderwoche 41.\n\nZuerst die gute Nachricht: Der Prototyp der neuen Steuereinheit hat die Umweltprüfung bestanden. Wir haben die Platine über 72 Stunden bei minus 20 bis plus 85 Grad Celsius getestet, und es gab keinen einzigen Ausfall. Damit ist der Meilenstein B-Muster formal erreicht, zwei Wochen früher als im Projektplan vorgesehen.\n\nWeniger erfreulich ist die Situation beim Lieferanten für die Leistungshalbleiter. Die Lieferzeit hat sich von 16 auf 26 Wochen verlängert, und der Stückpreis steigt ab Januar um 9 Prozent. Herr Schäfer aus dem Einkauf verhandelt gerade mit einem zweiten Lieferanten in Taiwan. Ein Angebot erwarten wir bis Ende nächster Woche. Falls das nicht klappt, müssen wir das Layout anpassen, damit wir auf ein pin-kompatibles Bauteil ausweichen können. Das würde etwa 40.000 Euro zusätzlich kosten und den Serienanlauf um sechs Wochen verschieben.\n\nAuf der Softwareseite läuft es weitgehend nach Plan. Die Firmware ist auf Version 1.8 gestiegen, und die automatisierten Regressionstests decken inzwischen 83 Prozent des Codes ab. Offen sind noch zwei kritische Bugs: Erstens verliert der CAN-Bus nach einem Warmstart gelegentlich die Verbindung, und zweitens schlägt das Over-the-Air-Update fehl, wenn die Mobilfunkverbindung während des Downloads abbricht. Für beide Fehler gibt es bereits einen Lösungsansatz, und Frau Dr. Weißgerber rechnet damit, dass die Fixes bis zum 24. Oktober im Release-Branch sind.\n\nBeim Thema funktionale Sicherheit sind wir etwas im Verzug. Die FMEA für das Gesamtsystem ist zu etwa 70 Prozent fertig, aber für die Bewertung nach ISO 26262 fehlen uns noch Daten zur Ausfallrate der Sensorik. Ich schlage vor, dass wir dafür kurzfristig einen externen Gutachter hinzuziehen. Die Kosten dafür liegen bei ungefähr 15.000 Euro und sind im Risikobudget bereits eingeplant.\n\nZum Budget insgesamt: Wir haben bisher 1,2 Millionen Euro von geplanten 1,75 Millionen ausgegeben. Das entspricht 69 Prozent bei einem Projektfortschritt von etwa 65 Prozent. Wir liegen also leicht über dem Plan, aber noch im grünen Bereich. Wenn der zweite Lieferant nicht zustande kommt, wird das Budget allerdings knapp.\n\nDie nächsten Schritte sind folgende: Bis Freitag entscheiden wir, ob wir das Layout vorsorglich anpassen. Am 30. Oktober findet das Design Review mit dem Kunden in Stuttgart statt, und dafür brauchen wir bis spätestens 27. Oktober die aktualisierte Stückliste und die Testberichte. Außerdem möchte ich im nächsten Lenkungskreis über eine mögliche Verschiebung des Serienstarts sprechen, damit wir keine Überraschungen erleben.\n\nWenn es Fragen gibt, meldet euch gern direkt bei mir. Vielen Dank.",
+   "referenceStatus": "draft",
+   "scriptText": "Guten Morgen zusammen, hier ist der Statusbericht für das Projekt Nordlicht, Stand Kalenderwoche 41.\n\nZuerst die gute Nachricht: Der Prototyp der neuen Steuereinheit hat die Umweltprüfung bestanden. Wir haben die Platine über 72 Stunden bei minus 20 bis plus 85 Grad Celsius getestet, und es gab keinen einzigen Ausfall. Damit ist der Meilenstein B-Muster formal erreicht, zwei Wochen früher als im Projektplan vorgesehen.\n\nWeniger erfreulich ist die Situation beim Lieferanten für die Leistungshalbleiter. Die Lieferzeit hat sich von 16 auf 26 Wochen verlängert, und der Stückpreis steigt ab Januar um 9 Prozent. Herr Schäfer aus dem Einkauf verhandelt gerade mit einem zweiten Lieferanten in Taiwan. Ein Angebot erwarten wir bis Ende nächster Woche. Falls das nicht klappt, müssen wir das Layout anpassen, damit wir auf ein pin-kompatibles Bauteil ausweichen können. Das würde etwa 40.000 Euro zusätzlich kosten und den Serienanlauf um sechs Wochen verschieben.\n\nAuf der Softwareseite läuft es weitgehend nach Plan. Die Firmware ist auf Version 1.8 gestiegen, und die automatisierten Regressionstests decken inzwischen 83 Prozent des Codes ab. Offen sind noch zwei kritische Bugs: Erstens verliert der CAN-Bus nach einem Warmstart gelegentlich die Verbindung, und zweitens schlägt das Over-the-Air-Update fehl, wenn die Mobilfunkverbindung während des Downloads abbricht. Für beide Fehler gibt es bereits einen Lösungsansatz, und Frau Dr. Weißgerber rechnet damit, dass die Fixes bis zum 24. Oktober im Release-Branch sind.\n\nBeim Thema funktionale Sicherheit sind wir etwas im Verzug. Die FMEA für das Gesamtsystem ist zu etwa 70 Prozent fertig, aber für die Bewertung nach ISO 26262 fehlen uns noch Daten zur Ausfallrate der Sensorik. Ich schlage vor, dass wir dafür kurzfristig einen externen Gutachter hinzuziehen. Die Kosten dafür liegen bei ungefähr 15.000 Euro und sind im Risikobudget bereits eingeplant.\n\nZum Budget insgesamt: Wir haben bisher 1,2 Millionen Euro von geplanten 1,75 Millionen ausgegeben. Das entspricht 69 Prozent bei einem Projektfortschritt von etwa 65 Prozent. Wir liegen also leicht über dem Plan, aber noch im grünen Bereich. Wenn der zweite Lieferant nicht zustande kommt, wird das Budget allerdings knapp.\n\nDie nächsten Schritte sind folgende: Bis Freitag entscheiden wir, ob wir das Layout vorsorglich anpassen. Am 30. Oktober findet das Design Review mit dem Kunden in Stuttgart statt, und dafür brauchen wir bis spätestens 27. Oktober die aktualisierte Stückliste und die Testberichte. Außerdem möchte ich im nächsten Lenkungskreis über eine mögliche Verschiebung des Serienstarts sprechen, damit wir keine Überraschungen erleben.\n\nWenn es Fragen gibt, meldet euch gern direkt bei mir. Vielen Dank.",
+   "terms": [
+    "Nordlicht",
+    "B-Muster",
+    "Leistungshalbleiter",
+    "pin-kompatibles",
+    "Regressionstests",
+    "CAN-Bus",
+    "Over-the-Air-Update",
+    "Weißgerber",
+    "Release-Branch",
+    "FMEA",
+    "ISO 26262",
+    "Stückliste",
+    "Lenkungskreis"
+   ],
+   "notes": "",
+   "drafts": [
+    {
+     "model": "whisper-large-v3",
+     "text": "Guten Morgen zusammen, hier ist der Statusbericht für das Projekt Nordlicht, Stand Kalenderwoche 41. Zuers die gute Nachrichtn: Der Prototyp der neuen Steuereinheit hat die Umweltprüfung bestanden. Wir haben die Platine über 72 Stunden minus 20 bis plus 85 Grad Celsius getestet, und es gab keinen einzigen Ausfall. Damit ist der Meilenstein B-Muster formal erreicht, zwei Wochen früher als im Projektplan vorgesehen. Weniger erfreulich ist die Situation beim fürs die Leistungshalbleiter. die Lieferzeit hat sich von 16 auf 26 Wochen verlängert, und der Stückpreis steigt ab Januar um 9 Prozent. Herr Schäfer aus Einkauf verhandelt gerade mit einem Lieferanten in Taiwan. Ein Angebot erwarten wir bis Ende nächster Woche. Falls das nicht klappt, müssen wir das Layout anpassen, damit wir auf ein pin-kompatibles Bauteil ausweichen können. Das würde etwa 40.000 Euro zusätzlich kosten und den Serienanlauf um sechs Wochen verschieben. der Softwareseite läuft es weitgehend nach Plan. Die Firmware ist auf Version 1.8 gestiegenn, und die automatisierten Regressionstests decken inzwischen 83 Prozent des Codes ab. Offen sind noch zwei kritische Bugs: Erstens verliert der CAN-Bus nach einem Warmstart gelegentlich die Verbindung, zweitens schlägt das Over-the-Air-Update fehl, wenn die Mobilfunkverbindung während des Downloads abbricht. Für beide Fehler gib es bereits einen Lösungsansatz, und Frau Dr. Weißgerber rechnet damit, dass die Fixes bis zum 24. Oktober im Release-Branch sind. Beim Thema funktionale Sicherheit sind wir etwas im Verzug. Die FMEA für das Gesamtsystem ist zu etwa 70 Prozent fertig, aber für die Bewertung nach ISO 26262 fehlen uns noch Daten zur Ausfallrate der Sensorik. Ich schlage vor, dass wir dafür kurzfristig einen externen Gutachter hinzuziehen. Die Kosten dafür liegen bei ungefähr 15.000 Euro und sind im Risikobudget bereits eingeplant. Zum Budget insgesamt: Wir haben bisher 1,2 Millionen Euro von geplanten 1,75 Millionen ausgegeben. Das entspricht 69 prozent bei einem Projektfortschritt von etwa and prozent. Wir liegen also leicht über dem Plan aber noch im grünen Bereich. Wenn der zweite Lieferant nicht zustande kommt, wird das Budget allerdings knapp. Die nächsten Schritte sind folgende: Bis Freitag entscheiden ob wir das Layou vorsorglich anpassen. Am 30. Oktober findet das Design Review mit dem Kunden in Stuttgart statt, und dafür brauchen wir bis spätestens 27. Oktober die aktualisierte Stückliste und die Testberichte. Außerdem möchte ich nächsten Lenkungskreis über eine mögliche Verschiebung des Serienstarts sprechen, damit wir keine Überraschungen erleben. Wenn es Fragen gibt, meldet euch gern direkt bei mir. Vielen Dank.",
+     "segments": [
+      {
+       "startMs": 326,
+       "endMs": 3287,
+       "text": "Guten Morgen zusammen, hier ist der Statusbericht für das Projekt Nordlicht, Stand Kalenderwoche 41."
+      },
+      {
+       "startMs": 3287,
+       "endMs": 6130,
+       "text": "Zuers die gute Nachrichtn: Der Prototyp der neuen Steuereinheit hat die Umweltprüfung bestanden."
+      },
+      {
+       "startMs": 6130,
+       "endMs": 9595,
+       "text": "Wir haben die Platine über 72 Stunden minus 20 bis plus 85 Grad Celsius getestet, und es gab keinen einzigen Ausfall."
+      },
+      {
+       "startMs": 9595,
+       "endMs": 12586,
+       "text": "Damit ist der Meilenstein B-Muster formal erreicht, zwei Wochen früher als im Projektplan vorgesehen."
+      },
+      {
+       "startMs": 12586,
+       "endMs": 14689,
+       "text": "Weniger erfreulich ist die Situation beim fürs die Leistungshalbleiter."
+      },
+      {
+       "startMs": 14689,
+       "endMs": 17828,
+       "text": "die Lieferzeit hat sich von 16 auf 26 Wochen verlängert, und der Stückpreis steigt ab Januar um 9 Prozent."
+      },
+      {
+       "startMs": 17828,
+       "endMs": 20049,
+       "text": "Herr Schäfer aus Einkauf verhandelt gerade mit einem Lieferanten in Taiwan."
+      },
+      {
+       "startMs": 20049,
+       "endMs": 21500,
+       "text": "Ein Angebot erwarten wir bis Ende nächster Woche."
+      },
+      {
+       "startMs": 21500,
+       "endMs": 24935,
+       "text": "Falls das nicht klappt, müssen wir das Layout anpassen, damit wir auf ein pin-kompatibles Bauteil ausweichen können."
+      },
+      {
+       "startMs": 24935,
+       "endMs": 27719,
+       "text": "Das würde etwa 40.000 Euro zusätzlich kosten und den Serienanlauf um sechs Wochen verschieben."
+      },
+      {
+       "startMs": 27719,
+       "endMs": 29140,
+       "text": "der Softwareseite läuft es weitgehend nach Plan."
+      },
+      {
+       "startMs": 29140,
+       "endMs": 32930,
+       "text": "Die Firmware ist auf Version 1.8 gestiegenn, und die automatisierten Regressionstests decken inzwischen 83 Prozent des Codes ab."
+      },
+      {
+       "startMs": 32930,
+       "endMs": 39534,
+       "text": "Offen sind noch zwei kritische Bugs: Erstens verliert der CAN-Bus nach einem Warmstart gelegentlich die Verbindung, zweitens schlägt das Over-the-Air-Update fehl, wenn die Mobilfunkverbindung während des Downloads abbricht."
+      },
+      {
+       "startMs": 39534,
+       "endMs": 41459,
+       "text": "Für beide Fehler gib es bereits einen Lösungsansatz, und Frau Dr."
+      },
+      {
+       "startMs": 41459,
+       "endMs": 42999,
+       "text": "Weißgerber rechnet damit, dass die Fixes bis zum 24."
+      },
+      {
+       "startMs": 42999,
+       "endMs": 43917,
+       "text": "Oktober im Release-Branch sind."
+      },
+      {
+       "startMs": 43917,
+       "endMs": 45664,
+       "text": "Beim Thema funktionale Sicherheit sind wir etwas im Verzug."
+      },
+      {
+       "startMs": 45664,
+       "endMs": 50106,
+       "text": "Die FMEA für das Gesamtsystem ist zu etwa 70 Prozent fertig, aber für die Bewertung nach ISO 26262 fehlen uns noch Daten zur Ausfallrate der Sensorik."
+      },
+      {
+       "startMs": 50106,
+       "endMs": 52505,
+       "text": "Ich schlage vor, dass wir dafür kurzfristig einen externen Gutachter hinzuziehen."
+      },
+      {
+       "startMs": 52505,
+       "endMs": 55259,
+       "text": "Die Kosten dafür liegen bei ungefähr 15.000 Euro und sind im Risikobudget bereits eingeplant."
+      },
+      {
+       "startMs": 55259,
+       "endMs": 58161,
+       "text": "Zum Budget insgesamt: Wir haben bisher 1,2 Millionen Euro von geplanten 1,75 Millionen ausgegeben."
+      },
+      {
+       "startMs": 58161,
+       "endMs": 60412,
+       "text": "Das entspricht 69 prozent bei einem Projektfortschritt von etwa and prozent."
+      },
+      {
+       "startMs": 60412,
+       "endMs": 62337,
+       "text": "Wir liegen also leicht über dem Plan aber noch im grünen Bereich."
+      },
+      {
+       "startMs": 62337,
+       "endMs": 64736,
+       "text": "Wenn der zweite Lieferant nicht zustande kommt, wird das Budget allerdings knapp."
+      },
+      {
+       "startMs": 64736,
+       "endMs": 67668,
+       "text": "Die nächsten Schritte sind folgende: Bis Freitag entscheiden ob wir das Layou vorsorglich anpassen."
+      },
+      {
+       "startMs": 67668,
+       "endMs": 67846,
+       "text": "Am 30."
+      },
+      {
+       "startMs": 67846,
+       "endMs": 71074,
+       "text": "Oktober findet das Design Review mit dem Kunden in Stuttgart statt, und dafür brauchen wir bis spätestens 27."
+      },
+      {
+       "startMs": 71074,
+       "endMs": 72792,
+       "text": "Oktober die aktualisierte Stückliste und die Testberichte."
+      },
+      {
+       "startMs": 72792,
+       "endMs": 76967,
+       "text": "Außerdem möchte ich nächsten Lenkungskreis über eine mögliche Verschiebung des Serienstarts sprechen, damit wir keine Überraschungen erleben."
+      },
+      {
+       "startMs": 76967,
+       "endMs": 78536,
+       "text": "Wenn es Fragen gibt, meldet euch gern direkt bei mir."
+      },
+      {
+       "startMs": 78536,
+       "endMs": 78891,
+       "text": "Vielen Dank."
+      }
+     ]
+    },
+    {
+     "model": "qwen3-asr",
+     "text": "Guten Morgen zusammen, hier ist der Statusbericht für das Projekt Nordlicht, Stand Kalenderwoche 41. Zuerst die gute Nachricht: Der Prototyp der neuen Steuereinheit hat die Umweltprüfung bestanden. Wir haben die Platine über 72 Stunden bei minu 20 bis plus 85 Grad Celsiu getestet, und es gab keinen einzigen Ausfall. Damit ist der Meilenstein B-Muster formal erreicht, zwei Wochen früher als im Projektplan vorgesehen. Weniger erfreulich ist die Situation beim Lieferanten fürn die Leistungshalbleiter. Die Lieferzeit hat sich von 16 auf 26 Wochen verlängert, und der stückpreis steigt ab Januar um 9 Prozent. Herr Schäfer aus dem Einkauf verhandelt gerade mit einem zweiten Lieferanten in Taiwan. Ein Angebot erwarten wir bis Ende nächster Woche. Falls das nicht klappt, müssen wir das Layout anpassen, damit wir auf ein pin-kompatibles Bauteil ausweichenn können. Das würde etwa die 40.000 Euro zusätzlich kosten und den Serienanlauf um sechs Wochen verschieben. Auf der Softwareseite läuft es weitgehend nach Plan. Die Firmware ist auf Version 1.8 gestiege, und die automatisierten Regressionstests deckenn inzwischen 83 Prozent des Codes ab Offen sind noch zwei kritische Bugs: Erstens verliert der CAN-Bus nechs et einem Warmstart gelegentlich die Verbindung, und zweitens schlägt das et fehl, wenn die Mebilfunkverbindungs während des Downloads abbricht. Für beide Fehler gibt es bereits einen Lösungsansatz, und Frau Dr. weißgerber rechnet damit, dass die Fixes bis zum 24 Oktober im Release-Branch sind. Beim Thema funktionale Sicherheit sind wir etwas im Verzug. Die FMEA für das Gesamtsystem ist zu etwa 70 Prozent fertig, aber für die Bewertung nach ISO 26262 fehlen uns noch Daten zur Ausfallrate der Sensorik. Ich schlage vor, dass wir dafür kurzfristign et einen externen Gutachter hinzuziehen. Die Kosten dafür liegen bei ungefähr 15.000 Euro und sind im Risikobudget bereits eingeplant. Zum Budget insgesamt: Wir haben bisher 1,2 Millionen Euro von 1,75 Millionen ausgegeben. Das entspricht the Prozent bei einem Projektfortschritt von etwa 65 Prozent. Wir a also leicht über dem Plan, aber noch im grünen Bereich. Wenn der zweite Lieferant nicht zustande kommt, wird das Budget allerdings knapp. Die nächsten Schritte sind folgende: Bis Freitag entscheiden wir, ob wir das Layout vorsorglich anpassen. Am 30. Oktober findet das Design Review mit dem Kunden in Stuttgart statt, und dafür brauchen wir bis spätestens 27. Oktober die aktualisierte Stückliste ends die Testberichte. Außerdem möchte ich in nächsten de Lenkungskreis über eine mögliche verschiebung des Serienstarts sprechenn, damit wir keine Überraschungen erleben. Wenn es Fragen gibt, euch gern direkt bei mir. vielen Dank.",
+     "segments": [
+      {
+       "startMs": 329,
+       "endMs": 3264,
+       "text": "Guten Morgen zusammen, hier ist der Statusbericht für das Projekt Nordlicht, Stand Kalenderwoche 41."
+      },
+      {
+       "startMs": 3264,
+       "endMs": 6081,
+       "text": "Zuerst die gute Nachricht: Der Prototyp der neuen Steuereinheit hat die Umweltprüfung bestanden."
+      },
+      {
+       "startMs": 6081,
+       "endMs": 9573,
+       "text": "Wir haben die Platine über 72 Stunden bei minu 20 bis plus 85 Grad Celsiu getestet, und es gab keinen einzigen Ausfall."
+      },
+      {
+       "startMs": 9573,
+       "endMs": 12537,
+       "text": "Damit ist der Meilenstein B-Muster formal erreicht, zwei Wochen früher als im Projektplan vorgesehen."
+      },
+      {
+       "startMs": 12537,
+       "endMs": 14973,
+       "text": "Weniger erfreulich ist die Situation beim Lieferanten fürn die Leistungshalbleiter."
+      },
+      {
+       "startMs": 14973,
+       "endMs": 18084,
+       "text": "Die Lieferzeit hat sich von 16 auf 26 Wochen verlängert, und der stückpreis steigt ab Januar um 9 Prozent."
+      },
+      {
+       "startMs": 18084,
+       "endMs": 20637,
+       "text": "Herr Schäfer aus dem Einkauf verhandelt gerade mit einem zweiten Lieferanten in Taiwan."
+      },
+      {
+       "startMs": 20637,
+       "endMs": 22075,
+       "text": "Ein Angebot erwarten wir bis Ende nächster Woche."
+      },
+      {
+       "startMs": 22075,
+       "endMs": 25509,
+       "text": "Falls das nicht klappt, müssen wir das Layout anpassen, damit wir auf ein pin-kompatibles Bauteil ausweichenn können."
+      },
+      {
+       "startMs": 25509,
+       "endMs": 28385,
+       "text": "Das würde etwa die 40.000 Euro zusätzlich kosten und den Serienanlauf um sechs Wochen verschieben."
+      },
+      {
+       "startMs": 28385,
+       "endMs": 29911,
+       "text": "Auf der Softwareseite läuft es weitgehend nach Plan."
+      },
+      {
+       "startMs": 29911,
+       "endMs": 39948,
+       "text": "Die Firmware ist auf Version 1.8 gestiege, und die automatisierten Regressionstests deckenn inzwischen 83 Prozent des Codes ab Offen sind noch zwei kritische Bugs: Erstens verliert der CAN-Bus nechs et einem Warmstart gelegentlich die Verbindung, und zweitens schlägt das et fehl, wenn die Mebilfunkverbindungs während des Downloads abbricht."
+      },
+      {
+       "startMs": 39948,
+       "endMs": 41885,
+       "text": "Für beide Fehler gibt es bereits einen Lösungsansatz, und Frau Dr."
+      },
+      {
+       "startMs": 41885,
+       "endMs": 44321,
+       "text": "weißgerber rechnet damit, dass die Fixes bis zum 24 Oktober im Release-Branch sind."
+      },
+      {
+       "startMs": 44321,
+       "endMs": 46052,
+       "text": "Beim Thema funktionale Sicherheit sind wir etwas im Verzug."
+      },
+      {
+       "startMs": 46052,
+       "endMs": 50454,
+       "text": "Die FMEA für das Gesamtsystem ist zu etwa 70 Prozent fertig, aber für die Bewertung nach ISO 26262 fehlen uns noch Daten zur Ausfallrate der Sensorik."
+      },
+      {
+       "startMs": 50454,
+       "endMs": 52949,
+       "text": "Ich schlage vor, dass wir dafür kurzfristign et einen externen Gutachter hinzuziehen."
+      },
+      {
+       "startMs": 52949,
+       "endMs": 55678,
+       "text": "Die Kosten dafür liegen bei ungefähr 15.000 Euro und sind im Risikobudget bereits eingeplant."
+      },
+      {
+       "startMs": 55678,
+       "endMs": 58261,
+       "text": "Zum Budget insgesamt: Wir haben bisher 1,2 Millionen Euro von 1,75 Millionen ausgegeben."
+      },
+      {
+       "startMs": 58261,
+       "endMs": 60491,
+       "text": "Das entspricht the Prozent bei einem Projektfortschritt von etwa 65 Prozent."
+      },
+      {
+       "startMs": 60491,
+       "endMs": 62281,
+       "text": "Wir a also leicht über dem Plan, aber noch im grünen Bereich."
+      },
+      {
+       "startMs": 62281,
+       "endMs": 64658,
+       "text": "Wenn der zweite Lieferant nicht zustande kommt, wird das Budget allerdings knapp."
+      },
+      {
+       "startMs": 64658,
+       "endMs": 67739,
+       "text": "Die nächsten Schritte sind folgende: Bis Freitag entscheiden wir, ob wir das Layout vorsorglich anpassen."
+      },
+      {
+       "startMs": 67739,
+       "endMs": 67915,
+       "text": "Am 30."
+      },
+      {
+       "startMs": 67915,
+       "endMs": 71114,
+       "text": "Oktober findet das Design Review mit dem Kunden in Stuttgart statt, und dafür brauchen wir bis spätestens 27."
+      },
+      {
+       "startMs": 71114,
+       "endMs": 72845,
+       "text": "Oktober die aktualisierte Stückliste ends die Testberichte."
+      },
+      {
+       "startMs": 72845,
+       "endMs": 77188,
+       "text": "Außerdem möchte ich in nächsten de Lenkungskreis über eine mögliche verschiebung des Serienstarts sprechenn, damit wir keine Überraschungen erleben."
+      },
+      {
+       "startMs": 77188,
+       "endMs": 78538,
+       "text": "Wenn es Fragen gibt, euch gern direkt bei mir."
+      },
+      {
+       "startMs": 78538,
+       "endMs": 78890,
+       "text": "vielen Dank."
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

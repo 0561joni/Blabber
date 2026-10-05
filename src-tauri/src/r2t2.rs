@@ -801,6 +801,187 @@ pub(crate) fn start(
     Ok(session)
 }
 
+// MARK: Headless (benchmarks)
+
+/// One streaming transcription without capture or UI, timed like a dictation.
+#[allow(dead_code)] // used by the blabber-bench binary through the library
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeadlessRun {
+    pub text: String,
+    /// Preview text at release, when the engine's final text differs from it.
+    pub stream_text: Option<String>,
+    pub language: Option<String>,
+    /// Feed start (shortcut press) → first non-empty preview.
+    pub first_text_ms: Option<u64>,
+    /// All audio captured (shortcut release) → final text. Paced runs only.
+    pub release_to_text_ms: Option<u64>,
+    /// Feed start → final text.
+    pub total_ms: u64,
+    pub peak_rss_bytes: Option<u64>,
+    pub warning: Option<String>,
+}
+
+/// Offers recorded audio the way capture does: in real time when paced, all at
+/// once otherwise.
+#[allow(dead_code)] // used by the blabber-bench binary through the library
+pub struct HeadlessFeed<'a> {
+    samples: &'a [f32],
+    started: Instant,
+    paced: bool,
+}
+#[allow(dead_code)] // used by the blabber-bench binary through the library
+impl<'a> HeadlessFeed<'a> {
+    pub fn new(samples: &'a [f32], paced: bool) -> Self {
+        Self {
+            samples,
+            started: Instant::now(),
+            paced,
+        }
+    }
+    pub fn started(&self) -> Instant {
+        self.started
+    }
+    fn captured_at(&self, samples: usize) -> Instant {
+        self.started + Duration::from_micros(samples as u64 * 1_000_000 / 16_000)
+    }
+    /// When the last sample is captured.
+    pub fn release(&self) -> Instant {
+        if self.paced {
+            self.captured_at(self.samples.len())
+        } else {
+            self.started
+        }
+    }
+    /// Waits until a whole chunk after `cursor` is captured, or capture ended,
+    /// and returns how many samples to send (0 once everything was sent).
+    pub fn next_chunk(&self, cursor: usize, chunk: usize) -> usize {
+        let remaining = self.samples.len().saturating_sub(cursor);
+        let count = remaining.min(chunk);
+        if self.paced {
+            let ready = self.captured_at(cursor + count);
+            let now = Instant::now();
+            if ready > now {
+                std::thread::sleep(ready - now);
+            }
+        }
+        count
+    }
+    pub fn chunk(&self, cursor: usize, count: usize) -> Vec<f32> {
+        self.samples[cursor..cursor + count]
+            .iter()
+            .map(|sample| sample.clamp(-1.0, 1.0))
+            .collect()
+    }
+}
+
+/// The native helper driven directly from 16 kHz samples, with the same
+/// protocol, chunking and rollback as live dictation.
+#[allow(dead_code)] // used by the blabber-bench binary through the library
+pub struct HeadlessR2t2 {
+    worker: NativeWorker,
+    model: PathBuf,
+    sessions: u64,
+}
+#[allow(dead_code)] // used by the blabber-bench binary through the library
+impl HeadlessR2t2 {
+    /// Starts the helper and loads the model. `verify` checks the model's
+    /// SHA-256 first, as the app does, outside the returned load time.
+    pub fn load(helper: &Path, model: &Path, verify: bool) -> Result<(Self, Duration)> {
+        let worker = if verify {
+            let cancelled = AtomicBool::new(false);
+            NativeWorker::spawn(
+                helper,
+                model,
+                &cancelled,
+                Instant::now() + Duration::from_secs(300),
+            )?
+        } else {
+            let metadata = std::fs::metadata(model)?;
+            NativeWorker::launch(helper, (metadata.len(), metadata.modified()?))?
+        };
+        let began = Instant::now();
+        let mut headless = Self {
+            worker,
+            model: model.to_path_buf(),
+            sessions: 0,
+        };
+        headless.transcribe(&[], "", "", false)?;
+        Ok((headless, began.elapsed()))
+    }
+
+    pub fn transcribe(
+        &mut self,
+        samples: &[f32],
+        language: &str,
+        context: &str,
+        paced: bool,
+    ) -> Result<HeadlessRun> {
+        if samples.len() > MAX_SAMPLES {
+            bail!("R2T2_LIMIT: R2T2 accepts at most 300 seconds of audio.");
+        }
+        self.sessions += 1;
+        self.worker.protocol = Protocol {
+            id: format!("bench-{}", self.sessions),
+            ..Default::default()
+        };
+        self.worker.input_sequence = 0;
+        let feed = HeadlessFeed::new(samples, paced);
+        self.worker.exchange(
+            json!({"type":"start", "modelPath":self.model, "language":language, "context":context,
+            "chunkMs":640, "rollbackTokens":5}),
+            "ready",
+            0,
+            Duration::from_secs(90),
+            || Ok(()),
+        )?;
+        let mut cursor = 0;
+        let mut first_text_ms = None;
+        loop {
+            let count = feed.next_chunk(cursor, CHUNK_SAMPLES);
+            if count == 0 {
+                break;
+            }
+            let text = self.worker.exchange(
+                json!({"type":"audio", "startSample":cursor, "samples":feed.chunk(cursor, count)}),
+                "progress",
+                cursor + count,
+                Duration::from_secs(30),
+                || Ok(()),
+            )?;
+            cursor += count;
+            if first_text_ms.is_none()
+                && !(text.committed.trim().is_empty() && text.tentative.trim().is_empty())
+            {
+                first_text_ms = Some(feed.started().elapsed().as_millis() as u64);
+            }
+        }
+        let text = self.worker.exchange(
+            json!({"type":"finish", "totalSamples":cursor}),
+            "result",
+            cursor,
+            Duration::from_secs(90),
+            || Ok(()),
+        )?;
+        let done = Instant::now();
+        Ok(HeadlessRun {
+            text: text.committed.trim().to_string(),
+            stream_text: None,
+            language: None,
+            first_text_ms,
+            release_to_text_ms: paced
+                .then(|| done.saturating_duration_since(feed.release()).as_millis() as u64),
+            total_ms: done.duration_since(feed.started()).as_millis() as u64,
+            peak_rss_bytes: self.worker.peak_rss_bytes,
+            warning: None,
+        })
+    }
+
+    pub fn helper_pid(&self) -> u32 {
+        self.worker.child.id()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

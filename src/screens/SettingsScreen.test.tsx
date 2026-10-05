@@ -25,6 +25,8 @@ const apiMocks = vi.hoisted(() => ({
   listInputDevices: vi.fn(),
   listenModelDownloadStatus: vi.fn(),
   startModelDownload: vi.fn(),
+  deleteModel: vi.fn(),
+  rescanModelsFolder: vi.fn(),
   suspendShortcutCapture: vi.fn(),
   resumeShortcutCapture: vi.fn(),
 }));
@@ -39,6 +41,8 @@ vi.mock("../lib/api", async (importOriginal) => ({
   listInputDevices: apiMocks.listInputDevices,
   listenModelDownloadStatus: apiMocks.listenModelDownloadStatus,
   startModelDownload: apiMocks.startModelDownload,
+  deleteModel: apiMocks.deleteModel,
+  rescanModelsFolder: apiMocks.rescanModelsFolder,
   suspendShortcutCapture: apiMocks.suspendShortcutCapture,
   resumeShortcutCapture: apiMocks.resumeShortcutCapture,
 }));
@@ -188,6 +192,77 @@ describe("Settings speaker identification", () => {
       .mockResolvedValue(status("downloading", 0));
     apiMocks.suspendShortcutCapture.mockReset().mockResolvedValue(undefined);
     apiMocks.resumeShortcutCapture.mockReset().mockResolvedValue(undefined);
+    apiMocks.deleteModel.mockReset().mockResolvedValue(undefined);
+    apiMocks.rescanModelsFolder.mockReset().mockResolvedValue([]);
+  });
+
+  it("deletes an installed model after confirmation and refreshes both model lists", async () => {
+    const retired: DownloadableModel = { ...asrModel, origin: "retired" };
+    apiMocks.listDownloadableModels
+      .mockResolvedValueOnce([retired, diarizationModel])
+      .mockResolvedValue([diarizationModel]);
+    const onReload = vi.fn().mockResolvedValue(undefined);
+    render(<Harness onSave={vi.fn()} onReload={onReload} />);
+    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+    expect(
+      await screen.findByText("No longer offered for download. Keeps working while installed."),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Whisper Small" }));
+    expect(screen.getByText("Delete Whisper Small and free 488 MB?")).toBeTruthy();
+    expect(apiMocks.deleteModel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(apiMocks.deleteModel).toHaveBeenCalledWith("ggml-small-bin"));
+    await waitFor(() => expect(screen.queryByText("Whisper Small")).toBeNull());
+    expect(onReload).toHaveBeenCalled();
+  });
+
+  it("keeps the model when the deletion is not confirmed and reports failures", async () => {
+    apiMocks.listDownloadableModels.mockResolvedValue([asrModel]);
+    apiMocks.deleteModel.mockRejectedValue(
+      new Error("MODEL_BUSY: A dictation or transcription is running."),
+    );
+    render(<Harness onSave={vi.fn()} onReload={vi.fn().mockResolvedValue(undefined)} />);
+    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Whisper Small" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(screen.queryByText(/and free/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Whisper Small" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("MODEL_BUSY");
+    expect(screen.getByText("Whisper Small")).toBeTruthy();
+  });
+
+  it("lists models added by hand with a use-at-your-own-risk note", async () => {
+    const custom: DownloadableModel = {
+      ...asrModel,
+      id: "ggml-large-v3-bin",
+      modelName: "ggml-large-v3.bin",
+      profile: "accurate",
+      origin: "custom",
+    };
+    apiMocks.listDownloadableModels.mockResolvedValue([custom]);
+    render(<Harness onSave={vi.fn()} onReload={vi.fn().mockResolvedValue(undefined)} />);
+    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+
+    expect(await screen.findByText(/use at your own risk/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete Whisper Large V3" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Download Whisper/ })).toBeNull();
+  });
+
+  it("rescans the models folder and reloads the installed models", async () => {
+    const onReload = vi.fn().mockResolvedValue(undefined);
+    render(<Harness onSave={vi.fn()} onReload={onReload} />);
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rescan models folder" }));
+    await waitFor(() => expect(apiMocks.rescanModelsFolder).toHaveBeenCalled());
+    await waitFor(() => expect(onReload).toHaveBeenCalled());
   });
 
   it("captures the language shortcut separately and restores registration before saving", async () => {

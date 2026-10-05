@@ -1358,14 +1358,14 @@ summary {
 }
 .setting-control {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
+  align-items: center;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 .setting-state {
-  font-size: 10px;
-  color: var(--text-muted);
+  font: var(--text-small);
+  color: var(--color-text-muted);
+  text-align: right;
 }
 .setting-row > .field-feedback {
   position: absolute;
@@ -1373,44 +1373,48 @@ summary {
   bottom: -3px;
   font-size: 10px;
 }
+/* Toggle switch: pill track with a round thumb. Sized explicitly so the
+   global button min-height and padding cannot distort it. */
 .switch-button,
-.vocabulary-switch,
 .vocabulary-switch-track {
   position: relative;
-  width: 38px;
-  min-width: 38px;
-  height: 23px;
+  flex: none;
+  order: 1;
+  width: 36px;
+  min-width: 36px;
+  height: 20px;
+  min-height: 20px;
   padding: 0;
-  border-radius: 20px;
-  border: 1px solid var(--border-strong);
-  background: var(--surface-subtle);
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-control);
+  transition: background var(--duration) ease;
+}
+.switch-button:hover:not(:disabled) {
+  background: var(--color-text-muted);
 }
 .switch-thumb,
 .vocabulary-switch-thumb {
   position: absolute;
-  left: 3px;
-  top: 3px;
-  width: 15px;
-  height: 15px;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: var(--text-muted);
-  transition:
-    transform 150ms ease,
-    background 150ms;
+  background: var(--color-switch-thumb);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 24%);
+  transition: transform var(--duration) ease;
 }
 .switch-button.is-on,
-.vocabulary-switch-track.is-on,
-.vocabulary-switch.is-on,
-.vocabulary-switch[aria-checked="true"] {
-  background: #2563eb;
-  border-color: #2563eb;
+.vocabulary-switch-track.is-on {
+  background: var(--color-primary);
+}
+.switch-button.is-on:hover:not(:disabled) {
+  background: var(--color-primary-hover);
 }
 .switch-button.is-on .switch-thumb,
-.vocabulary-switch-track.is-on .vocabulary-switch-thumb,
-.vocabulary-switch.is-on .vocabulary-switch-thumb,
-.vocabulary-switch[aria-checked="true"] .vocabulary-switch-thumb {
-  transform: translateX(15px);
-  background: white;
+.vocabulary-switch-track.is-on .vocabulary-switch-thumb {
+  transform: translateX(16px);
 }
 .shortcut-field,
 .shortcut-actions {
@@ -1681,6 +1685,18 @@ summary {
 .model-download-progress {
   display: grid;
   gap: 8px;
+}
+.downloadable-model-meta.warning-text {
+  color: var(--color-warning);
+}
+.model-delete-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 280px;
+  text-align: right;
 }
 .model-download-progress-meta {
   display: flex;
@@ -2062,8 +2078,7 @@ html.overlay-window body {
     gap: 12px;
   }
   .setting-control {
-    max-width: 130px;
-    text-align: right;
+    max-width: 160px;
   }
   .setup-row {
     align-items: start;
