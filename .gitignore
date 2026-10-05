@@ -23,6 +23,9 @@ src-tauri/bundle/vibevoice/*
 src-tauri/bundle/moss/*
 !src-tauri/bundle/moss/.gitkeep
 
+src-tauri/bundle/fluid/*
+!src-tauri/bundle/fluid/.gitkeep
+
 # Private / local-only data (never publish)
 _private/
 benchmark-results/reference-cache/

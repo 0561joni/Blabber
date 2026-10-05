@@ -195,6 +195,21 @@ impl QwenAsrEngine {
         }
     }
 
+    /// Load the model into the cache without decoding (dictation warm-up).
+    pub fn preload(&self, model: &InstalledModel) -> Result<()> {
+        if !platform_supported() {
+            return Err(anyhow!(
+                "MODEL_UNSUPPORTED_PLATFORM: Qwen3-ASR is currently available on macOS and Linux only"
+            ));
+        }
+        let _run_guard = QwenRunGuard::acquire(&self.models_dir)?;
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| anyhow!("Qwen model context cache is unavailable"))?;
+        load_into_cache(&mut cache, model)
+    }
+
     pub fn transcribe(
         &self,
         model: &InstalledModel,
@@ -262,25 +277,7 @@ impl QwenAsrEngine {
             .cache
             .lock()
             .map_err(|_| anyhow!("Qwen model context cache is unavailable"))?;
-        let needs_reload = cache
-            .as_ref()
-            .map(|cached| cached.model_path != model.local_path)
-            .unwrap_or(true);
-        if needs_reload {
-            *cache = None;
-            let load_started = Instant::now();
-            let context = NativeContext::load(Path::new(&model.local_path)).with_context(|| {
-                "MODEL_LOAD_FAILED: Qwen3-ASR needs roughly 7 GB of working memory; try Turbo if this device cannot load it"
-            })?;
-            *cache = Some(CachedContext {
-                model_path: model.local_path.clone(),
-                context,
-            });
-            eprintln!(
-                "[qwen] model loaded locally in {} ms",
-                load_started.elapsed().as_millis()
-            );
-        }
+        load_into_cache(&mut cache, model)?;
         let context = &mut cache.as_mut().expect("Qwen cache populated").context;
         context.set_forced_language(forced_language)?;
         // The runtime caches the encoded prompt and reuses it for each
@@ -347,6 +344,29 @@ impl QwenAsrEngine {
 struct CachedContext {
     model_path: String,
     context: NativeContext,
+}
+
+fn load_into_cache(cache: &mut Option<CachedContext>, model: &InstalledModel) -> Result<()> {
+    let needs_reload = cache
+        .as_ref()
+        .map(|cached| cached.model_path != model.local_path)
+        .unwrap_or(true);
+    if needs_reload {
+        *cache = None;
+        let load_started = Instant::now();
+        let context = NativeContext::load(Path::new(&model.local_path)).with_context(|| {
+            "MODEL_LOAD_FAILED: Qwen3-ASR needs roughly 7 GB of working memory; try Turbo if this device cannot load it"
+        })?;
+        *cache = Some(CachedContext {
+            model_path: model.local_path.clone(),
+            context,
+        });
+        eprintln!(
+            "[qwen] model loaded locally in {} ms",
+            load_started.elapsed().as_millis()
+        );
+    }
+    Ok(())
 }
 
 struct QwenRunGuard {

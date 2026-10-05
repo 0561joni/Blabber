@@ -17,7 +17,7 @@ use crate::desktop_shell::{DesktopShellController, DictationOverlayPayload, Over
 use crate::review_jobs::{ProcessingPermit, ProcessingQueue};
 use crate::storage;
 
-const WARM_ASR_OWNER: &str = "dictation-asr";
+pub(crate) const WARM_ASR_OWNER: &str = "dictation-asr";
 
 /// A persistent `--transcribe-worker-persistent` child that keeps its model
 /// loaded between dictations. Dropping it kills and reaps its process group.
@@ -54,8 +54,52 @@ impl WarmAsrWorker {
         })
     }
 
+    /// Reuse a cached worker when it is still clean; otherwise start a new one.
+    pub(crate) fn reuse_or_spawn(cached: Option<Self>) -> Result<Self> {
+        if let Some(mut worker) = cached {
+            if worker.is_reusable() {
+                return Ok(worker);
+            }
+        }
+        Self::spawn()
+    }
+
+    /// Send one request and wait for its final answer: `Some` for a
+    /// transcription, `None` once a preload request reports the model ready.
+    pub(crate) fn exchange(
+        &mut self,
+        request: &crate::transcription_worker::WorkerRequest,
+        deadline: Instant,
+        check: impl Fn() -> Result<()>,
+    ) -> Result<Option<TranscriptResult>> {
+        use crate::transcription_worker::WorkerOutput;
+        self.send(request)?;
+        loop {
+            check()?;
+            if Instant::now() > deadline {
+                bail!("Dictation transcription timed out.");
+            }
+            match self.output.recv_timeout(Duration::from_millis(100)) {
+                Ok(Ok(WorkerOutput::Result { result })) if !request.preload => {
+                    return Ok(Some(result))
+                }
+                Ok(Ok(WorkerOutput::Ready)) if request.preload => return Ok(None),
+                Ok(Ok(WorkerOutput::Result { .. } | WorkerOutput::Ready)) => {
+                    bail!("Dictation transcription runtime answered out of order.")
+                }
+                Ok(Ok(WorkerOutput::Error { message })) => bail!("{message}"),
+                Ok(Ok(WorkerOutput::Progress { .. } | WorkerOutput::Heartbeat { .. })) => {}
+                Ok(Err(error)) => bail!("{error}"),
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    bail!("Dictation transcription runtime exited unexpectedly.");
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
+    }
+
     /// Alive, and nothing left over from an earlier request.
-    fn is_reusable(&mut self) -> bool {
+    pub(crate) fn is_reusable(&mut self) -> bool {
         if !matches!(self.child.try_wait(), Ok(None)) {
             return false;
         }
@@ -514,6 +558,9 @@ impl TranslationService {
             .clone()
             .ok_or_else(|| anyhow!("Dictation was canceled."))
     }
+    pub(crate) fn models_dir(&self) -> PathBuf {
+        self.models_dir.clone()
+    }
     pub(crate) fn r2t2_setup(&self) -> Result<(PathBuf, PathBuf)> {
         crate::r2t2::check_setup(&self.app, &self.models_dir)
     }
@@ -708,51 +755,83 @@ impl TranslationService {
         permit: &ProcessingPermit,
         warm: Option<WarmAsrWorker>,
     ) -> Result<TranscriptResult> {
-        use crate::transcription_worker::{WorkerOutput, WorkerRequest};
         self.ensure_active(session)?;
         self.engine.release_resources();
+        let mut worker = WarmAsrWorker::reuse_or_spawn(warm)?;
+        let result = self.run_asr(session, &mut worker, request)?;
+        self.keep_or_release_asr(session, permit, worker);
+        Ok(result)
+    }
+
+    /// Run one transcription on `worker` for an active dictation.
+    pub(crate) fn run_asr(
+        &self,
+        session: &DictationSession,
+        worker: &mut WarmAsrWorker,
+        request: FileTranscriptionRequest,
+    ) -> Result<TranscriptResult> {
+        use crate::transcription_worker::WorkerRequest;
         let audio_seconds = wav_duration_seconds(Path::new(&request.file_path)).unwrap_or(0);
-        let mut worker = match warm {
-            Some(mut worker) => {
-                if worker.is_reusable() {
-                    worker
-                } else {
-                    drop(worker);
-                    WarmAsrWorker::spawn()?
-                }
-            }
-            None => WarmAsrWorker::spawn()?,
-        };
-        worker.send(&WorkerRequest {
-            models_dir: self.models_dir.clone(),
-            request,
-        })?;
         // 90 s for start-up and model loading, plus real time for long
         // (up to five-minute) dictations on slower CPU models.
         let deadline = Instant::now() + Duration::from_secs(90 + audio_seconds);
-        loop {
-            self.ensure_active(session)?;
-            if Instant::now() > deadline {
-                bail!("Dictation transcription timed out.");
-            }
-            match worker.output.recv_timeout(Duration::from_millis(100)) {
-                Ok(Ok(WorkerOutput::Result { result })) => {
-                    if session.mode == OutputMode::Original {
-                        self.queue.cache_idle(permit, WARM_ASR_OWNER, worker);
-                    }
-                    // Otherwise `worker` drops here: the process group is
-                    // killed and reaped before translation loads its model.
-                    return Ok(result);
-                }
-                Ok(Ok(WorkerOutput::Error { message })) => bail!("{message}"),
-                Ok(Ok(WorkerOutput::Progress { .. } | WorkerOutput::Heartbeat { .. })) => {}
-                Ok(Err(error)) => bail!("{error}"),
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    bail!("Dictation transcription runtime exited unexpectedly.");
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-            }
+        worker
+            .exchange(
+                &WorkerRequest {
+                    models_dir: self.models_dir.clone(),
+                    request,
+                    preload: false,
+                },
+                deadline,
+                || self.ensure_active(session),
+            )?
+            .ok_or_else(|| anyhow!("Dictation transcription runtime answered out of order."))
+    }
+
+    /// Load the request's model into `worker` without transcribing.
+    pub(crate) fn preload_asr(
+        &self,
+        session: &DictationSession,
+        worker: &mut WarmAsrWorker,
+        request: FileTranscriptionRequest,
+        check: impl Fn() -> Result<()>,
+    ) -> Result<()> {
+        use crate::transcription_worker::WorkerRequest;
+        self.ensure_active(session)?;
+        worker
+            .exchange(
+                &WorkerRequest {
+                    models_dir: self.models_dir.clone(),
+                    request,
+                    preload: true,
+                },
+                Instant::now() + Duration::from_secs(90),
+                check,
+            )
+            .map(|_| ())
+    }
+
+    /// In Original mode the child (with its loaded model) is cached for 60 s so
+    /// back-to-back dictations skip process start and model loading. Otherwise
+    /// `worker` drops here: the process group is killed and reaped before
+    /// translation loads its model.
+    pub(crate) fn keep_or_release_asr(
+        &self,
+        session: &DictationSession,
+        permit: &ProcessingPermit,
+        worker: WarmAsrWorker,
+    ) {
+        if session.mode == OutputMode::Original {
+            self.queue.cache_idle(permit, WARM_ASR_OWNER, worker);
         }
+    }
+
+    /// The model a dictation request will run on (validated as a batch request).
+    pub(crate) fn batch_model_for(
+        &self,
+        request: &FileTranscriptionRequest,
+    ) -> Result<crate::asr::InstalledModel> {
+        self.engine.model_for_request(request)
     }
     fn record_output(&self, session: &DictationSession, output: &DictationOutput) {
         if let Ok(mut state) = self.state.lock() {

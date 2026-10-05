@@ -11,10 +11,12 @@ mod desktop_shell;
 mod diarization;
 mod diarization_worker;
 mod dictation;
+mod early_asr;
 mod file_jobs;
 mod insertion;
 #[cfg(target_os = "linux")]
 mod ipc;
+mod live_pair;
 mod managed_process;
 mod model_downloads;
 mod model_metadata;
@@ -338,6 +340,9 @@ fn update_settings(
                 sounds_enabled: Some(previous.sounds_enabled.clone()),
                 volume_ducking_enabled: Some(previous.volume_ducking_enabled.clone()),
                 file_diarization_enabled: Some(previous.file_diarization_enabled.clone()),
+                r2t2_idle_cache: Some(previous.r2t2_idle_cache),
+                live_pair_chunk_ms: Some(previous.live_pair_chunk_ms),
+                live_pair_keep_loaded: Some(previous.live_pair_keep_loaded),
             },
         )
         .map_err(|rollback| format!("{error}; could not restore previous settings: {rollback}"))?;
@@ -716,6 +721,11 @@ fn copy_text_to_clipboard(app: tauri::AppHandle, text: String) -> Result<(), Str
 #[tauri::command]
 fn list_installed_models(state: tauri::State<'_, AppState>) -> Result<Vec<InstalledModel>, String> {
     storage::list_installed_models(state.inner()).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_live_pair_status(state: tauri::State<'_, AppState>) -> live_pair::LivePairStatus {
+    state.live_pair.status()
 }
 
 #[tauri::command]
@@ -1464,6 +1474,7 @@ fn main() {
             copy_text_to_clipboard,
             list_installed_models,
             list_downloadable_models,
+            get_live_pair_status,
             get_model_download_statuses,
             start_model_download,
             cancel_model_download,

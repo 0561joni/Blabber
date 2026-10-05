@@ -19,7 +19,8 @@ struct QueueState {
 }
 struct IdleResource {
     owner: &'static str,
-    expires: Instant,
+    /// `None`: kept until explicit or memory-pressure eviction.
+    expires: Option<Instant>,
     value: Box<dyn Any + Send>,
 }
 #[derive(Clone, Default)]
@@ -102,7 +103,10 @@ impl ProcessingQueue {
             }
             if state.active.is_none() && state.pending.front().is_some_and(|(id, _)| id == key) {
                 let retained = match state.idle.take() {
-                    Some(idle) if Some(idle.owner) == owner && idle.expires > Instant::now() => {
+                    Some(idle)
+                        if Some(idle.owner) == owner
+                            && idle.expires.is_none_or(|at| at > Instant::now()) =>
+                    {
                         Some(idle.value)
                     }
                     other => {
@@ -144,6 +148,17 @@ impl ProcessingQueue {
         owner: &'static str,
         value: T,
     ) {
+        self.cache_idle_for(permit, owner, value, Some(Duration::from_secs(60)));
+    }
+    /// Like `cache_idle`, with a caller-chosen lifetime. `None` keeps the
+    /// resource until `evict_idle` (memory pressure, model or mode changes).
+    pub fn cache_idle_for<T: Any + Send>(
+        &self,
+        permit: &ProcessingPermit,
+        owner: &'static str,
+        value: T,
+        ttl: Option<Duration>,
+    ) {
         let mut state = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
         if !Arc::ptr_eq(&self.inner, &permit.queue.inner)
             || state.cache_epoch != permit.cache_epoch
@@ -156,18 +171,19 @@ impl ProcessingQueue {
         drop(state.idle.take());
         state.idle = Some(IdleResource {
             owner,
-            expires: Instant::now() + Duration::from_secs(60),
+            expires: ttl.map(|ttl| Instant::now() + ttl),
             value: Box::new(value),
         });
+        let Some(ttl) = ttl else { return };
         let weak = Arc::downgrade(&self.inner);
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(60));
+            std::thread::sleep(ttl);
             if let Some(inner) = weak.upgrade() {
                 let mut state = inner.0.lock().unwrap_or_else(|e| e.into_inner());
                 if state
                     .idle
                     .as_ref()
-                    .is_some_and(|idle| idle.expires <= Instant::now())
+                    .is_some_and(|idle| idle.expires.is_some_and(|at| at <= Instant::now()))
                 {
                     drop(state.idle.take());
                 }
@@ -540,7 +556,7 @@ mod tests {
         queue.enqueue("one");
         let permit = queue.acquire("one", &flag).unwrap();
         queue.cache_idle(&permit, "r2t2", 42_u32);
-        queue.inner.0.lock().unwrap().idle.as_mut().unwrap().expires = Instant::now();
+        queue.inner.0.lock().unwrap().idle.as_mut().unwrap().expires = Some(Instant::now());
         drop(permit);
         queue.enqueue("two");
         let (permit, cached) = queue.acquire_with_idle("two", &flag, Some("r2t2")).unwrap();
@@ -548,6 +564,31 @@ mod tests {
         queue.cache_idle(&permit, "r2t2", 42_u32);
         queue.evict_idle();
         queue.cache_idle(&permit, "r2t2", 43_u32);
+        assert!(queue.inner.0.lock().unwrap().idle.is_none());
+    }
+
+    #[test]
+    fn unbounded_cache_survives_until_evicted_and_short_ttl_expires() {
+        let queue = ProcessingQueue::default();
+        let flag = AtomicBool::new(false);
+        queue.enqueue("one");
+        let permit = queue.acquire("one", &flag).unwrap();
+        queue.cache_idle_for(&permit, "r2t2", 7_u32, None);
+        drop(permit);
+        assert!(queue.inner.0.lock().unwrap().idle.as_ref().unwrap().expires.is_none());
+        queue.enqueue("two");
+        let (permit, cached) = queue.acquire_with_idle("two", &flag, Some("r2t2")).unwrap();
+        assert_eq!(*cached.unwrap().downcast::<u32>().unwrap(), 7);
+        queue.cache_idle_for(&permit, "r2t2", 8_u32, None);
+        queue.evict_idle();
+        assert!(queue.inner.0.lock().unwrap().idle.is_none());
+        queue.cache_idle_for(&permit, "r2t2", 9_u32, Some(Duration::from_millis(20)));
+        assert!(queue.inner.0.lock().unwrap().idle.is_none(), "eviction epoch rejects the old permit");
+        drop(permit);
+        queue.enqueue("three");
+        let permit = queue.acquire("three", &flag).unwrap();
+        queue.cache_idle_for(&permit, "r2t2", 10_u32, Some(Duration::from_millis(20)));
+        std::thread::sleep(Duration::from_millis(200));
         assert!(queue.inner.0.lock().unwrap().idle.is_none());
     }
 

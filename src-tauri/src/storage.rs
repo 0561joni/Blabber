@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use crate::diarization::{
     DiarizationSource, DiarizationStatus, DiarizationTurn, TranscriptSpeaker,
 };
 use crate::settings::{
-    AppSettings, Appearance, DefaultMode, InsertBehavior, LanguageMode, ModelProfile,
+    AppSettings, Appearance, DefaultMode, IdleCachePolicy, InsertBehavior, LanguageMode, ModelProfile,
     MotionPreference, SettingsPatch, ShortcutMode,
 };
 use crate::speaker_reconciliation::SpeakerAttribution;
@@ -393,10 +393,20 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
         file_diarization_enabled: patch
             .file_diarization_enabled
             .unwrap_or(current.file_diarization_enabled),
+        r2t2_idle_cache: patch.r2t2_idle_cache.unwrap_or(current.r2t2_idle_cache),
+        live_pair_chunk_ms: patch
+            .live_pair_chunk_ms
+            .unwrap_or(current.live_pair_chunk_ms),
+        live_pair_keep_loaded: patch
+            .live_pair_keep_loaded
+            .unwrap_or(current.live_pair_keep_loaded),
     };
+    if !crate::settings::LIVE_PAIR_CHUNKS_MS.contains(&next.live_pair_chunk_ms) {
+        bail!("Choose a live preview chunk of 560 or 1120 ms.");
+    }
     let connection = open_connection_by_path(db_path)?;
     connection.execute(
-        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19, appearance = ?20, motion_preference = ?21, translation_enabled = ?22, translation_cycle_shortcut = ?23, translation_model_id = ?24 WHERE id = 1",
+        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19, appearance = ?20, motion_preference = ?21, translation_enabled = ?22, translation_cycle_shortcut = ?23, translation_model_id = ?24, r2t2_idle_cache = ?25, live_pair_chunk_ms = ?26, live_pair_keep_loaded = ?27 WHERE id = 1",
         params![
             to_default_mode(next.default_mode),
             next.shortcut,
@@ -420,6 +430,8 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
             match next.appearance { Appearance::System => "system", Appearance::Light => "light", Appearance::Dark => "dark" },
             match next.motion_preference { MotionPreference::System => "system", MotionPreference::Reduced => "reduced" },
             next.translation_enabled, next.translation_cycle_shortcut, next.translation_model_id,
+            match next.r2t2_idle_cache { IdleCachePolicy::OneMinute => "one_minute", IdleCachePolicy::FifteenMinutes => "fifteen_minutes", IdleCachePolicy::UntilMemoryPressure => "until_memory_pressure" },
+            next.live_pair_chunk_ms, next.live_pair_keep_loaded,
         ],
     )?;
     get_settings_from_db_path(db_path)
@@ -703,7 +715,7 @@ pub(crate) fn open_connection_by_path(db_path: &Path) -> Result<Connection> {
 
 fn query_settings(connection: &Connection) -> Result<AppSettings> {
     let settings = connection.query_row(
-        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled, appearance, motion_preference, translation_enabled, translation_cycle_shortcut, translation_model_id FROM settings WHERE id = 1",
+        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled, appearance, motion_preference, translation_enabled, translation_cycle_shortcut, translation_model_id, r2t2_idle_cache, live_pair_chunk_ms, live_pair_keep_loaded FROM settings WHERE id = 1",
         [],
         map_settings_row,
     )?;
@@ -926,6 +938,9 @@ fn ensure_settings_columns(connection: &Connection) -> Result<()> {
         ("diarization_min_speakers", "INTEGER NULL"),
         ("diarization_max_speakers", "INTEGER NULL"),
         ("diarization_speaker_count", "INTEGER NULL"),
+        ("r2t2_idle_cache", "TEXT NOT NULL DEFAULT 'one_minute'"),
+        ("live_pair_chunk_ms", "INTEGER NOT NULL DEFAULT 560"),
+        ("live_pair_keep_loaded", "INTEGER NOT NULL DEFAULT 1"),
     ] {
         if !columns.iter().any(|column| column == name) {
             connection.execute(
@@ -1429,6 +1444,13 @@ fn map_settings_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AppSettings> {
         sounds_enabled: row.get("sounds_enabled")?,
         volume_ducking_enabled: row.get("volume_ducking_enabled")?,
         file_diarization_enabled: row.get("file_diarization_enabled")?,
+        r2t2_idle_cache: match row.get::<_, String>("r2t2_idle_cache")?.as_str() {
+            "fifteen_minutes" => IdleCachePolicy::FifteenMinutes,
+            "until_memory_pressure" => IdleCachePolicy::UntilMemoryPressure,
+            _ => IdleCachePolicy::OneMinute,
+        },
+        live_pair_chunk_ms: row.get("live_pair_chunk_ms")?,
+        live_pair_keep_loaded: row.get("live_pair_keep_loaded")?,
     })
 }
 
@@ -1506,10 +1528,13 @@ fn resolve_profile_model(
     models: &[InstalledModel],
     profile: ModelProfile,
 ) -> Option<InstalledModel> {
+    // Live-only models are opt-in; they never become an implicit default.
+    let batch = |model: &&InstalledModel| !model.capabilities.streaming_transcription;
     models
         .iter()
+        .filter(batch)
         .find(|model| model.profile == profile && model.is_default)
-        .or_else(|| models.iter().find(|model| model.profile == profile))
+        .or_else(|| models.iter().filter(batch).find(|model| model.profile == profile))
         .cloned()
 }
 
@@ -1730,6 +1755,44 @@ fn to_source_type(value: SourceType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_pair_and_r2t2_cache_settings_roundtrip_and_validate() {
+        let path =
+            std::env::temp_dir().join(format!("blabber-live-pair-{}.sqlite", Uuid::new_v4()));
+        let connection = open_connection_by_path(&path).unwrap();
+        connection.execute_batch(INIT_MIGRATION).unwrap();
+        ensure_settings_columns(&connection).unwrap();
+        ensure_translation_schema(&connection).unwrap();
+        seed_default_settings(&connection).unwrap();
+        let defaults = get_settings_from_db_path(&path).unwrap();
+        assert_eq!(defaults.r2t2_idle_cache, IdleCachePolicy::OneMinute);
+        assert_eq!(defaults.live_pair_chunk_ms, 560);
+        assert!(defaults.live_pair_keep_loaded);
+        let updated = update_settings_for_db_path(
+            &path,
+            SettingsPatch {
+                r2t2_idle_cache: Some(IdleCachePolicy::UntilMemoryPressure),
+                live_pair_chunk_ms: Some(1120),
+                live_pair_keep_loaded: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.r2t2_idle_cache, IdleCachePolicy::UntilMemoryPressure);
+        assert_eq!(updated.r2t2_idle_cache.duration(), None);
+        assert_eq!((updated.live_pair_chunk_ms, updated.live_pair_keep_loaded), (1120, false));
+        assert!(update_settings_for_db_path(
+            &path,
+            SettingsPatch {
+                live_pair_chunk_ms: Some(2240),
+                ..Default::default()
+            },
+        )
+        .is_err());
+        assert_eq!(get_settings_from_db_path(&path).unwrap().live_pair_chunk_ms, 1120);
+        let _ = fs::remove_file(path);
+    }
 
     #[test]
     fn installed_model_profiles_roundtrip_independently_of_variant_labels() {

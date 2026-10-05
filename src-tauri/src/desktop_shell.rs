@@ -37,6 +37,10 @@ pub enum StreamingState {
     Listening,
     CatchingUp,
     Finishing,
+    /// Live pair: the final pass runs on the whole recording.
+    Finalizing,
+    /// Live pair: models are loading because they were not resident.
+    Loading,
     Translating,
     Failed,
 }
@@ -48,6 +52,8 @@ impl StreamingState {
             Self::Listening => "Listening",
             Self::CatchingUp => "Catching up",
             Self::Finishing => "Finishing",
+            Self::Finalizing => "Finalising…",
+            Self::Loading => "Loading models",
             Self::Translating => "Translating",
             Self::Failed => "Needs attention",
         }
@@ -144,7 +150,9 @@ impl DictationOverlayPayload {
         }
         self.streaming_state = Some(state);
         self.status_text = Some(
-            if self.duration_limit_reached && state == StreamingState::Finishing {
+            if self.duration_limit_reached
+                && matches!(state, StreamingState::Finishing | StreamingState::Finalizing)
+            {
                 "5-minute limit · Finishing"
             } else {
                 state.label()

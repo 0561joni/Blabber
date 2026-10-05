@@ -906,6 +906,7 @@ impl FileTranscriptionController {
         let worker_request = WorkerRequest {
             models_dir: self.models_dir.clone(),
             request: engine_request,
+            preload: false,
         };
         let request_json = serde_json::to_vec(&worker_request)?;
 
@@ -986,6 +987,8 @@ impl FileTranscriptionController {
                     }
                     self.update_worker_progress(request, progress_percent.max(0), started_at)?;
                 }
+                // Only persistent workers answer preload requests.
+                Ok(Ok(WorkerOutput::Ready)) => {}
                 Ok(Ok(WorkerOutput::Result { result })) => {
                     let _ = child.wait();
                     let _ = output_reader.join();

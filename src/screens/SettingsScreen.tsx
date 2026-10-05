@@ -18,8 +18,10 @@ import {
   getPlatformInfo,
   getRecordingInputLevel,
   getModelDownloadStatuses,
+  getLivePairStatus,
   listDownloadableModels,
   listInputDevices,
+  listenLivePairStatus,
   listenModelDownloadStatus,
   openModelsFolder,
   resumeShortcutCapture,
@@ -32,10 +34,22 @@ import type {
   DownloadableModel,
   InputDeviceOption,
   InstalledModel,
+  LivePairStatus,
   ModelDownloadStatus,
   PlatformInfo,
   SettingsPatch,
 } from "../types/domain";
+
+const LIVE_PAIR_ID = "live-pair";
+const R2T2_ID = "confucius4-r2t2-q8-0";
+
+const LIVE_PAIR_STATE_LABELS: Record<LivePairStatus["state"], string> = {
+  off: "Not loaded",
+  preparing: "Preparing",
+  ready: "Ready",
+  unloaded: "Unloaded to free memory",
+  error: "Needs attention",
+};
 
 interface SettingsScreenProps {
   initialSection?: string;
@@ -73,6 +87,7 @@ export function SettingsScreen({
   >({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [platformInfo, setPlatformInfo] = useState<PlatformInfo | null>(null);
+  const [livePairStatus, setLivePairStatus] = useState<LivePairStatus | null>(null);
   const [isCapturingShortcut, setIsCapturingShortcut] = useState(false);
   const [capturingField, setCapturingField] = useState<"shortcut" | "translationCycleShortcut">("shortcut");
   const [isTestingMicrophone, setIsTestingMicrophone] = useState(false);
@@ -91,6 +106,29 @@ export function SettingsScreen({
     void getPlatformInfo()
       .then(setPlatformInfo)
       .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    // Subscribe first so a slower snapshot never overwrites a newer event.
+    void listenLivePairStatus((status) => {
+      if (!disposed) setLivePairStatus(status);
+    })
+      .then(async (cleanup) => {
+        if (disposed) {
+          cleanup();
+          return;
+        }
+        unlisten = cleanup;
+        const snapshot = await getLivePairStatus();
+        if (!disposed) setLivePairStatus((current) => current ?? snapshot);
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -369,6 +407,9 @@ export function SettingsScreen({
     (model) => model.capability === "asr",
   );
   const translationModel = downloadableModels.find((model) => model.capability === "translation");
+  const livePairInstalled = installedModels.some((model) => model.id === LIVE_PAIR_ID);
+  const livePairSelected = settings.shortcutDictationSelectedModelId === LIVE_PAIR_ID;
+  const r2t2Installed = installedModels.some((model) => model.id === R2T2_ID);
   const translationDownload = translationModel ? modelDownloadStatuses[translationModel.id] : undefined;
   const diarizationReady = diarizationModel?.installed === true;
   const diarizationStatus = diarizationModel
@@ -1049,6 +1090,90 @@ export function SettingsScreen({
             </div>
             {fieldFeedback("shortcutDictationSelectedModelId")}
           </article>
+          {livePairInstalled || r2t2Installed ? (
+            <article className="glass-subtle settings-card settings-card-wide" aria-label="Live dictation">
+              <h3>Live dictation <span className="muted">· Experimental</span></h3>
+              {livePairInstalled ? <>
+                <p className="muted" role="status">
+                  Live pair: {LIVE_PAIR_STATE_LABELS[livePairStatus?.state ?? "off"]}
+                  {livePairStatus?.state === "ready" && livePairStatus.loadMs != null
+                    ? ` · loaded in ${(livePairStatus.loadMs / 1000).toFixed(1)} s`
+                    : ""}
+                  {" · about 1.4 GB of memory while loaded"}
+                </p>
+                {livePairStatus?.message ? (
+                  <p className={livePairStatus.state === "error" ? "warning-text" : "muted"}>{livePairStatus.message}</p>
+                ) : null}
+                <label className="field-stack">
+                  <span>Live preview step</span>
+                  <select
+                    value={settings.livePairChunkMs ?? 560}
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      void handleChange("livePairChunkMs", Number(event.target.value) as AppSettings["livePairChunkMs"])
+                    }
+                  >
+                    <option value={560}>560 ms · words appear sooner</option>
+                    <option value={1120}>1120 ms · steadier German preview</option>
+                  </select>
+                </label>
+                {fieldFeedback("livePairChunkMs")}
+                <div className="setting-row">
+                  <div className="setting-copy">
+                    <p className="setting-title">Keep live-pair models loaded</p>
+                    <p className="muted">
+                      Ready the moment you press the shortcut. When off, the models load on each press and are released after a minute.
+                    </p>
+                  </div>
+                  <div className="setting-control">
+                    <button
+                      disabled={isSaving}
+                      aria-label="Keep live-pair models loaded"
+                      type="button"
+                      className={settings.livePairKeepLoaded ? "switch-button is-on" : "switch-button"}
+                      aria-pressed={settings.livePairKeepLoaded}
+                      onClick={() => void handleChange("livePairKeepLoaded", !settings.livePairKeepLoaded)}
+                    >
+                      <span className="switch-thumb" />
+                    </button>
+                    <span className="setting-state">{settings.livePairKeepLoaded ? "Loaded" : "On demand"}</span>
+                  </div>
+                  {fieldFeedback("livePairKeepLoaded")}
+                </div>
+                {livePairSelected && !settings.launchAtLoginEnabled ? (
+                  <div className="setting-row">
+                    <p className="muted">
+                      Tip: launch Blabber at login so the live pair is loaded before your first dictation.
+                    </p>
+                    <ActionButton
+                      disabled={isSaving}
+                      action={() => handleChange("launchAtLoginEnabled", true)}
+                    >
+                      Launch at login
+                    </ActionButton>
+                  </div>
+                ) : null}
+              </> : null}
+              {r2t2Installed ? <>
+                <label className="field-stack">
+                  <span>Keep R2T2 loaded after dictation</span>
+                  <select
+                    value={settings.r2t2IdleCache ?? "one_minute"}
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      void handleChange("r2t2IdleCache", event.target.value as AppSettings["r2t2IdleCache"])
+                    }
+                  >
+                    <option value="one_minute">1 minute</option>
+                    <option value="fifteen_minutes">15 minutes</option>
+                    <option value="until_memory_pressure">Until memory runs low</option>
+                  </select>
+                </label>
+                <p className="muted">A second dictation within this time starts without loading. Translation and model changes always release it.</p>
+                {fieldFeedback("r2t2IdleCache")}
+              </> : null}
+            </article>
+          ) : null}
           <article className="glass-subtle settings-card">
             <div className="field-stack">
               <ModelPicker

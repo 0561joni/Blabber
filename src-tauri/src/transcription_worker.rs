@@ -23,6 +23,10 @@ pub const PERSISTENT_WORKER_ARG: &str = "--transcribe-worker-persistent";
 pub struct WorkerRequest {
     pub models_dir: PathBuf,
     pub request: FileTranscriptionRequest,
+    /// Only load the request's model (persistent worker) and answer `Ready`.
+    /// The audio file is not read.
+    #[serde(default)]
+    pub preload: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +35,7 @@ pub enum WorkerOutput {
     Progress { progress_percent: i32 },
     Heartbeat { progress_percent: i32 },
     Result { result: TranscriptResult },
+    Ready,
     Error { message: String },
 }
 
@@ -128,6 +133,11 @@ fn handle_persistent_request(
         if !engine.list_models()?.iter().any(|model| model.id == model_id) {
             engine.refresh_from_disk()?;
         }
+    }
+
+    if request.preload {
+        engine.preload(&request.request)?;
+        return emit_output_to(stdout, &WorkerOutput::Ready);
     }
 
     let progress = Arc::new(AtomicI32::new(-1));
@@ -232,6 +242,29 @@ mod tests {
     fn rejects_malformed_output_line() {
         let output = parse_worker_output_line("not-json");
         assert!(output.is_err());
+    }
+
+    #[test]
+    fn preload_flag_defaults_off_and_ready_round_trips() {
+        let request: WorkerRequest = serde_json::from_value(serde_json::json!({
+            "modelsDir": "/tmp/models",
+            "request": {
+                "profile": "balanced",
+                "selectedModelId": null,
+                "languageMode": "auto",
+                "fixedLanguage": null,
+                "timestamps": false,
+                "preferGpu": true,
+                "filePath": ""
+            }
+        }))
+        .expect("request without preload");
+        assert!(!request.preload);
+        let line = serde_json::to_string(&WorkerOutput::Ready).unwrap();
+        assert!(matches!(
+            parse_worker_output_line(&line).unwrap(),
+            WorkerOutput::Ready
+        ));
     }
 
     #[test]

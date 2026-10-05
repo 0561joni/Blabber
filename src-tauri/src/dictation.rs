@@ -141,7 +141,11 @@ pub struct QuickDictationController {
     shortcut_pair: Arc<Mutex<Vec<String>>>,
     cycle_pressed: Arc<AtomicBool>,
     live: Arc<Mutex<Option<LiveDictation>>>,
+    // Batch-model ASR admitted and loaded at press time (see `early_asr`).
+    early: Arc<Mutex<Option<crate::early_asr::EarlyAsr>>>,
     recovery: Arc<Mutex<Option<LiveRecovery>>>,
+    /// Resident live-pair helper; owned here, not by the processing queue.
+    live_pair: crate::live_pair::LivePair,
 }
 
 #[derive(Clone)]
@@ -149,7 +153,46 @@ struct LiveDictation {
     session_id: String,
     settings: AppSettings,
     vocabulary: Vec<vocabulary::VocabularyTerm>,
-    handle: crate::r2t2::LiveSession,
+    handle: LiveHandle,
+}
+
+/// A streaming shortcut dictation: experimental R2T2 or the live pair.
+#[derive(Clone)]
+enum LiveHandle {
+    R2t2(crate::r2t2::LiveSession),
+    Pair(crate::live_pair::LiveSession),
+}
+impl LiveHandle {
+    fn activate(&self) {
+        match self {
+            Self::R2t2(handle) => handle.activate(),
+            Self::Pair(handle) => handle.activate(),
+        }
+    }
+    fn cancel(&self) {
+        match self {
+            Self::R2t2(handle) => handle.cancel(),
+            Self::Pair(handle) => handle.cancel(),
+        }
+    }
+    fn model_name(&self) -> &'static str {
+        match self {
+            Self::R2t2(_) => crate::r2t2::MODEL_NAME,
+            Self::Pair(_) => crate::live_pair::MODEL_NAME,
+        }
+    }
+}
+
+enum LiveEngine {
+    R2t2 {
+        helper: std::path::PathBuf,
+        model: std::path::PathBuf,
+        language: String,
+    },
+    Pair {
+        config: crate::live_pair::Config,
+        language: String,
+    },
 }
 #[derive(Clone)]
 struct LiveRecovery {
@@ -159,6 +202,7 @@ struct LiveRecovery {
 }
 
 impl QuickDictationController {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         app: AppHandle,
         engine: Arc<dyn TranscriptionEngine>,
@@ -167,13 +211,16 @@ impl QuickDictationController {
         desktop_shell: DesktopShellController,
         sound_player: Arc<Option<SoundPlayer>>,
         translation: crate::translation::TranslationService,
+        live_pair: crate::live_pair::LivePair,
     ) -> Self {
         Self {
             app,
             translation,
+            live_pair,
             shortcut_pair: Default::default(),
             cycle_pressed: Default::default(),
             live: Default::default(),
+            early: Default::default(),
             recovery: Default::default(),
             engine,
             recording_controller,
@@ -230,8 +277,30 @@ impl QuickDictationController {
         }
         Ok(())
     }
+    /// Keep the live-pair helper resident exactly while it is the selected,
+    /// installed shortcut model.
+    pub fn sync_live_pair(&self) {
+        let Ok(settings) = storage::get_settings_from_db_path(&self.db_path) else {
+            return;
+        };
+        self.sync_live_pair_with(&settings);
+    }
+    fn sync_live_pair_with(&self, settings: &AppSettings) {
+        if settings.shortcut_dictation_selected_model_id.as_deref()
+            != Some(crate::live_pair::MODEL_ID)
+        {
+            self.live_pair.configure(None);
+            return;
+        }
+        match crate::live_pair::config_for(&self.app, &self.translation.models_dir(), settings) {
+            Ok(config) => self.live_pair.configure(Some(config)),
+            Err(error) => self.live_pair.report_setup_error(error.to_string()),
+        }
+    }
+
     pub fn sync_shortcut_registration(&self) -> Result<QuickDictationStatusResponse> {
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
+        self.sync_live_pair_with(&settings);
         // A settings/model change must not leave a previous helper resident.
         self.translation.processing_queue().evict_idle();
         let mut registered = self
@@ -421,11 +490,10 @@ impl QuickDictationController {
         };
         let reservation = self.translation.guard(&session);
         let settings = Some(storage::get_settings_from_db_path(&self.db_path)?);
-        let live_setup = if settings
+        let selected = settings
             .as_ref()
-            .and_then(|s| s.shortcut_dictation_selected_model_id.as_deref())
-            == Some(crate::r2t2::MODEL_ID)
-        {
+            .and_then(|s| s.shortcut_dictation_selected_model_id.as_deref());
+        let live_setup = if selected == Some(crate::r2t2::MODEL_ID) {
             let settings = settings.as_ref().unwrap().clone();
             let (helper, model) = self.translation.r2t2_setup().map_err(|error| {
                 let _ = self.set_error(error.to_string());
@@ -436,9 +504,28 @@ impl QuickDictationController {
                 error
             })?;
             let terms = vocabulary::list_vocabulary_terms_from_db_path(&self.db_path)?;
-            Some((settings, terms, helper, model, language))
+            Some((settings, terms, LiveEngine::R2t2 { helper, model, language }))
+        } else if selected == Some(crate::live_pair::MODEL_ID) {
+            // No queue admission: the models are resident, so pressing the
+            // shortcut only resets streaming state.
+            let settings = settings.as_ref().unwrap().clone();
+            let setup = crate::live_pair::config_for(
+                &self.app,
+                &self.translation.models_dir(),
+                &settings,
+            )
+            .and_then(|config| Ok((config, crate::live_pair::source_language(&settings)?)));
+            let (config, language) = setup.inspect_err(|error| {
+                let _ = self.set_error(error.to_string());
+            })?;
+            let terms = vocabulary::list_vocabulary_terms_from_db_path(&self.db_path)?;
+            Some((settings, terms, LiveEngine::Pair { config, language }))
         } else {
             None
+        };
+        let early_request = match (&live_setup, &settings) {
+            (None, Some(settings)) => self.early_asr_request(settings),
+            _ => None,
         };
         if let Some(player) = self.sound_player.as_ref().as_ref() {
             player.prepare_capture(
@@ -494,9 +581,11 @@ impl QuickDictationController {
                 phase: OverlayPhase::Listening,
                 audio_level: 0.0,
                 session_id: Some(session.id.clone()),
-                streaming_state: live_setup
-                    .as_ref()
-                    .map(|_| crate::desktop_shell::StreamingState::Preparing),
+                // The live pair is resident, so it listens at once; R2T2 loads first.
+                streaming_state: live_setup.as_ref().map(|(_, _, engine)| match engine {
+                    LiveEngine::Pair { .. } => crate::desktop_shell::StreamingState::Listening,
+                    LiveEngine::R2t2 { .. } => crate::desktop_shell::StreamingState::Preparing,
+                }),
                 ..Default::default()
             })?;
         self.update_status(|status| {
@@ -511,7 +600,7 @@ impl QuickDictationController {
         // Bump the generation so any previous poller exits, then start the one
         // poller that belongs to this listening session.
         self.spawn_overlay_level_poller(generation, session.id.clone());
-        if let Some((settings, terms, helper, model, language)) = live_setup {
+        if let Some((settings, terms, engine)) = live_setup {
             let tap = match self.recording_controller.live_tap() {
                 Ok(tap) => tap,
                 Err(error) => {
@@ -529,23 +618,43 @@ impl QuickDictationController {
                     let _ = controller.finish_dictation();
                 }
             });
-            let translation = self.translation.clone();
-            let context = vocabulary::build_asr_prompt(&terms)
-                .map(|p| p.text)
-                .unwrap_or_default();
-            let handle = crate::r2t2::start(
-                session.id.clone(),
-                tap,
-                session.cancelled.clone(),
-                self.translation.processing_queue(),
-                self.desktop_shell.clone(),
-                helper,
-                model,
-                language,
-                context,
-                Arc::new(move || translation.release_asr_resources()),
-                stop,
-            )?;
+            let handle = match engine {
+                LiveEngine::R2t2 {
+                    helper,
+                    model,
+                    language,
+                } => {
+                    let translation = self.translation.clone();
+                    let context = vocabulary::build_asr_prompt(&terms)
+                        .map(|p| p.text)
+                        .unwrap_or_default();
+                    LiveHandle::R2t2(crate::r2t2::start(
+                        session.id.clone(),
+                        tap,
+                        session.cancelled.clone(),
+                        self.translation.processing_queue(),
+                        self.desktop_shell.clone(),
+                        helper,
+                        model,
+                        language,
+                        context,
+                        Arc::new(move || translation.release_asr_resources()),
+                        stop,
+                    )?)
+                }
+                LiveEngine::Pair { config, language } => {
+                    LiveHandle::Pair(crate::live_pair::start(
+                        session.id.clone(),
+                        tap,
+                        session.cancelled.clone(),
+                        self.live_pair.clone(),
+                        config,
+                        self.desktop_shell.clone(),
+                        language,
+                        stop,
+                    )?)
+                }
+            };
             *self
                 .live
                 .lock()
@@ -557,8 +666,56 @@ impl QuickDictationController {
             });
             handle.activate();
         }
+        if let Some(request) = early_request {
+            // Without a tap the model is still loaded; only the
+            // while-recording transcription of long dictations is skipped.
+            let tap = self.recording_controller.observe_tap().ok();
+            match crate::early_asr::EarlyAsr::start(
+                self.translation.clone(),
+                session.clone(),
+                tap,
+                request,
+                std::env::temp_dir(),
+            ) {
+                Ok(early) => match self.early.lock() {
+                    Ok(mut slot) => *slot = Some(early),
+                    Err(_) => early.cancel(),
+                },
+                Err(error) => eprintln!("[dictation] early model loading unavailable: {error:#}"),
+            }
+        }
         reservation.disarm();
         Ok(())
+    }
+
+    /// The ASR request for a batch-model shortcut dictation, built from the
+    /// settings at press time. `None` when the selected model has nothing to
+    /// load ahead of release (or cannot run); release then decides as before.
+    fn early_asr_request(&self, settings: &AppSettings) -> Option<FileTranscriptionRequest> {
+        let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&self.db_path)
+            .ok()
+            .flatten();
+        let request = shortcut_asr_request(settings, vocabulary_prompt.as_ref(), String::new());
+        match self.translation.batch_model_for(&request) {
+            Ok(model) if crate::asr::engine_supports_preload(&model.engine) => Some(request),
+            Ok(_) => None,
+            Err(error) => {
+                eprintln!("[dictation] model cannot be loaded early: {error:#}");
+                None
+            }
+        }
+    }
+
+    fn take_early(&self, session_id: &str) -> Option<crate::early_asr::EarlyAsr> {
+        let mut early = self.early.lock().ok()?;
+        if early
+            .as_ref()
+            .is_some_and(|early| early.session_id() == session_id)
+        {
+            early.take()
+        } else {
+            None
+        }
     }
 
     fn finish_dictation(&self) -> Result<()> {
@@ -619,6 +776,9 @@ impl QuickDictationController {
         ) {
             Ok(result) => result,
             Err(error) => {
+                if let Some(early) = self.take_early(&session.id) {
+                    early.cancel();
+                }
                 if let Ok(mut live) = self.live.lock() {
                     if live
                         .as_ref()
@@ -669,16 +829,59 @@ impl QuickDictationController {
         if let Some(player) = self.sound_player.as_ref().as_ref() {
             player.finish_capture(settings.sounds_enabled, false);
         }
-        let resolved_model_name = if live.is_some() {
-            Some(crate::r2t2::MODEL_NAME.into())
+        let resolved_model_name = if let Some(live) = &live {
+            Some(live.handle.model_name().into())
         } else {
             resolve_model_name(self.engine.as_ref(), &settings)?
         };
         let _permit;
-        let corrected = if let Some(live) = live {
-            let result = live
-                .handle
-                .finish(&recording.session_id, recording.sample_count);
+        let corrected = if let Some(LiveDictation {
+            handle: LiveHandle::Pair(handle),
+            settings: live_settings,
+            vocabulary: terms,
+            ..
+        }) = &live
+        {
+            let completed = match handle.finish(&recording.session_id, recording.sample_count) {
+                Ok(completed) => completed,
+                Err(error) => {
+                    let _ = self.translation.with_active(&session, || {
+                        *self
+                            .recovery
+                            .lock()
+                            .map_err(|_| anyhow!("Recovery unavailable"))? = Some(LiveRecovery {
+                            recording: recording.clone(),
+                            settings: live_settings.clone(),
+                            vocabulary: terms.clone(),
+                        });
+                        self.update_status(|status| status.can_retry_streaming = true)?;
+                        Ok(())
+                    });
+                    handle.cancel();
+                    return Err(error);
+                }
+            };
+            self.translation.ensure_active(&session)?;
+            // The helper holds no admission; translation still must not run
+            // beside another heavy job.
+            if session.mode != crate::translation::OutputMode::Original {
+                _permit = self.translation.acquire(&session)?;
+            }
+            vocabulary::correct_transcript_with_terms(
+                terms,
+                crate::live_pair::transcript(
+                    &session.id,
+                    completed.text,
+                    recording.duration_ms,
+                    completed.language,
+                    completed.warning,
+                ),
+            )?
+        } else if let Some(live) = live {
+            let LiveHandle::R2t2(handle) = &live.handle else {
+                unreachable!("live-pair sessions are handled above");
+            };
+            let result = handle.finish(&recording.session_id, recording.sample_count);
             let completed = match result {
                 Ok(result) => result,
                 Err(error) => {
@@ -704,6 +907,7 @@ impl QuickDictationController {
             let (text, permit) = completed.release_worker(
                 &self.translation.processing_queue(),
                 session.mode == crate::translation::OutputMode::Original,
+                settings.r2t2_idle_cache,
             );
             _permit = permit;
             let language = (settings.language_mode == crate::settings::LanguageMode::Fixed)
@@ -714,8 +918,26 @@ impl QuickDictationController {
                 crate::r2t2::transcript(&session.id, text, recording.duration_ms, language),
             )?
         } else {
-            let (permit, warm_worker) = self.translation.acquire_for_asr(&session)?;
-            _permit = permit;
+            // The model was admitted and loaded at press time; take over the
+            // worker (and anything already transcribed). If that preparation
+            // failed, fall back to loading on release.
+            let prepared = match self.take_early(&session.id) {
+                Some(early) => {
+                    self.translation
+                        .phase(&session, "waiting", "Waiting for local processing…")?;
+                    match early.finish(&self.translation, &session) {
+                        Ok(handoff) => Some(handoff),
+                        Err(error) => {
+                            self.translation.ensure_active(&session)?;
+                            eprintln!(
+                                "[dictation] early model unavailable, loading on release: {error:#}"
+                            );
+                            None
+                        }
+                    }
+                }
+                None => None,
+            };
             let vocabulary_prompt = vocabulary::build_asr_prompt_from_db_path(&self.db_path)?;
             if let Some(prompt) = &vocabulary_prompt {
                 eprintln!(
@@ -723,30 +945,28 @@ impl QuickDictationController {
                     prompt.included_count, prompt.truncated_count
                 );
             }
-            let transcript = match self.translation.transcribe(
-                &session,
-                FileTranscriptionRequest {
-                    use_context: Some(crate::model_metadata::ModelUseContext::ShortcutDictation),
-                    profile: settings.shortcut_dictation_model_profile,
-                    selected_model_id: settings.shortcut_dictation_selected_model_id.clone(),
-                    language_mode: settings.language_mode,
-                    fixed_language: settings.fixed_language.clone(),
-                    timestamps: false,
-                    prefer_gpu: settings.gpu_enabled,
-                    file_path: recording.file_path.clone(),
-                    context_prompt: vocabulary_prompt.as_ref().map(|prompt| prompt.text.clone()),
-                    context_terms: vocabulary_prompt
-                        .as_ref()
-                        .map(|prompt| prompt.terms.clone())
-                        .unwrap_or_default(),
-                },
-                &_permit,
-                warm_worker,
-            ) {
-                Ok(result) => result,
-                Err(error) => {
-                    return Err(error);
-                }
+            let request = shortcut_asr_request(
+                &settings,
+                vocabulary_prompt.as_ref(),
+                recording.file_path.clone(),
+            );
+            let transcript = if let Some(handoff) = prepared {
+                self.translation
+                    .phase(&session, "transcribing", "Transcribing")?;
+                let (transcript, permit) = crate::early_asr::complete(
+                    &self.translation,
+                    &session,
+                    request,
+                    handoff,
+                    &std::env::temp_dir(),
+                )?;
+                _permit = permit;
+                transcript
+            } else {
+                let (permit, warm_worker) = self.translation.acquire_for_asr(&session)?;
+                _permit = permit;
+                self.translation
+                    .transcribe(&session, request, &_permit, warm_worker)?
             };
 
             match vocabulary::correct_transcript_result(&self.db_path, transcript) {
@@ -1010,7 +1230,8 @@ impl QuickDictationController {
             self.poller_generation.fetch_add(1, Ordering::SeqCst) + 1
         };
         let result = (|| -> Result<()> {
-            let (helper, model) = self.translation.r2t2_setup()?;
+            let pair = recovery.settings.shortcut_dictation_selected_model_id.as_deref()
+                == Some(crate::live_pair::MODEL_ID);
             let prepared = crate::audio_preprocess::decode_audio_file(std::path::Path::new(
                 &recovery.recording.file_path,
             ))?;
@@ -1038,39 +1259,83 @@ impl QuickDictationController {
                 "streaming_finishing",
                 "Retrying live transcription",
             )?;
-            let translation = self.translation.clone();
-            let handle = crate::r2t2::start(
-                session.id.clone(),
-                tap,
-                session.cancelled.clone(),
-                self.translation.processing_queue(),
-                self.desktop_shell.clone(),
-                helper,
-                model,
-                crate::r2t2::source_language(&recovery.settings)?,
-                vocabulary::build_asr_prompt(&recovery.vocabulary)
-                    .map(|p| p.text)
-                    .unwrap_or_default(),
-                Arc::new(move || translation.release_asr_resources()),
-                Arc::new(|| {}),
-            )?;
-            handle.activate();
-            let completion = match handle.finish(&session.id, count) {
-                Ok(done) => done,
-                Err(error) => {
-                    handle.cancel();
-                    return Err(error);
+            let _permit;
+            let source = if pair {
+                // The same live session handling, fed from the stored recording.
+                let handle = crate::live_pair::start(
+                    session.id.clone(),
+                    tap,
+                    session.cancelled.clone(),
+                    self.live_pair.clone(),
+                    crate::live_pair::config_for(
+                        &self.app,
+                        &self.translation.models_dir(),
+                        &recovery.settings,
+                    )?,
+                    self.desktop_shell.clone(),
+                    crate::live_pair::source_language(&recovery.settings)?,
+                    Arc::new(|| {}),
+                )?;
+                handle.activate();
+                let completion = match handle.finish(&session.id, count) {
+                    Ok(done) => done,
+                    Err(error) => {
+                        handle.cancel();
+                        return Err(error);
+                    }
+                };
+                self.translation.ensure_active(&session)?;
+                if session.mode != crate::translation::OutputMode::Original {
+                    _permit = self.translation.acquire(&session)?;
                 }
+                vocabulary::correct_transcript_with_terms(
+                    &recovery.vocabulary,
+                    crate::live_pair::transcript(
+                        &session.id,
+                        completion.text,
+                        recovery.recording.duration_ms,
+                        completion.language,
+                        completion.warning,
+                    ),
+                )?
+            } else {
+                let (helper, model) = self.translation.r2t2_setup()?;
+                let translation = self.translation.clone();
+                let handle = crate::r2t2::start(
+                    session.id.clone(),
+                    tap,
+                    session.cancelled.clone(),
+                    self.translation.processing_queue(),
+                    self.desktop_shell.clone(),
+                    helper,
+                    model,
+                    crate::r2t2::source_language(&recovery.settings)?,
+                    vocabulary::build_asr_prompt(&recovery.vocabulary)
+                        .map(|p| p.text)
+                        .unwrap_or_default(),
+                    Arc::new(move || translation.release_asr_resources()),
+                    Arc::new(|| {}),
+                )?;
+                handle.activate();
+                let completion = match handle.finish(&session.id, count) {
+                    Ok(done) => done,
+                    Err(error) => {
+                        handle.cancel();
+                        return Err(error);
+                    }
+                };
+                self.translation.ensure_active(&session)?;
+                let (text, permit) = completion.release_worker(
+                    &self.translation.processing_queue(),
+                    session.mode == crate::translation::OutputMode::Original,
+                    recovery.settings.r2t2_idle_cache,
+                );
+                _permit = permit;
+                vocabulary::correct_transcript_with_terms(
+                    &recovery.vocabulary,
+                    crate::r2t2::transcript(&session.id, text, recovery.recording.duration_ms, None),
+                )?
             };
-            self.translation.ensure_active(&session)?;
-            let (text, _permit) = completion.release_worker(
-                &self.translation.processing_queue(),
-                session.mode == crate::translation::OutputMode::Original,
-            );
-            let source = vocabulary::correct_transcript_with_terms(
-                &recovery.vocabulary,
-                crate::r2t2::transcript(&session.id, text, recovery.recording.duration_ms, None),
-            )?;
             let output =
                 self.translation
                     .process(&session, &source, recovery.recording.duration_ms)?;
@@ -1099,7 +1364,14 @@ impl QuickDictationController {
                     status.state = QuickDictationState::Idle;
                     status.last_transcript_text = output.output_text.clone();
                     status.last_transcript_id = saved.clone();
-                    status.last_model_name = Some(crate::r2t2::MODEL_NAME.into());
+                    status.last_model_name = Some(
+                        if pair {
+                            crate::live_pair::MODEL_NAME
+                        } else {
+                            crate::r2t2::MODEL_NAME
+                        }
+                        .into(),
+                    );
                     status.last_error_message = None;
                     status.last_insert_outcome = None;
                     status.last_insert_warning = None;
@@ -1312,6 +1584,7 @@ impl QuickDictationController {
         if let Some(live) = self.live.lock().ok().and_then(|mut live| live.take()) {
             live.handle.cancel();
         }
+        self.live_pair.shutdown();
         self.translation.processing_queue().evict_idle();
         self.poller_generation.fetch_add(1, Ordering::SeqCst);
         let _ = self.suspend_shortcut_registration();
@@ -1420,6 +1693,28 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis() as i64)
         .unwrap_or(0)
+}
+
+/// The batch ASR request for a shortcut dictation.
+fn shortcut_asr_request(
+    settings: &AppSettings,
+    vocabulary_prompt: Option<&vocabulary::VocabularyPrompt>,
+    file_path: String,
+) -> FileTranscriptionRequest {
+    FileTranscriptionRequest {
+        use_context: Some(crate::model_metadata::ModelUseContext::ShortcutDictation),
+        profile: settings.shortcut_dictation_model_profile,
+        selected_model_id: settings.shortcut_dictation_selected_model_id.clone(),
+        language_mode: settings.language_mode,
+        fixed_language: settings.fixed_language.clone(),
+        timestamps: false,
+        prefer_gpu: settings.gpu_enabled,
+        file_path,
+        context_prompt: vocabulary_prompt.map(|prompt| prompt.text.clone()),
+        context_terms: vocabulary_prompt
+            .map(|prompt| prompt.terms.clone())
+            .unwrap_or_default(),
+    }
 }
 
 fn resolve_model_name(

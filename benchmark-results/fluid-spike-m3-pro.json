@@ -1,0 +1,211 @@
+{
+  "date": "2026-10-04",
+  "machine": "Apple M3 Pro, 18 GB",
+  "os": "macOS 27.0.1 (26A434)",
+  "fluidAudio": {
+    "tag": "v0.17.5",
+    "revision": "0b1f46289fe27d95b5e66ad8be46e64f5ee02ae7",
+    "traits": []
+  },
+  "models": {
+    "nemotron": {
+      "repo": "FluidInference/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b-CoreML",
+      "revision": "1a41b75758b0337ff67db7d5408280aaaf23074e",
+      "bundle": "latin/<tier>ms"
+    },
+    "parakeet": {
+      "repo": "FluidInference/parakeet-tdt-0.6b-v3-coreml",
+      "revision": "7dd20fe6b1797d35f5e3307e8b1732d9a178edfe"
+    }
+  },
+  "corpus": "Synthetic macOS-voice fixtures (workers/r2t2/corpus.json): 20 German + 20 English clips, five-minute German/English runs. No human recordings.",
+  "werNote": "Unnormalised word error rate (lowercase, punctuation stripped). Digits vs spelled numbers count as errors, which inflates Parakeet (it writes digits).",
+  "load": {
+    "coldCompileMs": {
+      "parakeet": 15886.5,
+      "nemotron1120": 12039.9,
+      "nemotron560": 12052.1,
+      "nemotron2240": 14665.9
+    },
+    "warmLoadMs": {
+      "parakeet": 89.7,
+      "nemotron1120": 118.8,
+      "parakeetEncoderV2": 97.7,
+      "nemotron560": 159.4
+    },
+    "reloadAfterUnloadMs": {
+      "nemotron": 116.5,
+      "parakeet": 82.7
+    },
+    "usableAfterReload": true,
+    "compileCache": "~/Library/Caches/<executable name>/com.apple.e5rt.e5bundlecache/<macOS build>/ (per executable name and OS build; a macOS update recompiles once)",
+    "offline": "All runs executed under sandbox-exec with network denied; loading from local directories needs no network."
+  },
+  "memoryMB": {
+    "note": "ANE programs and weights are wired kernel memory owned by aned, not the worker's footprint. 'wired' is the system wired delta on first load in a fresh state; aned keeps programs cached after unload until it needs the memory.",
+    "parakeetInt8": {
+      "wired": 490
+    },
+    "bothInt8Nemotron1120": {
+      "wired": 1109,
+      "processResident": 134,
+      "processFootprint": 76
+    },
+    "bothEncoderV2Nemotron560": {
+      "wired": 1242,
+      "processResident": 134,
+      "processFootprint": 73
+    },
+    "peakDuringColdCompile": 682,
+    "gate": 1800
+  },
+  "nemotron": {
+    "560ms": {
+      "auto": {
+        "werDe": 14.530000000000001,
+        "werEn": 1.59,
+        "firstTextMsMedian": 1137,
+        "firstTextMsP95": 1139,
+        "rtfMedian": 0.0295,
+        "chunkMsP95": 44,
+        "flushMsP95": 17.1
+      },
+      "fixed": {
+        "werDe": 13.41,
+        "werEn": 1.59,
+        "firstTextMsMedian": 1136.3,
+        "firstTextMsP95": 1143.5,
+        "rtfMedian": 0.0292,
+        "chunkMsP95": 44.3,
+        "flushMsP95": 16.9
+      },
+      "fiveMinutesGerman": {
+        "rtf": 0.030199999999999998,
+        "chunkMsP95": 19.7,
+        "flushMs": 15.6
+      }
+    },
+    "1120ms": {
+      "auto": {
+        "werDe": 10.61,
+        "werEn": 1.59,
+        "firstTextMsMedian": 1142,
+        "firstTextMsP95": 2261.6,
+        "rtfMedian": 0.0193,
+        "chunkMsP95": 54.7,
+        "flushMsP95": 26.8
+      },
+      "fixed": {
+        "werDe": 9.5,
+        "werEn": 1.59,
+        "firstTextMsMedian": 1141.4,
+        "firstTextMsP95": 2261.5,
+        "rtfMedian": 0.0189,
+        "chunkMsP95": 30.8,
+        "flushMsP95": 22.7
+      },
+      "fiveMinutesGerman": {
+        "rtf": 0.0195,
+        "chunkMsP95": 25.1,
+        "flushMs": 20.5
+      }
+    },
+    "2240ms": {
+      "auto": {
+        "werDe": 10.61,
+        "werEn": 1.59,
+        "firstTextMsMedian": 2271,
+        "firstTextMsP95": 2316.9,
+        "rtfMedian": 0.013800000000000002,
+        "chunkMsP95": 74.1,
+        "flushMsP95": 32.5
+      },
+      "fixed": {
+        "werDe": 9.5,
+        "werEn": 1.06,
+        "firstTextMsMedian": 2270.5,
+        "firstTextMsP95": 2278.8,
+        "rtfMedian": 0.0136,
+        "chunkMsP95": 38.8,
+        "flushMsP95": 33.3
+      },
+      "fiveMinutesGerman": {
+        "rtf": 0.013900000000000001,
+        "chunkMsP95": 33.4,
+        "flushMs": 28
+      }
+    }
+  },
+  "parakeet": {
+    "int8": {
+      "10s": {
+        "medianMs": 65.1,
+        "p95Ms": 82.4,
+        "runs": 20
+      },
+      "30s": {
+        "medianMs": 163,
+        "p95Ms": 169.5,
+        "runs": 20
+      },
+      "120s": {
+        "medianMs": 360.2,
+        "p95Ms": 518.7,
+        "runs": 6
+      },
+      "300s": {
+        "medianMs": 748.3,
+        "p95Ms": 918.5,
+        "runs": 6
+      },
+      "werDe": 4.470000000000001,
+      "werEn": 10.05
+    },
+    "int8-v2": {
+      "10s": {
+        "medianMs": 72.1,
+        "p95Ms": 105,
+        "runs": 20
+      },
+      "30s": {
+        "medianMs": 164.7,
+        "p95Ms": 173,
+        "runs": 20
+      },
+      "120s": {
+        "medianMs": 360.5,
+        "p95Ms": 374.1,
+        "runs": 6
+      },
+      "300s": {
+        "medianMs": 765.8,
+        "p95Ms": 940.2,
+        "runs": 6
+      },
+      "werDe": 4.470000000000001,
+      "werEn": 8.99
+    },
+    "gate30sP95Ms": 800
+  },
+  "vocabularyBiasing": {
+    "nemotronGerman": "setCustomVocabulary works with the latin bundle; on a rare-name probe it fixed 'Quaschnick'->'quaschnik' (case lost) and left correct names intact.",
+    "parakeetV3": "FluidAudio's Parakeet biasing needs an additional CTC keyword-spotter model; not used. Blabber's post-hoc vocabulary correction stays.",
+    "probe": {
+      "reference": "Bitte schick den Vertrag an Frau Zwiebelmeier und Herrn Quaschnik nach Wuppertal.",
+      "nemotronPlain": "Schick den Vertrag an Frau Zwiebelmeier und Herrn Quaschnick nach Wuppertal",
+      "nemotronBiased": "Schick den Vertrag an Frau Zwiebelmeier und Herrn quaschnik nach Wuppertal",
+      "parakeet": "Bitte schick den Vertrag an Frau Zwiebelmeier und Herrn Quaschnick nach Wuppertal."
+    }
+  },
+  "notMeasured": [
+    "Sleep/wake (needs an interactive session; handled by ping after wake plus supervised restart)",
+    "A real critical memory-pressure event (simulation needs root; the unload and reload path itself is measured above)"
+  ],
+  "decision": {
+    "go": true,
+    "nemotronBundle": "latin (de, en, es, fr, it, pt in one bundle; no per-language folders)",
+    "defaultChunkMs": 560,
+    "optionalChunkMs": 1120,
+    "parakeetEncoder": "Encoder_v2.mlmodelc (int8-v2)"
+  }
+}

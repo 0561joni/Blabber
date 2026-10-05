@@ -65,6 +65,28 @@ pub enum MotionPreference {
     Reduced,
 }
 
+/// How long a finished R2T2 helper keeps its model loaded for the next
+/// dictation. Memory pressure, translation and model changes always evict it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdleCachePolicy {
+    #[default]
+    OneMinute,
+    FifteenMinutes,
+    UntilMemoryPressure,
+}
+
+impl IdleCachePolicy {
+    /// `None` keeps the helper until it is evicted.
+    pub fn duration(self) -> Option<std::time::Duration> {
+        match self {
+            Self::OneMinute => Some(std::time::Duration::from_secs(60)),
+            Self::FifteenMinutes => Some(std::time::Duration::from_secs(15 * 60)),
+            Self::UntilMemoryPressure => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -94,6 +116,22 @@ pub struct AppSettings {
     pub sounds_enabled: bool,
     pub volume_ducking_enabled: bool,
     pub file_diarization_enabled: bool,
+    #[serde(default)]
+    pub r2t2_idle_cache: IdleCachePolicy,
+    /// Nemotron preview chunk for the live pair (560 or 1120 ms).
+    #[serde(default = "default_live_pair_chunk_ms")]
+    pub live_pair_chunk_ms: u32,
+    /// Keep the live-pair models resident while Blabber runs.
+    #[serde(default = "default_true")]
+    pub live_pair_keep_loaded: bool,
+}
+
+pub const LIVE_PAIR_CHUNKS_MS: [u32; 2] = [560, 1120];
+fn default_live_pair_chunk_ms() -> u32 {
+    LIVE_PAIR_CHUNKS_MS[0]
+}
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -123,4 +161,7 @@ pub struct SettingsPatch {
     pub sounds_enabled: Option<bool>,
     pub volume_ducking_enabled: Option<bool>,
     pub file_diarization_enabled: Option<bool>,
+    pub r2t2_idle_cache: Option<IdleCachePolicy>,
+    pub live_pair_chunk_ms: Option<u32>,
+    pub live_pair_keep_loaded: Option<bool>,
 }

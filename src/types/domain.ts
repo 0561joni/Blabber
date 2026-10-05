@@ -121,6 +121,19 @@ export interface AppSettings {
   soundsEnabled: boolean;
   volumeDuckingEnabled: boolean;
   fileDiarizationEnabled: boolean;
+  r2t2IdleCache: R2t2IdleCache;
+  livePairChunkMs: LivePairChunkMs;
+  livePairKeepLoaded: boolean;
+}
+
+export type R2t2IdleCache = "one_minute" | "fifteen_minutes" | "until_memory_pressure";
+export type LivePairChunkMs = 560 | 1120;
+
+export interface LivePairStatus {
+  state: "off" | "preparing" | "ready" | "unloaded" | "error";
+  message: string | null;
+  loadMs: number | null;
+  rssBytes: number | null;
 }
 
 export interface SettingsPatch {
@@ -148,6 +161,9 @@ export interface SettingsPatch {
   soundsEnabled?: boolean;
   volumeDuckingEnabled?: boolean;
   fileDiarizationEnabled?: boolean;
+  r2t2IdleCache?: R2t2IdleCache;
+  livePairChunkMs?: LivePairChunkMs;
+  livePairKeepLoaded?: boolean;
 }
 
 export interface InstalledModel {

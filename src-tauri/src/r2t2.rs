@@ -29,32 +29,48 @@ pub const CHUNK_SAMPLES: usize = 10_240; // Internal: 640 ms / five-token rollba
 pub const MAX_SAMPLES: usize = 300 * 16_000;
 const MAX_MESSAGE: u64 = 1024 * 1024;
 
+/// Memory-pressure notifications. `mask` selects levels (1 normal, 2 warning,
+/// 4 critical); the handler receives the level that fired.
 #[cfg(target_os = "macos")]
 pub(crate) struct MemoryPressureWatch(dispatch2::DispatchRetained<dispatch2::DispatchSource>);
 #[cfg(target_os = "macos")]
+struct PressureContext {
+    source: *const dispatch2::DispatchSource,
+    handler: Box<dyn Fn(usize) + Send + Sync>,
+}
+#[cfg(target_os = "macos")]
 impl MemoryPressureWatch {
     pub fn new(queue: ProcessingQueue) -> Self {
+        // Eviction uses the same lock as queue admission.
+        Self::with_handler(0x2 | 0x4, move |_| queue.evict_idle())
+    }
+    pub fn with_handler(mask: usize, handler: impl Fn(usize) + Send + Sync + 'static) -> Self {
         use dispatch2::{DispatchObject, DispatchSource};
         extern "C" fn pressure(context: *mut std::ffi::c_void) {
             // The source owns this Box until its finalizer, which runs after
-            // all handlers. Eviction uses the same lock as queue admission.
+            // all handlers, and the source outlives its own handlers.
             unsafe {
-                (&*context.cast::<ProcessingQueue>()).evict_idle();
+                let context = &*context.cast::<PressureContext>();
+                (context.handler)((*context.source).data());
             }
         }
         extern "C" fn finalize(context: *mut std::ffi::c_void) {
             unsafe {
-                drop(Box::from_raw(context.cast::<ProcessingQueue>()));
+                drop(Box::from_raw(context.cast::<PressureContext>()));
             }
         }
         unsafe {
             let source = DispatchSource::new(
                 std::ptr::addr_of!(dispatch2::_dispatch_source_type_memorypressure).cast_mut(),
                 0,
-                0x2 | 0x4,
+                mask,
                 None,
             );
-            source.set_context(Box::into_raw(Box::new(queue)).cast());
+            let context = Box::new(PressureContext {
+                source: &*source,
+                handler: Box::new(handler),
+            });
+            source.set_context(Box::into_raw(context).cast());
             source.set_event_handler_f(pressure);
             source.set_finalizer_f(finalize);
             source.activate();
@@ -73,6 +89,9 @@ pub(crate) struct MemoryPressureWatch;
 #[cfg(not(target_os = "macos"))]
 impl MemoryPressureWatch {
     pub fn new(_: ProcessingQueue) -> Self {
+        Self
+    }
+    pub fn with_handler(_: usize, _: impl Fn(usize) + Send + Sync + 'static) -> Self {
         Self
     }
 }
@@ -465,6 +484,7 @@ impl Completion {
         self,
         queue: &ProcessingQueue,
         keep_warm: bool,
+        idle: crate::settings::IdleCachePolicy,
     ) -> (String, ProcessingPermit) {
         let Self {
             text,
@@ -473,7 +493,7 @@ impl Completion {
             _work,
         } = self;
         if keep_warm {
-            queue.cache_idle(&permit, "r2t2", worker);
+            queue.cache_idle_for(&permit, "r2t2", worker, idle.duration());
         } else {
             drop(worker);
         }

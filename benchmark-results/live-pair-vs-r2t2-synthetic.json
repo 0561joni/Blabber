@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-04",
+  "paced": true,
+  "languageMode": "auto",
+  "corpora": [
+    "src-tauri/target/r2t2-fixtures"
+  ],
+  "clipCount": 44,
+  "normalisation": "NFC casefold; umlauts folded; digits, times, ordinals and English years spelled per language; common abbreviations expanded",
+  "engines": {
+    "fluid": {
+      "de": {
+        "clips": 22,
+        "werStream": 8.4,
+        "werFinal": 1.15
+      },
+      "en": {
+        "clips": 21,
+        "werStream": 0.95,
+        "werFinal": 0.67
+      },
+      "mixed": {
+        "clips": 1,
+        "werStream": 9.95,
+        "werFinal": 18.73
+      },
+      "latency": {
+        "firstVisibleWordSecondsMedian": 1.171,
+        "firstVisibleWordSecondsP95": 1.18,
+        "estimatedWordDelaySecondsMedian": 0.0,
+        "estimatedWordDelaySecondsP95": 2.606,
+        "releaseToTextSecondsMedianUpTo60s": 0.1,
+        "releaseToTextSecondsP95UpTo60s": 0.109,
+        "finalPassFailures": 0
+      },
+      "memory": {
+        "processPeakBytes": 109052744,
+        "processSteadyBytes": 90669920,
+        "systemWiredDeltaBytes": 1262780416
+      },
+      "loadSeconds": 0.325,
+      "idleCpuPercent": 0.0
+    },
+    "r2t2": {
+      "de": {
+        "clips": 22,
+        "werStream": 1.15,
+        "werFinal": 1.15
+      },
+      "en": {
+        "clips": 21,
+        "werStream": 0.19,
+        "werFinal": 0.19
+      },
+      "mixed": {
+        "clips": 1,
+        "werStream": 5.81,
+        "werFinal": 5.81
+      },
+      "latency": {
+        "firstVisibleWordSecondsMedian": 0.837,
+        "firstVisibleWordSecondsP95": 0.864,
+        "estimatedWordDelaySecondsMedian": 2.544,
+        "estimatedWordDelaySecondsP95": 7.844,
+        "releaseToTextSecondsMedianUpTo60s": 0.253,
+        "releaseToTextSecondsP95UpTo60s": 0.311,
+        "finalPassFailures": 0
+      },
+      "memory": {
+        "processPeakBytes": 4958797824
+      },
+      "loadSeconds": 5.91,
+      "idleCpuPercent": null
+    }
+  },
+  "systemSwapoutsAtEnd": 200964,
+  "notMeasured": [
+    "GPU/ANE idle power: run `sudo powermetrics --samplers cpu_power,gpu_power,ane_power -i 1000 -n 60` with the app idle",
+    "Memory with TranslateGemma: dictate in a translation mode in the app and compare `vm_stat` swapouts before/after"
+  ]
+}

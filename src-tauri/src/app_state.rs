@@ -37,6 +37,8 @@ pub struct AppState {
     pub review_store: crate::review::ReviewStore,
     pub review_jobs: crate::review_jobs::ReviewJobController,
     pub review_media: crate::review_media::MediaStore,
+    pub live_pair: crate::live_pair::LivePair,
+    _live_pair_pressure: Arc<crate::r2t2::MemoryPressureWatch>,
 }
 
 impl AppState {
@@ -84,6 +86,17 @@ impl AppState {
             desktop_shell.clone(),
             processing_queue.clone(),
         );
+        // Resident live-pair helper: loaded after start-up once it is the
+        // selected shortcut model, independent of the processing queue.
+        let status_app = app.clone();
+        let live_pair = crate::live_pair::LivePair::new(move |status| {
+            let _ = tauri::Emitter::emit(&status_app, "live-pair-status", status.clone());
+        });
+        let pressure_pair = live_pair.clone();
+        let live_pair_pressure = Arc::new(crate::r2t2::MemoryPressureWatch::with_handler(
+            0x1 | 0x2 | 0x4,
+            move |level| pressure_pair.memory_pressure(level),
+        ));
         let dictation_controller = QuickDictationController::new(
             app.clone(),
             Arc::clone(&transcription_engine),
@@ -92,6 +105,7 @@ impl AppState {
             desktop_shell.clone(),
             Arc::clone(&sound_player),
             translation.clone(),
+            live_pair.clone(),
         );
         crate::review_media::cleanup_stale_audio(&temp_dir);
         let review_store = crate::review::ReviewStore::new(db_path.clone());
@@ -136,6 +150,8 @@ impl AppState {
             review_store,
             review_jobs,
             review_media,
+            live_pair,
+            _live_pair_pressure: live_pair_pressure,
         };
 
         report_phase(StartupPhase::Library);

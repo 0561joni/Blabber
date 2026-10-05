@@ -407,7 +407,8 @@ fn cleanup_older_recordings(temp_dir: &PathBuf, keep_path: &PathBuf) -> Result<(
 enum WorkerCommand {
     Status(Sender<RecordingStatusResponse>),
     InputLevel(Sender<f32>),
-    LiveTap(Sender<Result<CaptureTap, String>>),
+    /// `true` also caps the capture at the five-minute live limit.
+    LiveTap(bool, Sender<Result<CaptureTap, String>>),
     Start(Sender<Result<RecordingStatusResponse, String>>),
     Pause(Sender<Result<RecordingStatusResponse, String>>),
     Resume(Sender<Result<RecordingStatusResponse, String>>),
@@ -536,7 +537,19 @@ impl RecordingController {
     }
 
     pub(crate) fn live_tap(&self) -> Result<CaptureTap> {
-        match self.dispatch(Duration::from_secs(2), WorkerCommand::LiveTap) {
+        self.tap(true)
+    }
+
+    /// Read-only view of the active capture for early dictation ASR. Unlike
+    /// `live_tap` it leaves the capture's sample limit unchanged.
+    pub(crate) fn observe_tap(&self) -> Result<CaptureTap> {
+        self.tap(false)
+    }
+
+    fn tap(&self, limit: bool) -> Result<CaptureTap> {
+        match self.dispatch(Duration::from_secs(2), |tx| {
+            WorkerCommand::LiveTap(limit, tx)
+        }) {
             SendOutcome::Ok(value) => value.map_err(anyhow::Error::msg),
             SendOutcome::Failed(error) => Err(error),
             SendOutcome::Timeout => Err(anyhow!("Capture setup timed out")),
@@ -616,7 +629,7 @@ fn process_worker_commands(worker: &mut RecordingWorkerState, receiver: Receiver
             WorkerCommand::InputLevel(response_tx) => {
                 let _ = response_tx.send(worker.current_input_level());
             }
-            WorkerCommand::LiveTap(response_tx) => {
+            WorkerCommand::LiveTap(limit, response_tx) => {
                 let result = (|| -> Result<CaptureTap> {
                     let active = worker
                         .active
@@ -629,12 +642,14 @@ fn process_worker_commands(worker: &mut RecordingWorkerState, receiver: Receiver
                         .current_segment
                         .as_ref()
                         .ok_or_else(|| anyhow!("No capture segment"))?;
-                    segment.sample_limit.store(
-                        segment.input_sample_rate_hz as usize
-                            * segment.input_channels as usize
-                            * 300,
-                        Ordering::SeqCst,
-                    );
+                    if limit {
+                        segment.sample_limit.store(
+                            segment.input_sample_rate_hz as usize
+                                * segment.input_channels as usize
+                                * 300,
+                            Ordering::SeqCst,
+                        );
+                    }
                     Ok(CaptureTap {
                         session_id: active.session_id.clone(),
                         rate: segment.input_sample_rate_hz,

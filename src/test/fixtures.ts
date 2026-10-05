@@ -28,6 +28,9 @@ export const settingsFixture: AppSettings = {
   saveHistory: true,
   volumeDuckingEnabled: true,
   fileDiarizationEnabled: false,
+  r2t2IdleCache: "one_minute",
+  livePairChunkMs: 560,
+  livePairKeepLoaded: true,
 };
 export const resultFixture: TranscriptResult = {
   jobId: "result-1",

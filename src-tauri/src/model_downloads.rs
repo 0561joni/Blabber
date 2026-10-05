@@ -239,6 +239,11 @@ impl ModelDownloadManager {
                             }
                         }
                     }
+                    if spec.id == crate::live_pair::MODEL_ID {
+                        if let Some(state) = app.try_state::<crate::app_state::AppState>() {
+                            state.dictation_controller.sync_live_pair();
+                        }
+                    }
                     if spec.capability == ModelCapability::Translation {
                         if let Some(state) = app.try_state::<crate::app_state::AppState>() {
                             let activation = storage::update_settings_for_db_path(
@@ -461,6 +466,10 @@ fn download_model(
                     fs::remove_file(&final_artifact)?;
                 }
                 let partial = staging_dir.join(format!("{}.part", artifact.path));
+                // Directory packages may nest files (CoreML bundles).
+                if let Some(parent) = partial.parent() {
+                    fs::create_dir_all(parent)?;
+                }
                 download_artifact(
                     artifact,
                     &partial,
@@ -714,6 +723,13 @@ impl DownloadableModelSpec {
                 ModelAvailability::Available
             };
         }
+        if self.id == crate::live_pair::MODEL_ID {
+            return if crate::live_pair::platform_supported() {
+                ModelAvailability::Available
+            } else {
+                ModelAvailability::UnsupportedPlatform
+            };
+        }
         if self.capability == ModelCapability::Translation
             && !crate::translation::platform_supported()
         {
@@ -781,8 +797,47 @@ const VIBEVOICE_ARTIFACTS: &[ModelArtifactSpec] = &[
     ModelArtifactSpec { path: "model-00002-of-00002.safetensors", size_bytes: 4_190_296_379, url: "https://huggingface.co/mlx-community/VibeVoice-ASR-8bit/resolve/725c72e54d6ef875472c27fbc50fab470a960940/model-00002-of-00002.safetensors?download=true", sha256: "53750f68f0fca138e70d8ed5eb38c29a02e3b44c3e530142a7b0cb3453bf455a" },
 ];
 
+/// Both live-pair models, pinned per file in `workers/fluid/manifest.json`.
+static LIVE_PAIR_ARTIFACTS: std::sync::LazyLock<Vec<ModelArtifactSpec>> =
+    std::sync::LazyLock::new(|| {
+        crate::live_pair::artifacts()
+            .iter()
+            .map(|artifact| ModelArtifactSpec {
+                path: artifact.path.as_str(),
+                size_bytes: artifact.bytes,
+                url: artifact.url.as_str(),
+                sha256: artifact.sha256.as_str(),
+            })
+            .collect()
+    });
+
+fn live_pair_spec() -> DownloadableModelSpec {
+    DownloadableModelSpec {
+        id: crate::live_pair::MODEL_ID,
+        engine: crate::live_pair::ENGINE,
+        model_name: crate::live_pair::MODEL_NAME,
+        description: "Experimental shortcut dictation with live text while you speak (Nemotron 3.5 streaming) and a final pass over the whole recording on release (Parakeet v3), pasted once. Both models stay loaded on the Neural Engine. German, English and other Western European languages; up to five minutes.",
+        requirements: Some("Apple Silicon · macOS 14+ · about 1.4 GB of memory while loaded · includes the 560 ms and 1120 ms preview variants"),
+        size_bytes: crate::live_pair::total_bytes(),
+        profile: ModelProfile::Fast,
+        layout: InstallLayout::Directory { directory_name: crate::live_pair::MODEL_ID },
+        revision: Some(crate::live_pair::revision()),
+        artifacts: &LIVE_PAIR_ARTIFACTS,
+        qwen_platform_limited: false,
+        vibevoice_platform_limited: false,
+        capability: ModelCapability::Asr,
+    }
+}
+
+/// Installed per the completion manifest. Like other packages, a warm check
+/// compares sizes only; SHA-256 was verified once, after download.
+pub fn live_pair_installed(models_dir: &Path) -> bool {
+    model_is_installed(&live_pair_spec(), models_dir)
+}
+
 fn downloadable_specs() -> Vec<DownloadableModelSpec> {
     vec![
+        live_pair_spec(),
         DownloadableModelSpec {
             id: crate::r2t2::MODEL_ID, engine:"audio.cpp-r2t2", model_name:crate::r2t2::MODEL_NAME,
             description:"Experimental local live preview for shortcut dictation in German and English. Paste once after stopping; up to five minutes. Separate NetEase model terms apply.",
@@ -968,7 +1023,12 @@ pub fn list_downloadable_models(models_dir: Option<&Path>) -> Vec<DownloadableMo
             artifact_count: spec.artifacts.len() as u32,
             capability: spec.capability,
             capabilities: capabilities_for_model(spec.id, spec.engine),
-            license_url: (spec.id == crate::r2t2::MODEL_ID).then(|| "https://github.com/netease-youdao/Confucius4-R2T2/blob/c4611929bc3592b38dab34e96a8c9940d6da3755/MODEL_LICENSE".into()),
+            license_url: match spec.id {
+                crate::r2t2::MODEL_ID => Some("https://github.com/netease-youdao/Confucius4-R2T2/blob/c4611929bc3592b38dab34e96a8c9940d6da3755/MODEL_LICENSE".into()),
+                // Nemotron: OpenMDW-1.1; Parakeet: CC-BY-4.0 (see THIRD_PARTY_NOTICES.md).
+                crate::live_pair::MODEL_ID => Some("https://openmdw.ai/license/1-1/".into()),
+                _ => None,
+            },
         })
         .collect()
 }
@@ -1031,7 +1091,7 @@ pub fn discover_native_asr_models(models_dir: &Path) -> Vec<InstalledModel> {
         .filter(|spec| {
             matches!(
                 spec.id,
-                MOSS_MODEL_ID | VIBEVOICE_MODEL_ID | crate::r2t2::MODEL_ID
+                MOSS_MODEL_ID | VIBEVOICE_MODEL_ID | crate::r2t2::MODEL_ID | crate::live_pair::MODEL_ID
             )
         })
         .filter(|spec| spec.availability() == ModelAvailability::Available)
@@ -1046,6 +1106,8 @@ pub fn discover_native_asr_models(models_dir: &Path) -> Vec<InstalledModel> {
                 model_name: spec.model_name.to_string(),
                 variant: if spec.id == crate::r2t2::MODEL_ID {
                     "Q8_0 · streaming"
+                } else if spec.id == crate::live_pair::MODEL_ID {
+                    "CoreML · streaming + final pass"
                 } else if spec.id == MOSS_MODEL_ID {
                     "0.9B F16"
                 } else {

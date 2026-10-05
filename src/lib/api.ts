@@ -1,4 +1,5 @@
 import type {
+  LivePairStatus,
   AppSettings,
   CreateVocabularyTermInput,
   DictationReadiness,
@@ -57,6 +58,9 @@ const mockSettings: AppSettings = {
   soundsEnabled: true,
   volumeDuckingEnabled: true,
   fileDiarizationEnabled: false,
+  r2t2IdleCache: "one_minute",
+  livePairChunkMs: 560,
+  livePairKeepLoaded: true,
 };
 
 const mockTranscripts: TranscriptSummary[] = [];
@@ -643,6 +647,25 @@ export async function listenModelDownloadStatus(
   }
   const { listen } = await import("@tauri-apps/api/event");
   return listen<ModelDownloadStatus>("model-download-status", (event) => {
+    handler(event.payload);
+  });
+}
+
+export async function getLivePairStatus(): Promise<LivePairStatus> {
+  if (!isTauriRuntime()) {
+    return { state: "off", message: null, loadMs: null, rssBytes: null };
+  }
+  return invoke<LivePairStatus>("get_live_pair_status");
+}
+
+export async function listenLivePairStatus(
+  handler: (status: LivePairStatus) => void,
+): Promise<() => void> {
+  if (!isTauriRuntime()) {
+    return () => undefined;
+  }
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<LivePairStatus>("live-pair-status", (event) => {
     handler(event.payload);
   });
 }

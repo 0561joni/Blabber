@@ -25,7 +25,7 @@ interface OverlayPayload {
   sessionId?: string | null;
   liveText?: string;
   tentativeText?: string;
-  streamingState?: "preparing" | "waiting" | "listening" | "catching_up" | "finishing" | "translating" | "failed" | null;
+  streamingState?: "preparing" | "loading" | "waiting" | "listening" | "catching_up" | "finishing" | "finalizing" | "translating" | "failed" | null;
   lagMs?: number;
   durationLimitReached?: boolean;
 }

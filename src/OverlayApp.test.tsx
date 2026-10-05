@@ -83,6 +83,21 @@ describe("Dictation overlay ordering", () => {
     view.unmount(); HTMLElement.prototype.scrollTo = previousScroll;
     delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
   });
+  it("shows Finalising between stop and the final text, which replaces a different preview", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    const view = render(<OverlayApp />);
+    const base = { sessionId: "pair", audioLevel: 0 };
+    await act(async () => mocks.listener?.({ payload: { ...base, phase: "listening", revision: 1, streamingState: "listening", statusText: "Listening", liveText: "größe der küche", tentativeText: " beträgt" } }));
+    expect(screen.getByLabelText("Live transcript").textContent).toBe("größe der küche beträgt");
+    await act(async () => mocks.listener?.({ payload: { ...base, phase: "processing", revision: 2, streamingState: "finalizing", statusText: "Finalising…", liveText: "größe der küche", tentativeText: "" } }));
+    expect(screen.getByText("Finalising…")).toBeTruthy();
+    expect(screen.getByLabelText("Live transcript").textContent).toBe("größe der küche");
+    await act(async () => mocks.listener?.({ payload: { ...base, phase: "processing", revision: 3, streamingState: "finalizing", statusText: "Finalising…", liveText: "Die Größe der Küche beträgt 18 m².", tentativeText: "" } }));
+    expect(screen.getByLabelText("Live transcript").textContent).toBe("Die Größe der Küche beträgt 18 m².");
+    expect(screen.getByLabelText("Live transcript").textContent).not.toContain("größe der küche");
+    view.unmount();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
   it("explains a blocked auto-paste without calling the successful transcription a failure", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     const view = render(<OverlayApp />);

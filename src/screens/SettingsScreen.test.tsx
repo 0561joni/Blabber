@@ -18,6 +18,8 @@ import type {
 
 const apiMocks = vi.hoisted(() => ({
   getModelDownloadStatuses: vi.fn(),
+  getLivePairStatus: vi.fn(),
+  listenLivePairStatus: vi.fn(),
   getPlatformInfo: vi.fn(),
   listDownloadableModels: vi.fn(),
   listInputDevices: vi.fn(),
@@ -30,6 +32,8 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/api")>()),
   getModelDownloadStatuses: apiMocks.getModelDownloadStatuses,
+  getLivePairStatus: apiMocks.getLivePairStatus,
+  listenLivePairStatus: apiMocks.listenLivePairStatus,
   getPlatformInfo: apiMocks.getPlatformInfo,
   listDownloadableModels: apiMocks.listDownloadableModels,
   listInputDevices: apiMocks.listInputDevices,
@@ -66,6 +70,9 @@ const initialSettings: AppSettings = {
   soundsEnabled: true,
   volumeDuckingEnabled: true,
   fileDiarizationEnabled: false,
+  r2t2IdleCache: "one_minute",
+  livePairChunkMs: 560,
+  livePairKeepLoaded: true,
 };
 
 const asrModel: DownloadableModel = {
@@ -102,12 +109,14 @@ function Harness({
   onSave,
   onReload,
   installedModels = [],
+  initial = {},
 }: {
   onSave: (patch: SettingsPatch) => void;
   onReload: () => Promise<void>;
   installedModels?: InstalledModel[];
+  initial?: Partial<AppSettings>;
 }) {
-  const [settings, setSettings] = useState(initialSettings);
+  const [settings, setSettings] = useState({ ...initialSettings, ...initial });
   return (
     <SettingsScreen
       settings={settings}
@@ -150,6 +159,10 @@ describe("Settings speaker identification", () => {
   beforeEach(() => {
     downloadListener = undefined;
     apiMocks.getModelDownloadStatuses.mockReset().mockResolvedValue([]);
+    apiMocks.getLivePairStatus.mockReset().mockResolvedValue({
+      state: "off", message: null, loadMs: null, rssBytes: null,
+    });
+    apiMocks.listenLivePairStatus.mockReset().mockResolvedValue(() => undefined);
     apiMocks.getPlatformInfo.mockReset().mockResolvedValue({
       os: "macos",
       isWayland: false,
@@ -276,6 +289,74 @@ describe("Settings speaker identification", () => {
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
     expect(screen.getByRole("button", { name: "Open in Finder" })).toBeTruthy();
+  });
+
+  it("shows the resident live pair with its memory cost and saves its options", async () => {
+    let pushStatus: ((status: unknown) => void) | undefined;
+    apiMocks.listenLivePairStatus.mockImplementation(async (listener) => {
+      pushStatus = listener;
+      return () => undefined;
+    });
+    const installed: InstalledModel[] = [
+      {
+        id: "live-pair",
+        engine: "fluidaudio-live-pair",
+        modelName: "Live pair · Nemotron + Parakeet",
+        variant: "CoreML · streaming + final pass",
+        localPath: "/models/live-pair",
+        sizeBytes: 1_854_503_633,
+        isDefault: false,
+        profile: "fast",
+      },
+      {
+        id: "confucius4-r2t2-q8-0",
+        engine: "audio.cpp-r2t2",
+        modelName: "R2T2 Q8 · Experimental",
+        variant: "Q8_0 · streaming",
+        localPath: "/models/r2t2",
+        sizeBytes: 2_477_512_064,
+        isDefault: false,
+        profile: "accurate",
+      },
+    ];
+    const onSave = vi.fn();
+    render(
+      <Harness
+        onSave={onSave}
+        onReload={vi.fn().mockResolvedValue(undefined)}
+        installedModels={installed}
+        initial={{ shortcutDictationSelectedModelId: "live-pair" }}
+      />,
+    );
+    await screen.findByText("Speaker identification");
+    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    const card = screen.getByRole("article", { name: "Live dictation" });
+    expect(within(card).getByText(/Not loaded.*1\.4 GB of memory/)).toBeTruthy();
+    await waitFor(() => expect(pushStatus).toBeDefined());
+    act(() => pushStatus!({ state: "ready", message: null, loadMs: 212, rssBytes: 70_000_000 }));
+    expect(within(card).getByText(/Ready · loaded in 0\.2 s/)).toBeTruthy();
+
+    fireEvent.change(within(card).getByLabelText("Live preview step"), { target: { value: "1120" } });
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ livePairChunkMs: 1120 }));
+    fireEvent.click(within(card).getByRole("button", { name: "Keep live-pair models loaded" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ livePairKeepLoaded: false }));
+    fireEvent.change(within(card).getByLabelText("Keep R2T2 loaded after dictation"), {
+      target: { value: "until_memory_pressure" },
+    });
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ r2t2IdleCache: "until_memory_pressure" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Launch at login" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ launchAtLoginEnabled: true }));
+    await waitFor(() => expect(within(card).queryByRole("button", { name: "Launch at login" })).toBeNull());
+
+    act(() => pushStatus!({ state: "unloaded", message: "Unloaded under memory pressure. Reloads on the next dictation.", loadMs: null, rssBytes: null }));
+    expect(within(card).getByText(/Unloaded to free memory/)).toBeTruthy();
+  });
+
+  it("hides live dictation options when no streaming model is installed", async () => {
+    render(<Harness onSave={vi.fn()} onReload={vi.fn().mockResolvedValue(undefined)} />);
+    await screen.findByText("Speaker identification");
+    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    expect(screen.queryByRole("article", { name: "Live dictation" })).toBeNull();
   });
 
   it("uses friendly two-line pickers and saves all three model contexts", async () => {

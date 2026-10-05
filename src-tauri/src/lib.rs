@@ -9,10 +9,12 @@ pub mod desktop_shell;
 pub mod diarization;
 pub mod diarization_worker;
 pub mod dictation;
+pub mod early_asr;
 pub mod file_jobs;
 pub mod insertion;
 #[cfg(target_os = "linux")]
 pub mod ipc;
+pub mod live_pair;
 pub mod managed_process;
 pub mod model_downloads;
 pub mod model_metadata;

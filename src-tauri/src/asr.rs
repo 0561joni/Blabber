@@ -259,6 +259,61 @@ impl LocalTranscriptionEngine {
     }
 }
 
+impl LocalTranscriptionEngine {
+    /// The model a batch request will run on, with the same validation as
+    /// `transcribe_file`.
+    pub(crate) fn model_for_request(
+        &self,
+        request: &FileTranscriptionRequest,
+    ) -> Result<InstalledModel> {
+        if request.selected_model_id.as_deref() == Some(crate::r2t2::MODEL_ID) {
+            return Err(anyhow!("MODEL_CONTEXT_UNSUPPORTED: R2T2 requires live shortcut dictation. It cannot run as a batch transcription model."));
+        }
+        if request.selected_model_id.as_deref() == Some(crate::live_pair::MODEL_ID) {
+            return Err(anyhow!("MODEL_CONTEXT_UNSUPPORTED: The live pair requires live shortcut dictation. It cannot run as a batch transcription model."));
+        }
+        let model = self.resolve_model(request.selected_model_id.as_deref(), request.profile)?;
+        if model.capabilities.streaming_transcription {
+            return Err(anyhow!("MODEL_CONTEXT_UNSUPPORTED: Choose a model that supports this transcription workflow."));
+        }
+        if let Some(use_context) = request.use_context {
+            if !model.capabilities.supported_contexts.contains(&use_context) {
+                return Err(anyhow!(
+                    "MODEL_CONTEXT_UNSUPPORTED: {} is not available for {:?}",
+                    model.model_name,
+                    use_context
+                ));
+            }
+        }
+        Ok(model)
+    }
+
+    /// Load the request's model into this process's cache without decoding, so
+    /// the next `transcribe_file` with the same model starts immediately. Native
+    /// worker engines start a fresh process per transcription and have nothing
+    /// to keep warm here.
+    pub fn preload(&self, request: &FileTranscriptionRequest) -> Result<()> {
+        let _work = crate::shutdown::begin_work(true)?;
+        let model = self.model_for_request(request)?;
+        match model.engine.as_str() {
+            "whisper.cpp" => {
+                self.qwen.invalidate_context_cache();
+                self.whisper.preload(&model, request.prefer_gpu)
+            }
+            "qwen3_asr_c" => {
+                self.whisper.invalidate_context_cache();
+                self.qwen.preload(&model)
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Engines whose model stays loaded inside the persistent transcription worker.
+pub(crate) fn engine_supports_preload(engine: &str) -> bool {
+    matches!(engine, "whisper.cpp" | "qwen3_asr_c")
+}
+
 impl TranscriptionEngine for LocalTranscriptionEngine {
     fn list_models(&self) -> Result<Vec<InstalledModel>> {
         Ok(self
@@ -285,22 +340,7 @@ impl TranscriptionEngine for LocalTranscriptionEngine {
         progress: Option<Arc<AtomicI32>>,
     ) -> Result<TranscriptResult> {
         let _work = crate::shutdown::begin_work(true)?;
-        if request.selected_model_id.as_deref() == Some(crate::r2t2::MODEL_ID) {
-            return Err(anyhow!("MODEL_CONTEXT_UNSUPPORTED: R2T2 requires live shortcut dictation. It cannot run as a batch transcription model."));
-        }
-        let model = self.resolve_model(request.selected_model_id.as_deref(), request.profile)?;
-        if model.capabilities.streaming_transcription {
-            return Err(anyhow!("MODEL_CONTEXT_UNSUPPORTED: Choose a model that supports this transcription workflow."));
-        }
-        if let Some(use_context) = request.use_context {
-            if !model.capabilities.supported_contexts.contains(&use_context) {
-                return Err(anyhow!(
-                    "MODEL_CONTEXT_UNSUPPORTED: {} is not available for {:?}",
-                    model.model_name,
-                    use_context
-                ));
-            }
-        }
+        let model = self.model_for_request(&request)?;
         request.selected_model_id = Some(model.id.clone());
         match model.engine.as_str() {
             "whisper.cpp" => {
@@ -392,6 +432,15 @@ impl SharedWhisperEngine {
             context: Arc::clone(&context),
         });
         Ok(context)
+    }
+
+    /// Load the context `transcribe_file` will ask for first (GPU when
+    /// preferred and available, CPU otherwise).
+    pub(crate) fn preload(&self, model: &InstalledModel, prefer_gpu: bool) -> Result<()> {
+        if should_try_gpu(prefer_gpu) && self.obtain_context(model, true).is_ok() {
+            return Ok(());
+        }
+        self.obtain_context(model, false).map(|_| ())
     }
 
     pub(crate) fn invalidate_context_cache(&self) {
@@ -1026,6 +1075,15 @@ fn clean_decode_error(error: &anyhow::Error) -> String {
 pub(crate) fn build_transcript_result(
     job_id: String,
     model: &InstalledModel,
+    segments: Vec<TranscriptSegment>,
+    warnings: Vec<TranscriptWarning>,
+) -> TranscriptResult {
+    build_transcript_result_named(job_id, &model.model_name, segments, warnings)
+}
+
+pub(crate) fn build_transcript_result_named(
+    job_id: String,
+    model_name: &str,
     mut segments: Vec<TranscriptSegment>,
     warnings: Vec<TranscriptWarning>,
 ) -> TranscriptResult {
@@ -1076,7 +1134,7 @@ pub(crate) fn build_transcript_result(
 
     TranscriptResult {
         job_id,
-        model_name: model.model_name.clone(),
+        model_name: model_name.to_string(),
         full_text: plain_text.clone(),
         plain_text,
         timestamped_text,

@@ -43,6 +43,12 @@ interface CatalogEntry {
 }
 
 const MODEL_CATALOG: Record<string, CatalogEntry> = {
+  "live-pair": {
+    friendlyName: "Live pair · Experimental", speed: 5, accuracy: 4,
+    description: "Shortcut dictation with text appearing while you speak. On release, a second model rereads the whole recording and its text is pasted, usually within a second. Both models stay loaded on the Neural Engine.",
+    technicalDetails: "Nemotron 3.5 ASR Streaming 0.6B (live) + Parakeet TDT 0.6B v3 (final) · CoreML · about 1.4 GB memory while loaded · five-minute limit",
+    recommendedFor: [], technicalNames: ["Live pair · Nemotron + Parakeet"],
+  },
   "confucius4-r2t2-q8-0": {
     friendlyName: "R2T2 · Experimental", speed: 4.5, accuracy: 4,
     description: "Local live preview for German and English shortcut dictation. Text is pasted once after you stop. Acceptance testing is still in progress.",

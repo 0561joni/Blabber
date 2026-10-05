@@ -166,4 +166,6 @@ if (process.platform === "darwin" && process.arch === "arm64") {
   if (vibevoice.status !== 0) throw new Error("VibeVoice worker build failed.");
   const moss = spawnSync(process.execPath, ["scripts/build-moss-worker.mjs"], { stdio: "inherit" });
   if (moss.status !== 0) throw new Error("MOSS worker build failed.");
+  const fluid = spawnSync(process.execPath, ["scripts/build-fluid-worker.mjs"], { stdio: "inherit" });
+  if (fluid.status !== 0) throw new Error("Live-pair helper build failed.");
 }

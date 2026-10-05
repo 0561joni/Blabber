@@ -99,7 +99,7 @@ impl Default for ModelCapabilities {
 
 pub fn capabilities_for_model(model_id: &str, engine: &str) -> ModelCapabilities {
     match model_id {
-        crate::r2t2::MODEL_ID => ModelCapabilities {
+        crate::r2t2::MODEL_ID | crate::live_pair::MODEL_ID => ModelCapabilities {
             supported_contexts: vec![ModelUseContext::ShortcutDictation],
             timestamped_segments: false,
             streaming_transcription: true,

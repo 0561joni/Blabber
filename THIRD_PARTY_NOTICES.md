@@ -25,6 +25,28 @@ Derivative Work.
 Upstream: https://github.com/netease-youdao/Confucius4-R2T2
 Runtime: https://github.com/0xShug0/audio.cpp
 
+## Live pair: FluidAudio, Nemotron 3.5 ASR and Parakeet v3
+
+The live-pair helper (`blabber-fluid-worker`) statically links FluidAudio
+(Apache-2.0) at `0b1f46289fe27d95b5e66ad8be46e64f5ee02ae7` (v0.17.5), built
+without its optional NemoTextProcessing binary. The license is bundled at
+`workers/fluid/FluidAudio-LICENSE` in the app's resources.
+Upstream: https://github.com/FluidInference/FluidAudio
+
+Model weights are downloaded separately and unchanged, with per-file SHA-256
+pins in `workers/fluid/manifest.json`:
+
+- **Nemotron 3.5 ASR Streaming Multilingual 0.6B**, CoreML conversion
+  `FluidInference/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b-CoreML`,
+  revision `1a41b75758b0337ff67db7d5408280aaaf23074e` (`latin/560ms` and
+  `latin/1120ms`), derived from NVIDIA's `nvidia/nemotron-3.5-asr-streaming-0.6b`.
+  License: OpenMDW-1.1, https://openmdw.ai/license/1-1/
+- **Parakeet TDT 0.6B v3**, CoreML conversion
+  `FluidInference/parakeet-tdt-0.6b-v3-coreml`, revision
+  `7dd20fe6b1797d35f5e3307e8b1732d9a178edfe`, derived from NVIDIA's
+  `nvidia/parakeet-tdt-0.6b-v3`. License: CC-BY-4.0,
+  https://creativecommons.org/licenses/by/4.0/
+
 ## TranslateGemma and llama.cpp
 
 The translation helper statically embeds llama.cpp at commit
