@@ -118,7 +118,7 @@ pub(crate) fn source_language(settings: &crate::settings::AppSettings) -> Result
     }
     match settings.fixed_language.as_deref() {
         Some("de" | "German") => Ok("German".into()), Some("en" | "English") => Ok("English".into()),
-        _ => bail!("R2T2_SETUP: Choose automatic, German or English as the source language for experimental R2T2."),
+        _ => bail!("R2T2_SETUP: R2T2 only understands German or English. Choose Automatic, German or English under Settings → Dictation → Language you speak."),
     }
 }
 pub(crate) fn transcript(
@@ -199,7 +199,7 @@ pub fn check_setup(app: &AppHandle, models_dir: &Path) -> Result<(PathBuf, PathB
     })?;
     let model = model_path(models_dir);
     if std::fs::metadata(&model).map(|m| m.len()).ok() != Some(MODEL_BYTES as u64) {
-        bail!("R2T2_SETUP: Download or repair R2T2 in Settings → Models.");
+        bail!("R2T2_SETUP: Download or repair R2T2 in Settings → Engines.");
     }
     Ok((helper, model))
 }
@@ -316,7 +316,7 @@ impl NativeWorker {
             hash.update(&block[..count]);
         }
         if fingerprint.0 != MODEL_BYTES as u64 || format!("{:x}", hash.finalize()) != MODEL_SHA256 {
-            bail!("R2T2_SETUP: R2T2 failed its checksum. Repair it in Settings → Models.");
+            bail!("R2T2_SETUP: R2T2 failed its checksum. Repair it in Settings → Engines.");
         }
         Self::launch(helper, fingerprint)
     }

@@ -53,7 +53,7 @@ const initialSettings: AppSettings = {
   defaultMode: "file_transcribe",
   shortcut: "CmdOrCtrl+Shift+Space",
   translationEnabled: false,
-  translationCycleShortcut: "CmdOrCtrl+Shift+Right",
+  translationCycleShortcut: "Ctrl+Alt+L",
   translationModelId: "translategemma-12b-q6-k",
   shortcutMode: "push_to_talk",
   languageMode: "auto",
@@ -77,6 +77,8 @@ const initialSettings: AppSettings = {
   r2t2IdleCache: "one_minute",
   livePairChunkMs: 560,
   livePairKeepLoaded: true,
+  pasteLastShortcut: "Ctrl+Alt+V",
+  seriousMode: false,
 };
 
 const asrModel: DownloadableModel = {
@@ -203,8 +205,8 @@ describe("Settings speaker identification", () => {
       .mockResolvedValue([diarizationModel]);
     const onReload = vi.fn().mockResolvedValue(undefined);
     render(<Harness onSave={vi.fn()} onReload={onReload} />);
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download engines/ }));
     expect(
       await screen.findByText("No longer offered for download. Keeps working while installed."),
     ).toBeTruthy();
@@ -225,8 +227,8 @@ describe("Settings speaker identification", () => {
       new Error("MODEL_BUSY: A dictation or transcription is running."),
     );
     render(<Harness onSave={vi.fn()} onReload={vi.fn().mockResolvedValue(undefined)} />);
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download engines/ }));
 
     fireEvent.click(await screen.findByRole("button", { name: "Delete Whisper Small" }));
     fireEvent.click(screen.getByRole("button", { name: "Keep" }));
@@ -234,7 +236,7 @@ describe("Settings speaker identification", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Whisper Small" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    expect((await screen.findByRole("alert")).textContent).toContain("MODEL_BUSY");
+    expect((await screen.findByRole("alert")).textContent).toBe("The engine is busy with another job. Try again in a moment.");
     expect(screen.getByText("Whisper Small")).toBeTruthy();
   });
 
@@ -248,8 +250,8 @@ describe("Settings speaker identification", () => {
     };
     apiMocks.listDownloadableModels.mockResolvedValue([custom]);
     render(<Harness onSave={vi.fn()} onReload={vi.fn().mockResolvedValue(undefined)} />);
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download engines/ }));
 
     expect(await screen.findByText(/use at your own risk/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete Whisper Large V3" })).toBeTruthy();
@@ -268,7 +270,7 @@ describe("Settings speaker identification", () => {
   it("captures the language shortcut separately and restores registration before saving", async () => {
     const save = vi.fn();
     render(<Harness onSave={save} onReload={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: /^Models$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Dictation" }));
     fireEvent.click(screen.getByRole("button", { name: "Set language shortcut" }));
     await screen.findByText("Press a shortcut… Esc to cancel");
     expect(apiMocks.suspendShortcutCapture).toHaveBeenCalledTimes(1);
@@ -276,6 +278,55 @@ describe("Settings speaker identification", () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith({ translationCycleShortcut: "CmdOrCtrl+Shift+Left" }));
     expect(apiMocks.resumeShortcutCapture.mock.invocationCallOrder[0]).toBeLessThan(save.mock.invocationCallOrder[0]);
     expect(save).not.toHaveBeenCalledWith(expect.objectContaining({ shortcut: expect.anything() }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reset language shortcut to default" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ translationCycleShortcut: "Ctrl+Alt+L" }));
+  });
+
+  it("sets and resets the paste-last shortcut", async () => {
+    const save = vi.fn();
+    render(<Harness onSave={save} onReload={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Dictation" }));
+    const card = screen.getByRole("article", { name: "Paste last dictation" });
+    expect(within(card).getByText("⌃+⌥+V")).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Set paste-last shortcut" }));
+    await within(card).findByText("Press a shortcut… Esc to cancel");
+    expect(screen.queryByText("Listening for shortcut… Press Esc to cancel.")).toBeNull();
+    fireEvent.keyDown(window, { key: "b", code: "KeyB", metaKey: true, altKey: true });
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ pasteLastShortcut: "CmdOrCtrl+Alt+B" }));
+    fireEvent.click(await within(card).findByRole("button", { name: "Reset paste-last shortcut to default" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ pasteLastShortcut: "Ctrl+Alt+V" }));
+  });
+
+  it("chooses the spoken language", async () => {
+    const save = vi.fn();
+    render(<Harness onSave={save} onReload={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Dictation" }));
+    const select = screen.getByRole("combobox", { name: "Language you speak" }) as HTMLSelectElement;
+    expect(select.value).toBe("auto");
+    fireEvent.change(select, { target: { value: "de" } });
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ languageMode: "fixed", fixedLanguage: "de" }));
+    fireEvent.change(select, { target: { value: "auto" } });
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ languageMode: "auto", fixedLanguage: null }));
+  });
+
+  it("turns on Serious mode from Appearance", async () => {
+    const save = vi.fn();
+    render(<Harness onSave={save} onReload={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Appearance & feedback" }));
+    fireEvent.click(screen.getByRole("button", { name: "Serious mode" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ seriousMode: true }));
+    expect(screen.getByRole("button", { name: "Reset Blabbermeter" })).toBeTruthy();
+  });
+
+  it("keeps Control and Command apart when capturing a shortcut on macOS", async () => {
+    const save = vi.fn();
+    render(<Harness onSave={save} onReload={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Dictation" }));
+    expect(screen.getByText("⌃+⌥+L")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Set language shortcut" }));
+    await screen.findByText("Press a shortcut… Esc to cancel");
+    fireEvent.keyDown(window, { key: "k", code: "KeyK", ctrlKey: true, altKey: true });
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ translationCycleShortcut: "Ctrl+Alt+K" }));
   });
 
   it("does not confirm a failed appearance save and retains the saved preference", async () => {
@@ -308,7 +359,7 @@ describe("Settings speaker identification", () => {
     const onReload = vi.fn().mockResolvedValue(undefined);
     render(<Harness onSave={onSave} onReload={onReload} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
     const row = await screen.findByText("Speaker identification");
     expect(screen.queryByText("In-app Quick Dictate")).toBeNull();
     expect(screen.queryByText("Speaker count")).toBeNull();
@@ -340,7 +391,7 @@ describe("Settings speaker identification", () => {
       expect(
         screen.getByText("The local speaker model is installed."),
       ).toBeTruthy();
-      expect(screen.getByText("On")).toBeTruthy();
+      expect(within(row.closest(".setting-row") as HTMLElement).getByText("On")).toBeTruthy();
     });
   });
 
@@ -351,7 +402,7 @@ describe("Settings speaker identification", () => {
         onReload={vi.fn().mockResolvedValue(undefined)}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Audio & shortcuts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dictation" }));
     await screen.findByText("Speaker identification");
     expect(
       screen.getByRole("button", { name: "Start microphone test" }),
@@ -404,37 +455,40 @@ describe("Settings speaker identification", () => {
       />,
     );
     await screen.findByText("Speaker identification");
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    const card = screen.getByRole("article", { name: "Live dictation" });
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+    const card = screen.getByRole("article", { name: "Live dictation tuning" });
     expect(within(card).getByText(/Not loaded.*1\.4 GB of memory/)).toBeTruthy();
     await waitFor(() => expect(pushStatus).toBeDefined());
     act(() => pushStatus!({ state: "ready", message: null, loadMs: 212, rssBytes: 70_000_000 }));
     expect(within(card).getByText(/Ready · loaded in 0\.2 s/)).toBeTruthy();
 
-    fireEvent.change(within(card).getByLabelText("Live preview step"), { target: { value: "1120" } });
+    fireEvent.change(within(card).getByLabelText("Live preview"), { target: { value: "1120" } });
     await waitFor(() => expect(onSave).toHaveBeenCalledWith({ livePairChunkMs: 1120 }));
-    fireEvent.click(within(card).getByRole("button", { name: "Keep live-pair models loaded" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Keep Live dictation loaded" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledWith({ livePairKeepLoaded: false }));
     fireEvent.change(within(card).getByLabelText("Keep R2T2 loaded after dictation"), {
       target: { value: "until_memory_pressure" },
     });
     await waitFor(() => expect(onSave).toHaveBeenCalledWith({ r2t2IdleCache: "until_memory_pressure" }));
-    fireEvent.click(within(card).getByRole("button", { name: "Launch at login" }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ launchAtLoginEnabled: true }));
-    await waitFor(() => expect(within(card).queryByRole("button", { name: "Launch at login" })).toBeNull());
-
     act(() => pushStatus!({ state: "unloaded", message: "Unloaded under memory pressure. Reloads on the next dictation.", loadMs: null, rssBytes: null }));
     expect(within(card).getByText(/Unloaded to free memory/)).toBeTruthy();
+
+    // The launch-at-login tip sits with the engine choice, not the tuning.
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
+    const engine = screen.getByRole("article", { name: "Dictation engine" });
+    fireEvent.click(within(engine).getByRole("button", { name: "Launch at login" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith({ launchAtLoginEnabled: true }));
+    await waitFor(() => expect(within(engine).queryByRole("button", { name: "Launch at login" })).toBeNull());
   });
 
   it("hides live dictation options when no streaming model is installed", async () => {
     render(<Harness onSave={vi.fn()} onReload={vi.fn().mockResolvedValue(undefined)} />);
     await screen.findByText("Speaker identification");
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    expect(screen.queryByRole("article", { name: "Live dictation" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+    expect(screen.queryByRole("article", { name: "Live dictation tuning" })).toBeNull();
   });
 
-  it("uses friendly two-line pickers and saves all three model contexts", async () => {
+  it("uses a dictation engine that the record button follows, and a file engine", async () => {
     const installed: InstalledModel[] = [
       {
         id: "ggml-medium-bin",
@@ -456,6 +510,25 @@ describe("Settings speaker identification", () => {
         isDefault: false,
         profile: "accurate",
       },
+      {
+        id: "live-pair",
+        engine: "fluidaudio-live-pair",
+        modelName: "Live pair · Nemotron + Parakeet",
+        variant: "CoreML · streaming + final pass",
+        localPath: "/models/live-pair",
+        sizeBytes: 1_854_503_633,
+        isDefault: false,
+        profile: "fast",
+        capabilities: {
+          supportedContexts: ["shortcut_dictation"],
+          nativeDiarization: false,
+          timestampedSegments: false,
+          contextSupport: true,
+          languageControl: "automatic_and_fixed",
+          maximumAudioDurationMs: 300_000,
+          streamingTranscription: true,
+        },
+      },
     ];
     const onSave = vi.fn();
     render(
@@ -467,31 +540,33 @@ describe("Settings speaker identification", () => {
     );
     await screen.findByText("Speaker identification");
 
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Shortcut Dictation model" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
+    // Nothing chosen yet: the record button shows its own picker.
+    expect(screen.getByRole("button", { name: "Record button engine" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Dictation engine" }));
     expect(
-      within(screen.getByRole("listbox")).getByText("Recommended"),
+      within(screen.getByRole("listbox")).getByRole("option", {
+        name: /Live dictation.*Recommended/,
+      }),
     ).toBeTruthy();
-    fireEvent.click(
-      within(screen.getByRole("listbox")).getAllByRole("option")[0],
-    );
+    fireEvent.click(within(screen.getByRole("listbox")).getAllByRole("option")[0]);
+    // The record button follows the dictation engine when it can run it.
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith({
         shortcutDictationSelectedModelId: installed[0].id,
         shortcutDictationModelProfile: "accurate",
+        quickDictateSelectedModelId: installed[0].id,
+        quickDictateModelProfile: "accurate",
       }),
     );
+    expect(screen.getByText("Uses the dictation engine")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Record button engine" })).toBeNull();
 
+    fireEvent.click(screen.getByRole("button", { name: /Record button/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Record button engine" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "Quick Dictate model" }),
+      within(screen.getByRole("listbox")).getByRole("option", { name: /Qwen.*Recommended/ }),
     );
-    const quickListbox = screen.getByRole("listbox");
-    const qwenOption = within(quickListbox).getByRole("option", {
-      name: /Qwen ASR.*Recommended/,
-    });
-    fireEvent.click(qwenOption);
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith({
         quickDictateSelectedModelId: installed[1].id,
@@ -499,12 +574,24 @@ describe("Settings speaker identification", () => {
       }),
     );
 
+    // A shortcut-only engine leaves the record button's own engine alone.
+    onSave.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Dictation engine" }));
     fireEvent.click(
-      screen.getByRole("button", { name: "File Transcription model" }),
+      within(screen.getByRole("listbox")).getByRole("option", { name: /Live dictation/ }),
     );
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith({
+        shortcutDictationSelectedModelId: "live-pair",
+        shortcutDictationModelProfile: "fast",
+      }),
+    );
+    expect(screen.getByText("Uses Qwen")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "File engine" }));
     fireEvent.click(
       within(screen.getByRole("listbox")).getByRole("option", {
-        name: /Qwen ASR.*Recommended/,
+        name: /Qwen.*Recommended/,
       }),
     );
     await waitFor(() =>
@@ -526,15 +613,16 @@ describe("Settings speaker identification", () => {
       />,
     );
     await screen.findByText("Speaker identification");
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download engines/ }));
 
     expect(screen.getByText("Whisper Small")).toBeTruthy();
     expect(screen.queryByText("ggml-small.bin")).toBeNull();
-    expect(screen.getByLabelText("Speed 5 of 5, Accuracy 2 of 5")).toBeTruthy();
+    expect(screen.getByLabelText("Speed 4 of 5, Accuracy 1.5 of 5")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Download Whisper Small" }),
     ).toBeTruthy();
+    expect(screen.getByText("488 MB · Works for: Shortcut · Record button · Files")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", { name: "About Whisper Small" }),
@@ -549,8 +637,8 @@ describe("Settings speaker identification", () => {
     let rejectRefresh!: (error: Error) => void;
     const onReload = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectRefresh = reject; }));
     render(<Harness onSave={vi.fn()} onReload={onReload} />);
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download engines/ }));
     await screen.findByRole("button", { name: "Download Whisper Small" });
 
     act(() => { downloadListener?.({ ...status("completed", 100), modelId: asrModel.id }); });
@@ -559,7 +647,7 @@ describe("Settings speaker identification", () => {
     expect(screen.getByText("1 of 1 installed")).toBeTruthy();
 
     await act(async () => { rejectRefresh(new Error("failed to read installed models")); });
-    expect(screen.getByRole("alert").textContent).toContain("model list could not be refreshed");
+    expect(screen.getByRole("alert").textContent).toContain("list could not be refreshed");
     expect(screen.getByRole("alert").textContent).toContain("failed to read installed models");
     expect(screen.queryByText("Downloaded")).toBeNull();
     expect(screen.queryByRole("button", { name: "Download Whisper Small" })).toBeNull();
@@ -576,8 +664,8 @@ describe("Settings speaker identification", () => {
     );
     const onReload = vi.fn().mockResolvedValue(undefined);
     render(<Harness onSave={vi.fn()} onReload={onReload} />);
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download engines/ }));
     await waitFor(() => expect(apiMocks.getModelDownloadStatuses).toHaveBeenCalledTimes(1));
     await act(async () => { downloadListener?.({ ...status("completed", 100), modelId: asrModel.id }); });
     expect(screen.getByText("Installed")).toBeTruthy();
@@ -612,7 +700,7 @@ describe("Settings speaker identification", () => {
         onReload={vi.fn().mockResolvedValue(undefined)}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
     const row = await screen.findByText("Speaker identification");
     fireEvent.click(
       within(row.closest(".setting-row") as HTMLElement).getByRole("button"),
@@ -638,7 +726,7 @@ describe("Settings speaker identification", () => {
         onReload={vi.fn().mockResolvedValue(undefined)}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
     const row = await screen.findByText("Speaker identification");
     const settingRow = row.closest(".setting-row") as HTMLElement;
     const switchButton = within(settingRow).getByRole("button");

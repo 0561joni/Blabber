@@ -161,7 +161,12 @@ class SessionOrdering(unittest.TestCase):
         for key in ("streamText", "finalText", "language", "streamError", "finalError"):
             self.assertIsInstance(final[key], str)
         self.assertEqual(final["finalError"], "")
-        self.assertEqual(set(final["timings"]), {"audioMs", "flushMs", "finalMs"})
+        self.assertEqual(set(final["timings"]), {"audioMs", "flushMs", "finalMs", "finalWaitMs"})
+
+    def test_ping_reports_both_models(self):
+        pong = self.worker.send("ping", "p")
+        self.assertEqual((pong["type"], pong["loaded"]), ("pong", True))
+        self.assertIsInstance(pong["finalLoaded"], bool)
 
     def test_cancel_is_immediate_and_idempotent(self):
         self.start("cancel")
@@ -174,3 +179,24 @@ class SessionOrdering(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless((NEMOTRON / "metadata.json").exists() and (PARAKEET / "Encoder_v2.mlmodelc").exists(),
+                     "pinned live-pair models are not present")
+class StagedLoading(unittest.TestCase):
+    def test_streaming_starts_before_the_final_model_and_finish_waits_for_it(self):
+        worker = Worker()
+        try:
+            ready = worker.send("load", "c", nemotronPath=str(NEMOTRON), parakeetPath=str(PARAKEET))
+            self.assertEqual(ready["type"], "ready")
+            self.assertIsInstance(ready["finalLoaded"], bool)
+            # No warmup and no wait: a session may begin while Parakeet loads.
+            self.assertEqual(worker.send("start", "s", language="auto", chunkMs=560)["type"], "started")
+            worker.send("audio", "s", 1, startSample=0, samples=[0.0] * 16000)
+            final = worker.send("finish", "s", 2, expectedSamples=16000)
+            self.assertEqual((final["type"], final["finalError"]), ("final", ""))
+            self.assertGreaterEqual(final["timings"]["finalWaitMs"], 0)
+            self.assertTrue(worker.send("ping", "p")["finalLoaded"])
+        finally:
+            code, _ = worker.close()
+            self.assertEqual(code, 0)

@@ -1,4 +1,4 @@
-import { formatClock, formatDateTime, formatShortDate } from "../lib/formatting";
+import { readableError, describeError, formatClock, formatDateTime, formatShortDate } from "../lib/formatting";
 import { TranslationResult } from "../components/TranslationResult";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -16,6 +16,7 @@ import {
 import { Button, PageHeader } from "../components/Feedback";
 import { AppIcon, IconButton } from "../components/IconButton";
 import { getFriendlyModelName } from "../lib/modelPresentation";
+import { usePlayful } from "../lib/appearance";
 import type {
   TranscriptDetail,
   TranscriptExportFormat,
@@ -56,6 +57,7 @@ export function HistoryScreen({
   onDelete,
   onDeleteAll,
 }: HistoryScreenProps) {
+  const playful = usePlayful();
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<
     "all" | "quick_dictate" | "file_upload"
@@ -114,7 +116,7 @@ export function HistoryScreen({
         .catch((error) => {
           if (!disposed)
             setSearchError(
-              error instanceof Error ? error.message : "Search unavailable.",
+              describeError(error, "Search unavailable."),
             );
         })
         .finally(() => {
@@ -197,7 +199,9 @@ export function HistoryScreen({
     let unlisten: (() => void) | undefined;
     void listenRediarizationStatus((status) => {
       setMessages({
-        [status.transcriptId]: status.errorMessage ?? status.statusText,
+        [status.transcriptId]: status.errorMessage
+          ? readableError(status.errorMessage)
+          : status.statusText,
       });
     }).then((cleanup) => {
       if (disposed) cleanup();
@@ -218,9 +222,7 @@ export function HistoryScreen({
       setSearchResults(null);
     } catch (error) {
       setSearchError(
-        error instanceof Error
-          ? error.message
-          : "Could not delete transcripts.",
+        describeError(error, "Could not delete transcripts."),
       );
     } finally {
       setIsDeletingAll(false);
@@ -241,9 +243,7 @@ export function HistoryScreen({
       } catch (error) {
         setMessages({
           [transcriptId]:
-            error instanceof Error
-              ? error.message
-              : "Failed to load transcript.",
+            describeError(error, "Failed to load transcript."),
         });
       } finally {
         setBusy((current) => ({ ...current, [transcriptId]: false }));
@@ -320,7 +320,7 @@ export function HistoryScreen({
     } catch (error) {
       setMessages({
         [renameEditor.transcriptId]:
-          error instanceof Error ? error.message : "Rename failed.",
+          describeError(error, "Rename failed."),
       });
     } finally {
       setIsSavingRename(false);
@@ -341,7 +341,7 @@ export function HistoryScreen({
       });
     } catch (error) {
       setMessages({
-        [transcriptId]: error instanceof Error ? error.message : "Copy failed.",
+        [transcriptId]: describeError(error, "Copy failed."),
       });
     }
   }
@@ -364,7 +364,7 @@ export function HistoryScreen({
     } catch (error) {
       setMessages({
         [transcriptId]:
-          error instanceof Error ? error.message : "Export failed.",
+          describeError(error, "Export failed."),
       });
     } finally {
       exportInFlight.current = false;
@@ -436,10 +436,8 @@ export function HistoryScreen({
         [transcript.id]: `Speaker identification updated · ${updated.speakerCount ?? 0} speakers`,
       });
     } catch (error) {
-      const raw = error instanceof Error ? error.message : String(error);
-      const message = raw.replace(/^SOURCE_FILE_(?:REQUIRED|MISMATCH):\s*/, "");
       setMessages({
-        [transcript.id]: message || "Speaker identification failed.",
+        [transcript.id]: describeError(error, "Speaker identification failed."),
       });
     } finally {
       setRediarizingId(null);
@@ -455,9 +453,7 @@ export function HistoryScreen({
     } catch (error) {
       setMessages({
         [transcriptId]:
-          error instanceof Error
-            ? error.message
-            : "Could not cancel speaker retry.",
+          describeError(error, "Could not cancel speaker retry."),
       });
     }
   }
@@ -467,7 +463,6 @@ export function HistoryScreen({
       <div className="history-screen-layout">
         <article className="glass-panel history-toolbar-panel">
           <PageHeader
-            eyebrow="A HOME FOR YOUR WORDS"
             title="Library"
             description="Find a thought. Pick up where you left off."
           >
@@ -504,7 +499,7 @@ export function HistoryScreen({
             {transcripts.length > 0 ? (
               <IconButton
                 icon="trashMultiple"
-                label="Delete all history"
+                label="Delete all transcripts"
                 tone="danger"
                 state={isDeletingAll ? "busy" : "default"}
                 disabled={isDeletingAll}
@@ -514,10 +509,10 @@ export function HistoryScreen({
           </div>
           {confirmDeleteAll ? (
             <div className="glass-subtle confirm-panel history-confirm-panel">
-              <p className="transcript-title">Delete the entire history?</p>
+              <p className="transcript-title">Delete everything in the Library?</p>
               <p className="muted">
-                This removes all saved transcripts and speaker metadata from
-                local history.
+                This removes all saved transcripts and their speaker names from
+                this computer. It can't be undone.
               </p>
               <div className="toolbar action-segment">
                 <button
@@ -525,7 +520,7 @@ export function HistoryScreen({
                   disabled={isDeletingAll}
                   onClick={() => void confirmDelete()}
                 >
-                  {isDeletingAll ? "Deleting..." : "Yes, delete everything"}
+                  {isDeletingAll ? "Deleting…" : "Yes, delete everything"}
                 </button>
                 <button
                   disabled={isDeletingAll}
@@ -590,12 +585,16 @@ export function HistoryScreen({
                 <h3>
                   {query || sourceFilter !== "all"
                     ? "No matching transcripts"
-                    : "Your words belong here"}
+                    : playful
+                      ? "Nothing here yet"
+                      : "Your words belong here"}
                 </h3>
                 <p className="muted">
                   {query || sourceFilter !== "all"
                     ? "Try a different search or filter."
-                    : "Saved dictations and files will appear here."}
+                    : playful
+                      ? "Say something brilliant — or anything, really. Saved dictations and files land here."
+                      : "Saved dictations and files will appear here."}
                 </p>
               </div>
             ) : null}
@@ -691,12 +690,12 @@ export function HistoryScreen({
                         <div>
                           <dt>Status</dt>
                           <dd>
-                            {transcript.status === "completed"
-                              ? "Ready"
-                              : transcript.status.replace(/_/g, " ")}
-                            {transcript.qualityStatus !== "clean"
-                              ? ` · ${transcript.qualityStatus}`
-                              : ""}
+                            {formatTranscriptStatus(transcript.status)}
+                            {transcript.qualityStatus === "recovered"
+                              ? " · some audio was hard to hear"
+                              : transcript.qualityStatus === "partial"
+                                ? " · parts may be missing"
+                                : ""}
                           </dd>
                         </div>
                         <div>
@@ -712,7 +711,7 @@ export function HistoryScreen({
                         id={`history-transcript-${transcript.id}`}
                       >
                         {busy[transcript.id] ? (
-                          <p className="muted">Loading speaker transcript...</p>
+                          <p className="muted">Loading speaker transcript…</p>
                         ) : detail?.translation ? <TranslationResult output={detail.translation} /> : detail ? (
                           <>
                             {detail.diarizationWarning ? (
@@ -724,7 +723,7 @@ export function HistoryScreen({
                               <p className="muted diarization-provenance">
                                 {detail.diarizationSource === "native_model"
                                   ? `Built into ${getFriendlyModelName(detail.modelName)}`
-                                  : `Speaker clustering: ${detail.diarizationSpeakerCountHint === null ? `Automatic · threshold ${detail.diarizationClusteringThreshold?.toFixed(2) ?? "unknown"}` : `Known speaker count: ${detail.diarizationSpeakerCountHint}`}`}
+                                  : `Speakers identified by Blabber · ${detail.diarizationSpeakerCountHint === null ? "number of speakers detected automatically" : `${detail.diarizationSpeakerCountHint} speakers, as you set`}`}
                               </p>
                             ) : null}
                             {detail.speakers.length > 0 ? (
@@ -1064,7 +1063,7 @@ export function HistoryScreen({
                               >
                                 Use estimate
                               </button>
-                              <p>The estimate becomes the clustering target.</p>
+                              <p>Blabber then looks for exactly this many speakers.</p>
                             </div>
                           ) : null}
                         </div>
@@ -1087,9 +1086,7 @@ export function HistoryScreen({
                             .catch((error) =>
                               setMessages({
                                 [transcript.id]:
-                                  error instanceof Error
-                                    ? error.message
-                                    : "Delete failed.",
+                                  describeError(error, "Delete failed."),
                               }),
                             );
                         }}
@@ -1290,7 +1287,24 @@ function formatDiarizationStatus(transcript: TranscriptSummary) {
   if (transcript.diarizationStatus === "not_enough_speech")
     return "Not enough speech";
   if (transcript.diarizationStatus === "failed") return "Speakers unavailable";
-  return transcript.diarizationStatus === "not_requested"
-    ? "Speaker labels off"
-    : transcript.diarizationStatus.replace(/_/g, " ");
+  if (transcript.diarizationStatus === "pending") return "Speakers queued";
+  if (transcript.diarizationStatus === "running") return "Identifying speakers";
+  if (transcript.diarizationStatus === "canceled") return "Speaker identification canceled";
+  return "Speaker identification off";
+}
+
+function formatTranscriptStatus(status: string) {
+  switch (status) {
+    case "completed":
+      return "Ready";
+    case "failed":
+      return "Failed";
+    case "canceled":
+      return "Canceled";
+    case "pending":
+    case "processing":
+      return "In progress";
+    default:
+      return status.replace(/_/g, " ");
+  }
 }

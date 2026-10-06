@@ -1,6 +1,8 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { OverlayApp } from "./OverlayApp";
+import { applyAppearance } from "./lib/appearance";
+import { LISTENING_LINES } from "./lib/blabbermeter";
 import { invoke } from "@tauri-apps/api/core";
 
 const mocks = vi.hoisted(() => ({ listener: null as null | ((event: { payload: unknown }) => void), cleanup: vi.fn() }));
@@ -16,6 +18,36 @@ describe("Dictation overlay ordering", () => {
     expect(screen.queryByText("30 s left · 5-minute limit")).toBeNull();
     await act(async () => mocks.listener?.({ payload: { phase: "listening", sessionId: "long", revision: 51, audioLevel: 0.2, statusText: "30 s left · 5-minute limit" } }));
     expect(screen.getByText("30 s left · 5-minute limit")).toBeTruthy();
+    view.unmount();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+  it("says why a dictation failed and shows neutral notices", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    const view = render(<OverlayApp />);
+    await act(async () => mocks.listener?.({ payload: { phase: "failed", revision: 80, audioLevel: 0, statusText: "Microphone isn't working" } }));
+    expect(screen.getByText("Microphone isn't working").closest(".overlay-result")?.className).toContain("is-error");
+    await act(async () => mocks.listener?.({ payload: { phase: "notice", revision: 81, audioLevel: 0, statusText: "No speech heard" } }));
+    const notice = screen.getByText("No speech heard").closest(".overlay-result");
+    expect(notice?.className).toContain("is-notice");
+    expect(notice?.className).not.toContain("is-error");
+    await act(async () => mocks.listener?.({ payload: { phase: "failed", revision: 82, audioLevel: 0 } }));
+    expect(screen.getByText("Didn't work · open Blabber")).toBeTruthy();
+    view.unmount();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+  });
+  it("uses a playful listening line, but plain words in Serious mode and never on errors", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    const view = render(<OverlayApp />);
+    await act(async () => mocks.listener?.({ payload: { phase: "listening", sessionId: "fun", revision: 90, audioLevel: 0.1 } }));
+    const line = view.container.querySelector(".overlay-phase-label")?.textContent ?? "";
+    expect(LISTENING_LINES).toContain(line);
+    await act(async () => mocks.listener?.({ payload: { phase: "failed", sessionId: "fun", revision: 91, audioLevel: 0, statusText: "Microphone isn't working" } }));
+    expect(screen.getByText("Microphone isn't working")).toBeTruthy();
+    act(() => applyAppearance({ appearance: "system", motionPreference: "system", seriousMode: true }));
+    await act(async () => mocks.listener?.({ payload: { phase: "listening", sessionId: "plain", revision: 92, audioLevel: 0.1 } }));
+    expect(view.container.querySelector(".overlay-phase-label")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Listening");
+    act(() => applyAppearance({ appearance: "system", motionPreference: "system", seriousMode: false }));
     view.unmount();
     delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
   });

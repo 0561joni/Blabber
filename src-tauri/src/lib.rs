@@ -21,6 +21,7 @@ pub mod model_downloads;
 pub mod model_metadata;
 pub mod native_asr;
 pub mod output_format;
+pub mod permissions;
 pub mod platform;
 pub mod qwen_asr;
 pub mod r2t2;

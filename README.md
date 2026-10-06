@@ -80,7 +80,7 @@ Blabber runs one desktop instance per user. Opening it again restores the existi
 
 On macOS, the red close button hides the workspace. Clicking the Dock icon or the menu-bar icon restores it. Cmd-Q, Dock Quit, the application menu, and the tray's Quit entry share one shutdown path.
 
-Idle quit requires no confirmation. If recording, transcription, or speaker processing is active, Blabber offers **Weiterarbeiten** or **Abbrechen und beenden**. Accepted quit blocks new work, stops capture and workers, restores audio volume, drains active operations, and releases cached model/GPU resources before terminating. The window shows cleanup status while this completes. Engines without a safe mid-call abort finish their current native call before their memory is released. Partial model downloads retain the existing resume behavior.
+Idle quit requires no confirmation. If recording, transcription, or speaker processing is active, Blabber offers **Keep working** or **Stop and quit**. Accepted quit blocks new work, stops capture and workers, restores audio volume, drains active operations, and releases cached model/GPU resources before terminating. The window shows cleanup status while this completes. Engines without a safe mid-call abort finish their current native call before their memory is released. Partial model downloads retain the existing resume behavior.
 
 Native regression probes (macOS, without workspace windows or user data):
 

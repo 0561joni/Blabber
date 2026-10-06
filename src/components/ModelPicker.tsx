@@ -53,7 +53,9 @@ export function ModelPicker({
   );
   const presentations = useMemo(() => eligibleModels.map(getModelPresentation), [eligibleModels]);
   const selectedIndex = Math.max(0, eligibleModels.findIndex((model) => model.id === value));
-  const selectedModel = eligibleModels.find((model) => model.id === value) ?? eligibleModels[0] ?? null;
+  // No fallback to the first model: showing one as selected when nothing usable
+  // is saved would hide that this workflow has no model.
+  const selectedModel = eligibleModels.find((model) => model.id === value) ?? null;
   const selectedPresentation = selectedModel ? getModelPresentation(selectedModel) : null;
 
   useEffect(() => {
@@ -126,7 +128,9 @@ export function ModelPicker({
         {selectedPresentation ? (
           <ModelSummary presentation={selectedPresentation} />
         ) : (
-          <span className="model-picker-empty">No models installed</span>
+          <span className="model-picker-empty">
+            {eligibleModels.length > 0 ? "Choose an engine" : "No engine installed"}
+          </span>
         )}
         <span className={isOpen ? "model-picker-chevron is-open" : "model-picker-chevron"} aria-hidden="true">⌄</span>
       </button>

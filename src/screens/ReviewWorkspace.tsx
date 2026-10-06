@@ -1,3 +1,4 @@
+import { describeError } from "../lib/formatting";
 import { TranslationResult } from "../components/TranslationResult";
 import { retryDictationTranslation } from "../lib/translationApi";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -126,7 +127,7 @@ export function ReviewWorkspace(props: Props) {
       if (seq === requestSequence.current) accept(next);
     } catch (e) {
       if (alive.current && seq === requestSequence.current)
-        setError(e instanceof Error ? e.message : String(e));
+        setError(describeError(e));
     }
   }, [key, accept]);
   useEffect(() => {
@@ -272,7 +273,7 @@ export function ReviewWorkspace(props: Props) {
     try {
       await action();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeError(e));
       setErrorCode(e instanceof ReviewApiError ? e.code : "");
       if (e instanceof ReviewApiError && e.code === "REVIEW_CONFLICT")
         await refresh();
@@ -662,12 +663,12 @@ export function ReviewWorkspace(props: Props) {
                   {document.detail.diarizationSource === "native_model"
                     ? `Built into ${getFriendlyModelName(document.detail.modelName ?? "")}`
                     : document.detail.diarizationModelId
-                      ? `Local speaker model · ${document.detail.diarizationSpeakerCountHint === null ? "Automatic speaker count" : `Known speaker count: ${document.detail.diarizationSpeakerCountHint}`}`
+                      ? `Identified by Blabber · ${document.detail.diarizationSpeakerCountHint === null ? "number of speakers detected automatically" : `${document.detail.diarizationSpeakerCountHint} speakers, as you set`}`
                       : "Speaker identification has not run."}
                 </p>
                 {document.detail.diarizationClusteringThreshold != null ? (
                   <p className="muted">
-                    Clustering threshold:{" "}
+                    Matching strictness:{" "}
                     {document.detail.diarizationClusteringThreshold.toFixed(2)}
                   </p>
                 ) : null}

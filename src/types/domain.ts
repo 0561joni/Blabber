@@ -124,6 +124,8 @@ export interface AppSettings {
   r2t2IdleCache: R2t2IdleCache;
   livePairChunkMs: LivePairChunkMs;
   livePairKeepLoaded: boolean;
+  pasteLastShortcut: string;
+  seriousMode: boolean;
 }
 
 export type R2t2IdleCache = "one_minute" | "fifteen_minutes" | "until_memory_pressure";
@@ -164,6 +166,8 @@ export interface SettingsPatch {
   r2t2IdleCache?: R2t2IdleCache;
   livePairChunkMs?: LivePairChunkMs;
   livePairKeepLoaded?: boolean;
+  pasteLastShortcut?: string;
+  seriousMode?: boolean;
 }
 
 export interface InstalledModel {
@@ -506,8 +510,28 @@ export interface QuickDictationStatusResponse {
   lastDurationMs: number | null;
 }
 
+export type MicrophonePermission =
+  | "granted"
+  | "denied"
+  | "restricted"
+  | "not_determined";
+
+/** Totals behind the Blabbermeter (no text is stored). */
+export interface DictationStats {
+  todayWords: number;
+  todayDictations: number;
+  totalWords: number;
+  totalDictations: number;
+  totalDurationMs: number;
+  streakDays: number;
+}
+
 export interface DictationReadiness {
   hasModel: boolean;
+  /** The saved shortcut model is installed and can run shortcut dictation. */
+  shortcutModelReady: boolean;
+  microphone: MicrophonePermission;
+  firstRunCompleted: boolean;
   translationReady?: boolean;
   shortcutRegistered: boolean;
   autoPasteEnabled: boolean;

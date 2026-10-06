@@ -4537,6 +4537,7 @@ name = "speech-to-text"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "block2 0.6.2",
  "cc",
  "chrono",
  "cpal",

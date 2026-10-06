@@ -5,6 +5,9 @@ import { useAccessibilityReadinessPolling } from "./useAccessibilityReadinessPol
 
 const accessMissing: DictationReadiness = {
   hasModel: true,
+  shortcutModelReady: true,
+  microphone: "granted",
+  firstRunCompleted: true,
   shortcutRegistered: true,
   autoPasteEnabled: true,
   accessibilityRequired: true,

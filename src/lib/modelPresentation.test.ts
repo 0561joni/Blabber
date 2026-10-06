@@ -11,13 +11,15 @@ import {
 } from "./modelPresentation";
 
 const MODEL_CASES = [
-  ["moss-transcribe-diarize-0.9b-f16", "MOSS Transcribe + Diarize 0.9B F16", "MOSS Transcribe + Diarize", 2, 4],
-  ["vibevoice-asr-8bit-mlx", "VibeVoice-ASR 8-bit MLX", "VibeVoice ASR", 1, 5],
-  ["qwen3-asr-1.7b-bf16", "Qwen3-ASR-1.7B", "Qwen ASR", 2.5, 4.5],
-  ["ggml-large-v3-turbo-q5_0-bin", "ggml-large-v3-turbo-q5_0.bin", "Whisper Turbo Compact", 5, 3],
-  ["ggml-large-v3-turbo-bin", "ggml-large-v3-turbo.bin", "Whisper Turbo", 4.5, 3.5],
-  ["ggml-medium-bin", "ggml-medium.bin", "Whisper Medium", 4, 3.5],
-  ["ggml-small-bin", "ggml-small.bin", "Whisper Small", 5, 2],
+  ["moss-transcribe-diarize-0.9b-f16", "MOSS Transcribe + Diarize 0.9B F16", "MOSS with speakers", 1, 4],
+  ["vibevoice-asr-8bit-mlx", "VibeVoice-ASR 8-bit MLX", "VibeVoice", 1.5, 5],
+  ["qwen3-asr-1.7b-bf16", "Qwen3-ASR-1.7B", "Qwen", 2.5, 4],
+  ["live-pair", "Live pair · Nemotron + Parakeet", "Live dictation · Experimental", 5, 4],
+  ["confucius4-r2t2-q8-0", "R2T2 Q8 · Experimental", "R2T2 · Experimental", 4, 3.5],
+  ["ggml-large-v3-turbo-q5_0-bin", "ggml-large-v3-turbo-q5_0.bin", "Whisper Turbo Compact", 2.5, 1.5],
+  ["ggml-large-v3-turbo-bin", "ggml-large-v3-turbo.bin", "Whisper Turbo", 2.5, 2],
+  ["ggml-medium-bin", "ggml-medium.bin", "Whisper Medium", 3, 1],
+  ["ggml-small-bin", "ggml-small.bin", "Whisper Small", 4, 1.5],
 ] as const;
 
 function installedModel(id: string, modelName: string): InstalledModel {
@@ -53,10 +55,21 @@ describe("model presentation", () => {
     expect(isModelRecommended(qwen, "quick_dictate")).toBe(true);
     expect(isModelRecommended(qwen, "file_transcription")).toBe(true);
     expect(isModelRecommended(qwen, "shortcut_dictation")).toBe(false);
-    expect(isModelRecommended(medium, "shortcut_dictation")).toBe(true);
+    const livePair = getModelPresentation(installedModel("live-pair", "Live pair · Nemotron + Parakeet"));
+    const r2t2 = getModelPresentation(installedModel("confucius4-r2t2-q8-0", "R2T2 Q8 · Experimental"));
+    expect(isModelRecommended(livePair, "shortcut_dictation")).toBe(true);
+    expect(r2t2.recommendedFor).toEqual([]);
+    expect(isModelRecommended(medium, "shortcut_dictation")).toBe(false);
     expect(isModelRecommended(turbo, "shortcut_dictation")).toBe(false);
     expect(isModelRecommended(vibevoice, "file_transcription")).toBe(true);
     expect(moss.recommendedFor).toEqual([]);
+  });
+
+  it("spreads the catalog ratings over the whole scale", () => {
+    const speeds = MODEL_CASES.map((entry) => entry[3]);
+    const accuracies = MODEL_CASES.map((entry) => entry[4]);
+    expect([Math.min(...speeds), Math.max(...speeds)]).toEqual([1, 5]);
+    expect([Math.min(...accuracies), Math.max(...accuracies)]).toEqual([1, 5]);
   });
 
   it("renders five rating circles in half steps", () => {

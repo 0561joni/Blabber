@@ -131,3 +131,31 @@ npm run bench -- compare _private/asr-bench/runs/<before> _private/asr-bench/run
 - **Term recall:** the share of each clip's key terms (from the scripts) that appear in the output.
 - **Number accuracy:** the share of numbers written in the reference that come out right after normalisation.
 - **Hallucinations** count three cases: text produced on a no-speech clip, a repetition loop, or five or more inserted words in a row.
+
+## Results on the reference corpus (2026-10-05)
+
+- **Setup:** 55 recordings of the read-aloud scripts (one speaker), app mode, on an M3 Pro with 18 GB on a 60 W charger.
+- **Run:** `_private/asr-bench/runs/2026-10-05T10-42-14`. The summary without transcripts is `benchmark-results/asr-bench-2026-10-05T10-42-14.json`.
+- **References:** script text, not yet verified clip by clip.
+- **Ratings:** the speed and accuracy ratings in `src/lib/modelPresentation.ts` are derived from this table. They are relative, spread over 1–5 in half steps:
+  - **Accuracy** is linear in overall WER: best 5, worst 1.
+  - **Speed** is linear in the logarithm of the typical wait for a ~10 s dictation: fastest 5, slowest 1. File-only models use real-time factor × 10 s.
+
+| Model | WER all | short | long | de | en | fr | mixed | release → text p50 / p95 | RTF | peak memory |
+|---|---|---|---|---|---|---|---|---|---|---|
+| VibeVoice (long only) | 1.7 % | — | 1.7 % | 0.9 % | 1.4 % | 2.5 % | 3.3 % | — | 0.52 | 14.1 GB |
+| Qwen3-ASR | 3.1 % | 3.9 % | 2.7 % | 2.5 % | 2.3 % | 2.5 % | 6.9 % | 2.48 s / 4.27 s | 0.21 | 3.4 GB |
+| MOSS (long only) | 3.1 % | — | 3.1 % | 4.0 % | 1.4 % | 3.0 % | 5.5 % | — | 0.91 | 4.4 GB |
+| Live pair | 3.5 % | 4.6 % | 3.0 % | 2.2 % | 3.4 % | 3.7 % | 6.4 % | 0.15 s / 0.25 s | 0.04 | 0.2 GB + 1.2 GB ANE |
+| R2T2 (no vocabulary context) | 4.0 % | 7.6 % | 2.5 % | 2.3 % | 1.8 % | 3.5 % | 13.9 % | 0.48 s / 0.76 s | 0.50 | 3.0 GB |
+| Whisper turbo | 6.3 % | 8.0 % | 5.5 % | 5.2 % | 3.9 % | 7.0 % | 13.7 % | 1.59 s / 2.56 s | 0.13 | 2.2 GB |
+| Whisper large-v3 | 7.1 % | 8.0 % | 6.8 % | 4.9 % | 3.8 % | 7.8 % | 19.5 % | 2.32 s / 2.90 s | 0.19 | 4.4 GB |
+| Whisper small | 7.2 % | 7.4 % | 7.1 % | 6.2 % | 5.2 % | 5.2 % | 16.2 % | 0.48 s / 4.86 s | 0.04 | 1.0 GB |
+| Whisper turbo-q5 | 7.6 % | 7.9 % | 7.4 % | 5.2 % | 3.9 % | 6.4 % | 22.8 % | 1.64 s / 2.57 s | 0.13 | 1.0 GB |
+| Whisper medium | 8.1 % | 5.0 % | 9.4 % | 3.4 % | 6.6 % | 6.8 % | 23.2 % | 1.28 s / 2.99 s | 0.11 | 2.4 GB |
+
+**Findings:**
+- **R2T2 and the vocabulary prompt.** Blabber used to pass its English vocabulary instruction to R2T2, which puts it in its system message. That made R2T2 answer German dictation in English: on short German clips it scored 30.5 % WER with the prompt and 3.4 % without. Blabber no longer sends it (`dictation.rs`).
+- **R2T2 and mixed speech.** R2T2 still writes each dictation in one language, so it translates when the speaker switches language mid-dictation. This is model behaviour.
+- **Whisper and mixed speech.** Every Whisper model drops or translates parts of mixed-language speech.
+- **Live pair vs Qwen.** The two are not statistically different in accuracy (paired bootstrap). The live pair is about 16× faster after release.

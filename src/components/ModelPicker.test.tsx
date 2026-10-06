@@ -61,20 +61,20 @@ describe("ModelPicker", () => {
   it("shows a two-line selected value and context-specific recommendation", () => {
     render(
       <ModelPicker
-        label="Shortcut Dictation model"
+        label="Quick Dictate model"
         value={models[0].id}
         models={models}
-        context="shortcut_dictation"
+        context="quick_dictate"
         onChange={vi.fn()}
       />,
     );
-    const trigger = screen.getByRole("button", { name: "Shortcut Dictation model" });
+    const trigger = screen.getByRole("button", { name: "Quick Dictate model" });
     expect(within(trigger).getByText("Whisper Medium")).toBeTruthy();
     expect(within(trigger).getByLabelText(/Speed .* Accuracy/)).toBeTruthy();
 
     fireEvent.click(trigger);
-    const listbox = screen.getByRole("listbox", { name: "Shortcut Dictation model" });
-    expect(within(listbox).getByText("Recommended")).toBeTruthy();
+    const listbox = screen.getByRole("listbox", { name: "Quick Dictate model" });
+    expect(within(listbox).getByRole("option", { name: /Qwen.*Recommended/ })).toBeTruthy();
     expect(within(listbox).getAllByRole("option")).toHaveLength(2);
   });
 
@@ -116,13 +116,13 @@ describe("ModelPicker", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "File Transcription model" }));
-    const infoButton = screen.getByRole("button", { name: "About Qwen ASR" });
+    const infoButton = screen.getByRole("button", { name: "About Qwen" });
     fireEvent.click(infoButton);
     expect(onChange).not.toHaveBeenCalled();
-    const dialog = screen.getByRole("dialog", { name: "Qwen ASR" });
+    const dialog = screen.getByRole("dialog", { name: "Qwen" });
     expect(within(dialog).getByText("Qwen3-ASR-1.7B")).toBeTruthy();
     expect(within(dialog).getByText("4.7 GB")).toBeTruthy();
-    expect(within(dialog).getByText("Recommended for Quick Dictate and File Transcription")).toBeTruthy();
+    expect(within(dialog).getByText("Recommended for the record button and files")).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull();
@@ -142,7 +142,22 @@ describe("ModelPicker", () => {
     );
     const trigger = screen.getByRole("button", { name: "Shortcut Dictation model" });
     expect((trigger as HTMLButtonElement).disabled).toBe(true);
-    expect(within(trigger).getByText("No models installed")).toBeTruthy();
+    expect(within(trigger).getByText("No engine installed")).toBeTruthy();
+  });
+
+  it("does not pretend a model is selected when the saved choice cannot run this workflow", () => {
+    render(
+      <ModelPicker
+        label="Shortcut Dictation model"
+        value={nativeModels[1].id}
+        models={[...models, nativeModels[1]]}
+        context="shortcut_dictation"
+        onChange={vi.fn()}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Shortcut Dictation model" });
+    expect((trigger as HTMLButtonElement).disabled).toBe(false);
+    expect(within(trigger).getByText("Choose an engine")).toBeTruthy();
   });
 
   it("filters native models by supported use context", () => {
@@ -151,7 +166,7 @@ describe("ModelPicker", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Shortcut Dictation model" }));
     expect(screen.getAllByRole("option")).toHaveLength(1);
-    expect(screen.queryByText("VibeVoice ASR")).toBeNull();
+    expect(screen.queryByText("VibeVoice")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Shortcut Dictation model" }));
 
     rerender(<ModelPicker label="File Transcription model" value={nativeModels[0].id} models={nativeModels} context="file_transcription" onChange={vi.fn()} />);
@@ -161,7 +176,7 @@ describe("ModelPicker", () => {
 
   it("explains built-in speakers and automatic language control", () => {
     render(<ModelInfoButton model={nativeModels[0]} />);
-    fireEvent.click(screen.getByRole("button", { name: "About MOSS Transcribe + Diarize" }));
+    fireEvent.click(screen.getByRole("button", { name: "About MOSS with speakers" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/Built-in speaker identification/)).toBeTruthy();
     expect(within(dialog).getByText(/fixed-language choice is not applied/)).toBeTruthy();

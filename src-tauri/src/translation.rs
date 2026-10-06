@@ -133,7 +133,10 @@ pub const MODEL_REVISION: &str = "1076826a801dbc6cc8ad4ff4689a3272dcb8a378";
 pub const MODEL_SHA256: &str = "c30995b3c145e6ef3b3a6fda63749186d83d9c8f16725ff1403c904b5e0ead8c";
 pub const MODEL_SIZE: i64 = 9_660_827_392;
 pub const PROMPT_VERSION: u32 = 4;
-pub const DEFAULT_SHORTCUT: &str = "CmdOrCtrl+Shift+Right";
+/// Control-Option-L ("L for language"). The former default, Cmd-Shift-Right,
+/// took over the system's "select to end of line" in every app.
+pub const DEFAULT_SHORTCUT: &str = "Ctrl+Alt+L";
+pub const LEGACY_DEFAULT_SHORTCUT: &str = "CmdOrCtrl+Shift+Right";
 type ModelFingerprint = (u64, SystemTime);
 #[derive(Default)]
 enum Verification {
@@ -395,13 +398,13 @@ impl TranslationService {
         }
         let settings = storage::get_settings_from_db_path(&self.db_path)?;
         if !settings.translation_enabled {
-            bail!("Enable local translation in Settings → Models.");
+            bail!("Enable local translation in Settings → Dictation.");
         }
         if settings.translation_model_id != MODEL_ID {
             bail!("Unsupported translation model.");
         }
         let model = crate::model_downloads::installed_translation_model_path(&self.models_dir)
-            .ok_or_else(|| anyhow!("Download the translation model in Settings → Models."))?;
+            .ok_or_else(|| anyhow!("Download the translation model in Settings → Dictation."))?;
         if helper_path(&self.app).is_none() {
             bail!("The bundled translation runtime is missing. Rebuild or reinstall Blabber.");
         }
@@ -1064,7 +1067,7 @@ impl TranslationService {
             hash.update(&buffer[..n]);
         }
         if format!("{:x}", hash.finalize()) != MODEL_SHA256 {
-            bail!("Translation model is damaged. Download it again in Settings → Models.");
+            bail!("Translation model is damaged. Download it again in Settings → Dictation.");
         }
         let current = path.metadata()?;
         if (current.len(), current.modified()?) != fingerprint {

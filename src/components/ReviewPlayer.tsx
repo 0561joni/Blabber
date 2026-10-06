@@ -1,3 +1,4 @@
+import { describeError } from "../lib/formatting";
 import {
   forwardRef,
   memo,
@@ -50,7 +51,7 @@ export const ReviewPlayer = memo(
         ?.play()
         .catch((e) =>
           setError(
-            e instanceof Error ? e.message : "Playback could not start.",
+            describeError(e, "Playback could not start."),
           ),
         );
     }, []);
@@ -103,7 +104,7 @@ export const ReviewPlayer = memo(
           onResolved();
         } catch (e) {
           if (token !== generation.current) return;
-          setError(e instanceof Error ? e.message : String(e));
+          setError(describeError(e));
           setUnverifiable(
             e instanceof ReviewApiError && e.code === "SOURCE_UNVERIFIABLE",
           );
@@ -136,7 +137,7 @@ export const ReviewPlayer = memo(
           await load(source.filePath);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(describeError(e));
       }
     };
     return (

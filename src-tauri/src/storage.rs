@@ -12,6 +12,7 @@ use crate::asr::{
     InstalledModel, TranscriptQualityStatus, TranscriptResult, TranscriptSegment, TranscriptWarning,
 };
 use crate::audio_files::SelectedSourceFile;
+use crate::model_metadata::ModelUseContext;
 use crate::diarization::{
     DiarizationSource, DiarizationStatus, DiarizationTurn, TranscriptSpeaker,
 };
@@ -104,6 +105,7 @@ pub fn initialize_database(state: &AppState) -> Result<()> {
     crate::review::ensure_schema(&connection)?;
     ensure_vocabulary_columns(&connection)?;
     ensure_file_transcription_performance_table(&connection)?;
+    ensure_dictation_stats_table(&connection)?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS app_migrations (
             migration_key TEXT PRIMARY KEY,
@@ -128,13 +130,9 @@ pub fn retire_whisper_tiny(state: &AppState, installed_models: &[InstalledModel]
     }
 
     let current = get_settings(state)?;
-    let fallback_for = |preferences: &[&str], profile: ModelProfile| {
-        find_model_by_name(installed_models, preferences)
-            .or_else(|| resolve_profile_model(installed_models, profile))
-    };
     let mut patch = SettingsPatch::default();
     if is_tiny_selection(current.shortcut_dictation_selected_model_id.as_deref()) {
-        let fallback = fallback_for(shortcut_model_preferences(), fallback_shortcut_profile());
+        let fallback = default_model_for(installed_models, ModelUseContext::ShortcutDictation);
         patch.shortcut_dictation_model_profile = Some(
             fallback
                 .as_ref()
@@ -145,10 +143,7 @@ pub fn retire_whisper_tiny(state: &AppState, installed_models: &[InstalledModel]
             Some(fallback.as_ref().map(|model| model.id.clone()));
     }
     if is_tiny_selection(current.quick_dictate_selected_model_id.as_deref()) {
-        let fallback = fallback_for(
-            quick_dictate_model_preferences(),
-            fallback_quick_dictate_profile(),
-        );
+        let fallback = default_model_for(installed_models, ModelUseContext::QuickDictate);
         patch.quick_dictate_model_profile = Some(
             fallback
                 .as_ref()
@@ -159,10 +154,7 @@ pub fn retire_whisper_tiny(state: &AppState, installed_models: &[InstalledModel]
             Some(fallback.as_ref().map(|model| model.id.clone()));
     }
     if is_tiny_selection(current.file_transcribe_selected_model_id.as_deref()) {
-        let fallback = fallback_for(
-            file_transcribe_model_preferences(),
-            fallback_file_transcribe_profile(),
-        );
+        let fallback = default_model_for(installed_models, ModelUseContext::FileTranscription);
         patch.file_transcribe_model_profile = Some(
             fallback
                 .as_ref()
@@ -180,6 +172,62 @@ pub fn retire_whisper_tiny(state: &AppState, installed_models: &[InstalledModel]
         params![RETIRE_WHISPER_TINY_MIGRATION, Utc::now().to_rfc3339()],
     )?;
     Ok(true)
+}
+
+const MOVE_TRANSLATION_SHORTCUT_MIGRATION: &str = "move_translation_shortcut_v1";
+
+/// Moves the language shortcut off the former default (Cmd-Shift-Right, which
+/// shadowed "select to end of line"). Custom shortcuts are kept. Returns true
+/// when the shortcut changed and translation was on, so the user should know.
+pub fn move_legacy_translation_shortcut(state: &AppState) -> Result<bool> {
+    move_legacy_translation_shortcut_for_db_path(&state.db_path)
+}
+
+fn move_legacy_translation_shortcut_for_db_path(db_path: &Path) -> Result<bool> {
+    let connection = open_connection_by_path(db_path)?;
+    let completed = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM app_migrations WHERE migration_key=?1)",
+        [MOVE_TRANSLATION_SHORTCUT_MIGRATION],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if completed {
+        return Ok(false);
+    }
+    let current = get_settings_from_db_path(db_path)?;
+    let moved = current.translation_cycle_shortcut == crate::translation::LEGACY_DEFAULT_SHORTCUT;
+    if moved {
+        connection.execute(
+            "UPDATE settings SET translation_cycle_shortcut = ?1 WHERE id = 1",
+            [crate::translation::DEFAULT_SHORTCUT],
+        )?;
+    }
+    connection.execute(
+        "INSERT INTO app_migrations (migration_key, completed_at) VALUES (?1, ?2)",
+        params![MOVE_TRANSLATION_SHORTCUT_MIGRATION, Utc::now().to_rfc3339()],
+    )?;
+    Ok(moved && current.translation_enabled)
+}
+
+const FIRST_RUN_SETUP_KEY: &str = "first_run_setup_v1";
+
+/// Whether the user finished or skipped the first-run setup. Stored as an
+/// app milestone so it never resets with settings.
+pub fn first_run_completed(state: &AppState) -> Result<bool> {
+    let connection = open_connection(state)?;
+    Ok(connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM app_migrations WHERE migration_key=?1)",
+        [FIRST_RUN_SETUP_KEY],
+        |row| row.get::<_, bool>(0),
+    )?)
+}
+
+pub fn mark_first_run_completed(state: &AppState) -> Result<()> {
+    let connection = open_connection(state)?;
+    connection.execute(
+        "INSERT OR IGNORE INTO app_migrations (migration_key, completed_at) VALUES (?1, ?2)",
+        params![FIRST_RUN_SETUP_KEY, Utc::now().to_rfc3339()],
+    )?;
+    Ok(())
 }
 
 fn is_tiny_selection(selection: Option<&str>) -> bool {
@@ -288,45 +336,36 @@ pub fn apply_preferred_model_defaults_for_db_path(
     let mut patch = SettingsPatch::default();
     let mut should_update = false;
 
-    if current
-        .shortcut_dictation_selected_model_id
-        .as_deref()
-        .and_then(|model_id| find_model_by_id(models, model_id))
-        .is_none()
-    {
-        if let Some(model) = find_model_by_name(models, shortcut_model_preferences())
-            .or_else(|| resolve_profile_model(models, fallback_shortcut_profile()))
-        {
+    if !selection_usable(
+        models,
+        current.shortcut_dictation_selected_model_id.as_deref(),
+        ModelUseContext::ShortcutDictation,
+    ) {
+        if let Some(model) = default_model_for(models, ModelUseContext::ShortcutDictation) {
             patch.shortcut_dictation_model_profile = Some(model.profile);
             patch.shortcut_dictation_selected_model_id = Some(Some(model.id.clone()));
             should_update = true;
         }
     }
 
-    if current
-        .quick_dictate_selected_model_id
-        .as_deref()
-        .and_then(|model_id| find_model_by_id(models, model_id))
-        .is_none()
-    {
-        if let Some(model) = find_model_by_name(models, quick_dictate_model_preferences())
-            .or_else(|| resolve_profile_model(models, fallback_quick_dictate_profile()))
-        {
+    if !selection_usable(
+        models,
+        current.quick_dictate_selected_model_id.as_deref(),
+        ModelUseContext::QuickDictate,
+    ) {
+        if let Some(model) = default_model_for(models, ModelUseContext::QuickDictate) {
             patch.quick_dictate_model_profile = Some(model.profile);
             patch.quick_dictate_selected_model_id = Some(Some(model.id.clone()));
             should_update = true;
         }
     }
 
-    if current
-        .file_transcribe_selected_model_id
-        .as_deref()
-        .and_then(|model_id| find_model_by_id(models, model_id))
-        .is_none()
-    {
-        if let Some(model) = find_model_by_name(models, file_transcribe_model_preferences())
-            .or_else(|| resolve_profile_model(models, fallback_file_transcribe_profile()))
-        {
+    if !selection_usable(
+        models,
+        current.file_transcribe_selected_model_id.as_deref(),
+        ModelUseContext::FileTranscription,
+    ) {
+        if let Some(model) = default_model_for(models, ModelUseContext::FileTranscription) {
             patch.file_transcribe_model_profile = Some(model.profile);
             patch.file_transcribe_selected_model_id = Some(Some(model.id.clone()));
             should_update = true;
@@ -400,13 +439,17 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
         live_pair_keep_loaded: patch
             .live_pair_keep_loaded
             .unwrap_or(current.live_pair_keep_loaded),
+        paste_last_shortcut: patch
+            .paste_last_shortcut
+            .unwrap_or(current.paste_last_shortcut),
+        serious_mode: patch.serious_mode.unwrap_or(current.serious_mode),
     };
     if !crate::settings::LIVE_PAIR_CHUNKS_MS.contains(&next.live_pair_chunk_ms) {
         bail!("Choose a live preview chunk of 560 or 1120 ms.");
     }
     let connection = open_connection_by_path(db_path)?;
     connection.execute(
-        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19, appearance = ?20, motion_preference = ?21, translation_enabled = ?22, translation_cycle_shortcut = ?23, translation_model_id = ?24, r2t2_idle_cache = ?25, live_pair_chunk_ms = ?26, live_pair_keep_loaded = ?27 WHERE id = 1",
+        "UPDATE settings SET default_mode = ?1, shortcut = ?2, shortcut_mode = ?3, language_mode = ?4, fixed_language = ?5, preferred_input_device = ?6, insert_behavior = ?7, launch_at_login_enabled = ?8, metal_enabled = ?9, shortcut_dictation_model_profile = ?10, shortcut_dictation_selected_model_id = ?11, quick_dictate_model_profile = ?12, quick_dictate_selected_model_id = ?13, file_transcribe_model_profile = ?14, file_transcribe_selected_model_id = ?15, save_history = ?16, sounds_enabled = ?17, volume_ducking_enabled = ?18, file_diarization_enabled = ?19, appearance = ?20, motion_preference = ?21, translation_enabled = ?22, translation_cycle_shortcut = ?23, translation_model_id = ?24, r2t2_idle_cache = ?25, live_pair_chunk_ms = ?26, live_pair_keep_loaded = ?27, paste_last_shortcut = ?28, serious_mode = ?29 WHERE id = 1",
         params![
             to_default_mode(next.default_mode),
             next.shortcut,
@@ -431,7 +474,8 @@ pub fn update_settings_for_db_path(db_path: &Path, patch: SettingsPatch) -> Resu
             match next.motion_preference { MotionPreference::System => "system", MotionPreference::Reduced => "reduced" },
             next.translation_enabled, next.translation_cycle_shortcut, next.translation_model_id,
             match next.r2t2_idle_cache { IdleCachePolicy::OneMinute => "one_minute", IdleCachePolicy::FifteenMinutes => "fifteen_minutes", IdleCachePolicy::UntilMemoryPressure => "until_memory_pressure" },
-            next.live_pair_chunk_ms, next.live_pair_keep_loaded,
+            next.live_pair_chunk_ms, next.live_pair_keep_loaded, next.paste_last_shortcut,
+            next.serious_mode,
         ],
     )?;
     get_settings_from_db_path(db_path)
@@ -627,6 +671,20 @@ pub fn list_transcripts(state: &AppState, query: Option<String>) -> Result<Vec<T
         .context("failed to read transcript list")
 }
 
+/// The newest shortcut and in-app dictations as (id, text), newest first.
+pub fn recent_quick_dictations(db_path: &Path, limit: usize) -> Result<Vec<(String, String)>> {
+    let connection = open_connection_by_path(db_path)?;
+    let mut statement = connection.prepare(
+        "SELECT id, plain_text FROM transcripts
+         WHERE source_type = 'quick_dictate' AND trim(plain_text) <> ''
+         ORDER BY datetime(created_at) DESC LIMIT ?1",
+    )?;
+    let rows = statement.query_map([limit as i64], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+}
+
 pub fn delete_transcript(state: &AppState, transcript_id: &str) -> Result<()> {
     let connection = open_connection(state)?;
     connection.execute(
@@ -715,7 +773,7 @@ pub(crate) fn open_connection_by_path(db_path: &Path) -> Result<Connection> {
 
 fn query_settings(connection: &Connection) -> Result<AppSettings> {
     let settings = connection.query_row(
-        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled, appearance, motion_preference, translation_enabled, translation_cycle_shortcut, translation_model_id, r2t2_idle_cache, live_pair_chunk_ms, live_pair_keep_loaded FROM settings WHERE id = 1",
+        "SELECT default_mode, shortcut, shortcut_mode, language_mode, fixed_language, preferred_input_device, insert_behavior, launch_at_login_enabled, metal_enabled, shortcut_dictation_model_profile, shortcut_dictation_selected_model_id, quick_dictate_model_profile, quick_dictate_selected_model_id, file_transcribe_model_profile, file_transcribe_selected_model_id, save_history, sounds_enabled, volume_ducking_enabled, file_diarization_enabled, appearance, motion_preference, translation_enabled, translation_cycle_shortcut, translation_model_id, r2t2_idle_cache, live_pair_chunk_ms, live_pair_keep_loaded, paste_last_shortcut, serious_mode FROM settings WHERE id = 1",
         [],
         map_settings_row,
     )?;
@@ -794,12 +852,18 @@ fn ensure_settings_columns(connection: &Connection) -> Result<()> {
         .query_map([], |row| row.get::<_, String>("name"))?
         .collect::<std::result::Result<Vec<_>, _>>()?;
 
+    let paste_last_declaration = format!(
+        "TEXT NOT NULL DEFAULT '{}'",
+        crate::settings::DEFAULT_PASTE_LAST_SHORTCUT
+    );
+    let shortcut_declaration = format!(
+        "TEXT NOT NULL DEFAULT '{}'",
+        crate::translation::DEFAULT_SHORTCUT
+    );
     for (name, declaration) in [
         ("translation_enabled", "INTEGER NOT NULL DEFAULT 0"),
-        (
-            "translation_cycle_shortcut",
-            "TEXT NOT NULL DEFAULT 'CmdOrCtrl+Shift+Right'",
-        ),
+        ("translation_cycle_shortcut", shortcut_declaration.as_str()),
+        ("paste_last_shortcut", paste_last_declaration.as_str()),
         (
             "translation_model_id",
             "TEXT NOT NULL DEFAULT 'translategemma-12b-q6-k'",
@@ -941,6 +1005,7 @@ fn ensure_settings_columns(connection: &Connection) -> Result<()> {
         ("r2t2_idle_cache", "TEXT NOT NULL DEFAULT 'one_minute'"),
         ("live_pair_chunk_ms", "INTEGER NOT NULL DEFAULT 560"),
         ("live_pair_keep_loaded", "INTEGER NOT NULL DEFAULT 1"),
+        ("serious_mode", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         if !columns.iter().any(|column| column == name) {
             connection.execute(
@@ -1134,6 +1199,122 @@ fn ensure_file_transcription_performance_table(connection: &Connection) -> Resul
             updated_at TEXT NOT NULL
         );",
     )?;
+    Ok(())
+}
+
+fn ensure_dictation_stats_table(connection: &Connection) -> Result<()> {
+    // Aggregates only, never text: the Blabbermeter works with history off.
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS dictation_stats (
+            day TEXT PRIMARY KEY,
+            words INTEGER NOT NULL DEFAULT 0,
+            dictations INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL DEFAULT 0
+        );",
+    )?;
+    Ok(())
+}
+
+/// Totals behind the Blabbermeter.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DictationStats {
+    pub today_words: i64,
+    pub today_dictations: i64,
+    pub total_words: i64,
+    pub total_dictations: i64,
+    pub total_duration_ms: i64,
+    /// Consecutive days with a dictation, ending today or yesterday.
+    pub streak_days: i64,
+}
+
+pub fn count_words(text: &str) -> i64 {
+    text.split_whitespace()
+        .filter(|word| word.chars().any(char::is_alphanumeric))
+        .count() as i64
+}
+
+fn local_day(offset_days: i64) -> String {
+    (chrono::Local::now().date_naive() - chrono::Duration::days(offset_days))
+        .format("%Y-%m-%d")
+        .to_string()
+}
+
+/// Adds one finished dictation to today's totals and returns the new stats.
+pub fn record_dictation_stats(db_path: &Path, text: &str, duration_ms: i64) -> Result<DictationStats> {
+    record_dictation_stats_on(db_path, &local_day(0), text, duration_ms)?;
+    dictation_stats(db_path)
+}
+
+fn record_dictation_stats_on(db_path: &Path, day: &str, text: &str, duration_ms: i64) -> Result<()> {
+    let words = count_words(text);
+    if words == 0 {
+        return Ok(());
+    }
+    let connection = open_connection_by_path(db_path)?;
+    ensure_dictation_stats_table(&connection)?;
+    connection.execute(
+        "INSERT INTO dictation_stats (day, words, dictations, duration_ms) VALUES (?1, ?2, 1, ?3)
+         ON CONFLICT(day) DO UPDATE SET words = words + ?2, dictations = dictations + 1,
+         duration_ms = duration_ms + ?3",
+        params![day, words, duration_ms.max(0)],
+    )?;
+    Ok(())
+}
+
+pub fn dictation_stats(db_path: &Path) -> Result<DictationStats> {
+    dictation_stats_for_today(db_path, &local_day(0), &local_day(1))
+}
+
+fn dictation_stats_for_today(db_path: &Path, today: &str, yesterday: &str) -> Result<DictationStats> {
+    let connection = open_connection_by_path(db_path)?;
+    ensure_dictation_stats_table(&connection)?;
+    let mut statement = connection.prepare(
+        "SELECT day, words, dictations, duration_ms FROM dictation_stats ORDER BY day DESC",
+    )?;
+    let days = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut stats = DictationStats::default();
+    for (day, words, dictations, duration_ms) in &days {
+        stats.total_words += words;
+        stats.total_dictations += dictations;
+        stats.total_duration_ms += duration_ms;
+        if day == today {
+            stats.today_words = *words;
+            stats.today_dictations = *dictations;
+        }
+    }
+    // Walk back one calendar day at a time from today (or yesterday).
+    let mut expected = if days.first().is_some_and(|(day, ..)| day == today) {
+        chrono::NaiveDate::parse_from_str(today, "%Y-%m-%d").ok()
+    } else if days.first().is_some_and(|(day, ..)| day == yesterday) {
+        chrono::NaiveDate::parse_from_str(yesterday, "%Y-%m-%d").ok()
+    } else {
+        None
+    };
+    for (day, ..) in &days {
+        let Some(want) = expected else { break };
+        if chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok() != Some(want) {
+            break;
+        }
+        stats.streak_days += 1;
+        expected = want.pred_opt();
+    }
+    Ok(stats)
+}
+
+pub fn reset_dictation_stats(db_path: &Path) -> Result<()> {
+    let connection = open_connection_by_path(db_path)?;
+    ensure_dictation_stats_table(&connection)?;
+    connection.execute("DELETE FROM dictation_stats", [])?;
     Ok(())
 }
 
@@ -1451,6 +1632,8 @@ fn map_settings_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AppSettings> {
         },
         live_pair_chunk_ms: row.get("live_pair_chunk_ms")?,
         live_pair_keep_loaded: row.get("live_pair_keep_loaded")?,
+        paste_last_shortcut: row.get("paste_last_shortcut")?,
+        serious_mode: row.get("serious_mode")?,
     })
 }
 
@@ -1524,18 +1707,55 @@ fn find_model_by_id(models: &[InstalledModel], model_id: &str) -> Option<Install
     models.iter().find(|model| model.id == model_id).cloned()
 }
 
-fn resolve_profile_model(
+fn supports_context(model: &InstalledModel, context: ModelUseContext) -> bool {
+    model.capabilities.supported_contexts.contains(&context)
+}
+
+/// True when `selection` names an installed model that can run `context`.
+pub(crate) fn selection_usable(
     models: &[InstalledModel],
-    profile: ModelProfile,
-) -> Option<InstalledModel> {
-    // Live-only models are opt-in; they never become an implicit default.
-    let batch = |model: &&InstalledModel| !model.capabilities.streaming_transcription;
-    models
+    selection: Option<&str>,
+    context: ModelUseContext,
+) -> bool {
+    selection
+        .and_then(|model_id| find_model_by_id(models, model_id))
+        .is_some_and(|model| supports_context(&model, context))
+}
+
+/// The model Blabber picks for `context` when the saved choice is missing or
+/// unusable: a preferred file name, then a batch model of the fallback
+/// profile, then any batch model that supports the workflow. Live-only models
+/// are opt-in and only chosen when nothing else can run shortcut dictation.
+fn default_model_for(models: &[InstalledModel], context: ModelUseContext) -> Option<InstalledModel> {
+    let (preferences, profile) = match context {
+        ModelUseContext::ShortcutDictation => {
+            (shortcut_model_preferences(), fallback_shortcut_profile())
+        }
+        ModelUseContext::QuickDictate => {
+            (quick_dictate_model_preferences(), fallback_quick_dictate_profile())
+        }
+        ModelUseContext::FileTranscription => (
+            file_transcribe_model_preferences(),
+            fallback_file_transcribe_profile(),
+        ),
+    };
+    let eligible: Vec<InstalledModel> = models
         .iter()
-        .filter(batch)
-        .find(|model| model.profile == profile && model.is_default)
-        .or_else(|| models.iter().filter(batch).find(|model| model.profile == profile))
+        .filter(|model| supports_context(model, context))
         .cloned()
+        .collect();
+    let batch = |model: &&InstalledModel| !model.capabilities.streaming_transcription;
+    find_model_by_name(&eligible, preferences)
+        .or_else(|| {
+            eligible
+                .iter()
+                .filter(batch)
+                .find(|model| model.profile == profile && model.is_default)
+                .or_else(|| eligible.iter().filter(batch).find(|model| model.profile == profile))
+                .or_else(|| eligible.iter().find(batch))
+                .or_else(|| eligible.first())
+                .cloned()
+        })
 }
 
 fn map_transcript_summary_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TranscriptSummary> {
@@ -2253,6 +2473,246 @@ mod tests {
         assert_eq!(detail.speakers[0].display_name, "Speaker 1");
         assert_eq!(detail.diarization_turns.len(), 1);
         assert_eq!(detail.diarization_source, DiarizationSource::PostProcess);
+    }
+
+    fn catalog_model(id: &str, engine: &str, name: &str, profile: ModelProfile) -> InstalledModel {
+        InstalledModel {
+            id: id.into(),
+            engine: engine.into(),
+            model_name: name.into(),
+            variant: String::new(),
+            local_path: format!("/models/{id}"),
+            size_bytes: 1,
+            is_default: false,
+            profile,
+            capabilities: crate::model_metadata::capabilities_for_model(id, engine),
+        }
+    }
+
+    fn fresh_settings_db(label: &str) -> std::path::PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("blabber-{label}-{}.sqlite", Uuid::new_v4()));
+        let connection = open_connection_by_path(&path).unwrap();
+        connection.execute_batch(INIT_MIGRATION).unwrap();
+        ensure_settings_columns(&connection).unwrap();
+        ensure_translation_schema(&connection).unwrap();
+        seed_default_settings(&connection).unwrap();
+        path
+    }
+
+    #[test]
+    fn blabbermeter_counts_words_days_and_streaks() {
+        let path = fresh_settings_db("blabbermeter");
+        assert_eq!(count_words("Hallo Welt, ça va? — 42 !"), 5);
+        record_dictation_stats_on(&path, "2026-10-01", "one two three", 2_000).unwrap();
+        record_dictation_stats_on(&path, "2026-10-03", "four five", 1_000).unwrap();
+        record_dictation_stats_on(&path, "2026-10-04", "six", 500).unwrap();
+        record_dictation_stats_on(&path, "2026-10-05", "seven eight", 700).unwrap();
+        record_dictation_stats_on(&path, "2026-10-05", "   ", 300).unwrap();
+        let stats = dictation_stats_for_today(&path, "2026-10-05", "2026-10-04").unwrap();
+        assert_eq!(
+            stats,
+            DictationStats {
+                today_words: 2,
+                today_dictations: 1,
+                total_words: 8,
+                total_dictations: 4,
+                total_duration_ms: 4_200,
+                streak_days: 3,
+            }
+        );
+        // A streak survives until the end of the next day, then breaks.
+        assert_eq!(
+            dictation_stats_for_today(&path, "2026-10-06", "2026-10-05").unwrap().streak_days,
+            3
+        );
+        assert_eq!(
+            dictation_stats_for_today(&path, "2026-10-07", "2026-10-06").unwrap().streak_days,
+            0
+        );
+        reset_dictation_stats(&path).unwrap();
+        assert_eq!(dictation_stats(&path).unwrap(), DictationStats::default());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn legacy_language_shortcut_moves_once_and_custom_shortcuts_stay() {
+        let path = fresh_settings_db("translation-shortcut");
+        let connection = open_connection_by_path(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS app_migrations (migration_key TEXT PRIMARY KEY, completed_at TEXT NOT NULL);",
+            )
+            .unwrap();
+        assert_eq!(
+            get_settings_from_db_path(&path).unwrap().translation_cycle_shortcut,
+            crate::translation::DEFAULT_SHORTCUT
+        );
+        connection
+            .execute(
+                "UPDATE settings SET translation_cycle_shortcut = ?1, translation_enabled = 1 WHERE id = 1",
+                [crate::translation::LEGACY_DEFAULT_SHORTCUT],
+            )
+            .unwrap();
+        assert!(move_legacy_translation_shortcut_for_db_path(&path).unwrap());
+        assert_eq!(
+            get_settings_from_db_path(&path).unwrap().translation_cycle_shortcut,
+            crate::translation::DEFAULT_SHORTCUT
+        );
+        // Runs once: a user who later picks the old combination keeps it.
+        connection
+            .execute(
+                "UPDATE settings SET translation_cycle_shortcut = ?1 WHERE id = 1",
+                [crate::translation::LEGACY_DEFAULT_SHORTCUT],
+            )
+            .unwrap();
+        assert!(!move_legacy_translation_shortcut_for_db_path(&path).unwrap());
+        assert_eq!(
+            get_settings_from_db_path(&path).unwrap().translation_cycle_shortcut,
+            crate::translation::LEGACY_DEFAULT_SHORTCUT
+        );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn default_language_shortcut_is_a_valid_global_shortcut() {
+        use std::str::FromStr;
+        let shortcut =
+            tauri_plugin_global_shortcut::Shortcut::from_str(crate::translation::DEFAULT_SHORTCUT)
+                .unwrap();
+        let dictation =
+            tauri_plugin_global_shortcut::Shortcut::from_str("CmdOrCtrl+Shift+Space").unwrap();
+        assert_ne!(shortcut.id(), dictation.id());
+    }
+
+    #[test]
+    fn fresh_install_selects_a_shortcut_model_from_current_downloads() {
+        // Regression: the macOS shortcut default only looked for the retired
+        // Whisper Medium and then a Balanced model, so an install with only
+        // current downloads (all Accurate) left the shortcut without a model.
+        let path = fresh_settings_db("fresh-shortcut");
+        let models = [
+            catalog_model(
+                "ggml-large-v3-turbo-q5_0-bin",
+                "whisper.cpp",
+                "ggml-large-v3-turbo-q5_0.bin",
+                ModelProfile::Accurate,
+            ),
+            catalog_model(
+                crate::model_metadata::VIBEVOICE_MODEL_ID,
+                "vibevoice-mlx",
+                crate::model_metadata::VIBEVOICE_MODEL_NAME,
+                ModelProfile::Accurate,
+            ),
+        ];
+        apply_preferred_model_defaults_for_db_path(&path, &models).unwrap();
+        let settings = get_settings_from_db_path(&path).unwrap();
+        assert_eq!(
+            settings.shortcut_dictation_selected_model_id.as_deref(),
+            Some("ggml-large-v3-turbo-q5_0-bin")
+        );
+        assert_eq!(
+            settings.quick_dictate_selected_model_id.as_deref(),
+            Some("ggml-large-v3-turbo-q5_0-bin")
+        );
+        assert!(settings.file_transcribe_selected_model_id.is_some());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn defaults_never_assign_a_model_to_a_workflow_it_cannot_run() {
+        let path = fresh_settings_db("context-defaults");
+        let vibevoice = catalog_model(
+            crate::model_metadata::VIBEVOICE_MODEL_ID,
+            "vibevoice-mlx",
+            crate::model_metadata::VIBEVOICE_MODEL_NAME,
+            ModelProfile::Accurate,
+        );
+        let diarization = catalog_model(
+            "offline-speaker-diarization",
+            "sherpa-onnx",
+            "Offline speaker diarization",
+            ModelProfile::Balanced,
+        );
+        apply_preferred_model_defaults_for_db_path(&path, &[vibevoice, diarization]).unwrap();
+        let settings = get_settings_from_db_path(&path).unwrap();
+        assert_eq!(settings.shortcut_dictation_selected_model_id, None);
+        assert_eq!(settings.quick_dictate_selected_model_id, None);
+        assert_eq!(
+            settings.file_transcribe_selected_model_id.as_deref(),
+            Some(crate::model_metadata::VIBEVOICE_MODEL_ID)
+        );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn unusable_saved_selection_is_replaced() {
+        let path = fresh_settings_db("unusable-selection");
+        update_settings_for_db_path(
+            &path,
+            SettingsPatch {
+                shortcut_dictation_selected_model_id: Some(Some(
+                    crate::model_metadata::VIBEVOICE_MODEL_ID.into(),
+                )),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let models = [
+            catalog_model(
+                crate::model_metadata::VIBEVOICE_MODEL_ID,
+                "vibevoice-mlx",
+                crate::model_metadata::VIBEVOICE_MODEL_NAME,
+                ModelProfile::Accurate,
+            ),
+            catalog_model(
+                crate::qwen_asr::QWEN_MODEL_ID,
+                "qwen3_asr_c",
+                "Qwen3-ASR-1.7B",
+                ModelProfile::Accurate,
+            ),
+        ];
+        assert!(!selection_usable(
+            &models,
+            Some(crate::model_metadata::VIBEVOICE_MODEL_ID),
+            ModelUseContext::ShortcutDictation
+        ));
+        apply_preferred_model_defaults_for_db_path(&path, &models).unwrap();
+        assert_eq!(
+            get_settings_from_db_path(&path)
+                .unwrap()
+                .shortcut_dictation_selected_model_id
+                .as_deref(),
+            Some(crate::qwen_asr::QWEN_MODEL_ID)
+        );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn live_only_model_is_the_shortcut_default_only_when_nothing_else_fits() {
+        let live = catalog_model(
+            crate::live_pair::MODEL_ID,
+            crate::live_pair::ENGINE,
+            crate::live_pair::MODEL_NAME,
+            ModelProfile::Fast,
+        );
+        let qwen = catalog_model(
+            crate::qwen_asr::QWEN_MODEL_ID,
+            "qwen3_asr_c",
+            "Qwen3-ASR-1.7B",
+            ModelProfile::Accurate,
+        );
+        assert_eq!(
+            default_model_for(&[live.clone(), qwen.clone()], ModelUseContext::ShortcutDictation)
+                .map(|model| model.id),
+            Some(qwen.id.clone())
+        );
+        assert_eq!(
+            default_model_for(&[live.clone()], ModelUseContext::ShortcutDictation)
+                .map(|model| model.id),
+            Some(live.id.clone())
+        );
+        assert!(default_model_for(&[live], ModelUseContext::QuickDictate).is_none());
     }
 
     #[test]

@@ -1,9 +1,15 @@
 @import "./styles.css";
-html,
+/* :root, not html — the global :root canvas background would otherwise win
+   and paint the transparent window white around the card. */
+:root,
 body,
 #root {
   height: 100%;
   background: transparent;
+}
+/* ShutdownBoundary's wrapper sits between #root and the card. */
+#root > div:first-child {
+  height: 100%;
 }
 .splash-root {
   height: 100%;

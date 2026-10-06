@@ -23,23 +23,112 @@ use crate::system_volume::{self, VolumeSnapshot};
 use crate::vocabulary;
 
 const QUICK_DICTATE_STATUS_EVENT: &str = "quick-dictate-status";
+pub(crate) const DICTATION_STATS_EVENT: &str = "dictation-stats";
+
+/// Adds a finished dictation to the Blabbermeter and tells every window.
+pub(crate) fn record_dictation_stats(
+    app: &AppHandle,
+    db_path: &std::path::Path,
+    text: &str,
+    duration_ms: i64,
+) {
+    match storage::record_dictation_stats(db_path, text, duration_ms) {
+        Ok(stats) => {
+            let _ = app.emit(DICTATION_STATS_EVENT, stats);
+        }
+        Err(error) => eprintln!("[dictation] stats update failed: {error:#}"),
+    }
+}
+
+/// "blah blah blah" (any case, three or more, light punctuation): the one
+/// dictation that earns a wink instead of a plain "Pasted".
+fn is_blah_blah(text: &str) -> bool {
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|word| {
+            word.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|word| !word.is_empty())
+        .collect();
+    words.len() >= 3 && words.iter().all(|word| word == "blah" || word == "bla")
+}
 /// Shortcut dictation stops and transcribes automatically at five minutes,
 /// matching the live R2T2 limit. The overlay warns 30 seconds before.
 pub(crate) const DICTATION_CAPTURE_LIMIT_MS: u64 = 300_000;
 const DICTATION_LIMIT_WARNING_MS: u64 = 270_000;
+/// Long enough to read a result chip; short enough not to block the next dictation.
+const RESULT_CHIP_HOLD: Duration = Duration::from_millis(1800);
+const ERROR_CHIP_HOLD: Duration = Duration::from_millis(3500);
+const NOTICE_CHIP_HOLD: Duration = Duration::from_millis(2200);
 
-fn shortcut_pair(primary: &str, secondary: Option<&str>) -> Result<Vec<String>> {
-    let first = Shortcut::from_str(primary)?;
-    let mut pair = vec![primary.to_owned()];
-    if let Some(value) = secondary {
-        if first.id() == Shortcut::from_str(value)?.id() {
-            return Err(anyhow!(
-                "Dictation and language switching need different shortcuts."
-            ));
+/// What a registered global shortcut does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShortcutRole {
+    Dictation,
+    CycleLanguage,
+    PasteLast,
+}
+impl ShortcutRole {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Dictation => "Dictation",
+            Self::CycleLanguage => "language switching",
+            Self::PasteLast => "pasting the last dictation",
         }
-        pair.push(value.to_owned());
     }
-    Ok(pair)
+}
+
+/// Escape cancels a running shortcut dictation; it is registered only while
+/// one is listening or transcribing.
+const CANCEL_SHORTCUT: &str = "Escape";
+
+/// Validates the shortcuts Blabber registers and rejects two roles sharing one
+/// key combination (in any modifier order).
+fn shortcut_set(entries: &[(ShortcutRole, &str)]) -> Result<Vec<(ShortcutRole, String)>> {
+    let mut parsed: Vec<(ShortcutRole, u32)> = Vec::new();
+    for (role, value) in entries {
+        let id = Shortcut::from_str(value)?.id();
+        if let Some((other, _)) = parsed.iter().find(|(_, other_id)| *other_id == id) {
+            let first = other.label();
+            let second = role.label();
+            let first = first[..1].to_uppercase() + &first[1..];
+            return Err(anyhow!("{first} and {second} need different shortcuts."));
+        }
+        parsed.push((*role, id));
+    }
+    Ok(entries
+        .iter()
+        .map(|(role, value)| (*role, (*value).to_owned()))
+        .collect())
+}
+
+/// A short, plain reason for the overlay chip; the full message stays in the app.
+fn overlay_reason(message: &str) -> &'static str {
+    let lower = message.to_ascii_lowercase();
+    if message.contains("TRANSCRIPTION_EMPTY") {
+        "No speech heard"
+    } else if message.contains("MODEL_MISSING") || message.contains("MODEL_CONTEXT_UNSUPPORTED") {
+        "No dictation engine · open Blabber"
+    } else if message.contains("LIVE_PAIR_SETUP") || message.contains("R2T2_SETUP") {
+        "Engine not ready · open Blabber"
+    } else if lower.contains("microphone")
+        || lower.contains("input device")
+        || lower.contains("capture")
+        || lower.contains("recording worker")
+    {
+        "Microphone isn't working"
+    } else if lower.contains("translation") {
+        "Translation failed · open Blabber"
+    } else if lower.contains("still transcribing") {
+        "Still on the last one…"
+    } else if lower.contains("recording is already active") {
+        "Recording in the app"
+    } else if lower.contains("timed out") {
+        "Took too long · try again"
+    } else {
+        "Didn't work · open Blabber"
+    }
 }
 
 fn cycle_key_transition(pressed: &AtomicBool, event: ShortcutState) -> bool {
@@ -138,7 +227,12 @@ pub struct QuickDictationController {
     // to detect a dictation that has been stuck in Listening/Processing.
     state_since_ms: Arc<AtomicI64>,
     translation: crate::translation::TranslationService,
-    shortcut_pair: Arc<Mutex<Vec<String>>>,
+    shortcut_pair: Arc<Mutex<Vec<(ShortcutRole, String)>>>,
+    // Serializes registering and releasing the Escape cancel key.
+    cancel_key: Arc<Mutex<()>>,
+    // Text of the most recent shortcut dictation, kept for "Paste last dictation"
+    // even after a later attempt fails or hears nothing.
+    last_output: Arc<Mutex<Option<String>>>,
     cycle_pressed: Arc<AtomicBool>,
     live: Arc<Mutex<Option<LiveDictation>>>,
     // Batch-model ASR admitted and loaded at press time (see `early_asr`).
@@ -218,6 +312,8 @@ impl QuickDictationController {
             translation,
             live_pair,
             shortcut_pair: Default::default(),
+            cancel_key: Default::default(),
+            last_output: Default::default(),
             cycle_pressed: Default::default(),
             live: Default::default(),
             early: Default::default(),
@@ -245,8 +341,9 @@ impl QuickDictationController {
             .unwrap_or_default()
     }
 
-    fn register_pair(&self, pair: &[String]) -> Result<()> {
-        for (index, shortcut) in pair.iter().enumerate() {
+    fn register_pair(&self, pair: &[(ShortcutRole, String)]) -> Result<()> {
+        for (role, shortcut) in pair.iter() {
+            let role = *role;
             let controller = self.clone();
             self.app.global_shortcut().on_shortcut(
                 shortcut.as_str(),
@@ -259,18 +356,35 @@ impl QuickDictationController {
                     {
                         return;
                     }
-                    if index == 1 {
-                        if cycle_key_transition(&controller.cycle_pressed, event.state()) {
-                            if let Err(error) = controller.translation.cycle() {
-                                let _ = controller
-                                    .app
-                                    .emit("dictation-mode-error", error.to_string());
+                    match role {
+                        ShortcutRole::CycleLanguage => {
+                            if cycle_key_transition(&controller.cycle_pressed, event.state()) {
+                                if let Err(error) = controller.translation.cycle() {
+                                    let _ = controller
+                                        .app
+                                        .emit("dictation-mode-error", error.to_string());
+                                }
                             }
                         }
-                    } else if let Err(error) =
-                        controller.handle_shortcut_event(event.state(), event.id)
-                    {
-                        eprintln!("[dictation] shortcut failed: {error}");
+                        // On release, so the held modifiers do not reach the paste.
+                        ShortcutRole::PasteLast => {
+                            if event.state() == ShortcutState::Released {
+                                let controller = controller.clone();
+                                thread::spawn(move || {
+                                    if let Err(error) = controller.paste_last() {
+                                        eprintln!("[dictation] paste last failed: {error:#}");
+                                    }
+                                });
+                            }
+                        }
+                        ShortcutRole::Dictation => {
+                            if let Err(error) =
+                                controller.handle_shortcut_event(event.state(), event.id)
+                            {
+                                eprintln!("[dictation] shortcut failed: {error}");
+                                controller.explain_rejected_press(&error);
+                            }
+                        }
                     }
                 },
             )?;
@@ -307,11 +421,17 @@ impl QuickDictationController {
             .shortcut_pair
             .lock()
             .map_err(|_| anyhow!("Shortcut state unavailable"))?;
-        let next = shortcut_pair(
-            &settings.shortcut,
-            (settings.translation_enabled && crate::translation::platform_supported())
-                .then_some(settings.translation_cycle_shortcut.as_str()),
-        )?;
+        let mut entries = vec![(ShortcutRole::Dictation, settings.shortcut.as_str())];
+        if settings.translation_enabled && crate::translation::platform_supported() {
+            entries.push((
+                ShortcutRole::CycleLanguage,
+                settings.translation_cycle_shortcut.as_str(),
+            ));
+        }
+        if !settings.paste_last_shortcut.trim().is_empty() {
+            entries.push((ShortcutRole::PasteLast, settings.paste_last_shortcut.as_str()));
+        }
+        let next = shortcut_set(&entries)?;
         if *self
             .is_suspended
             .lock()
@@ -345,6 +465,8 @@ impl QuickDictationController {
             status.is_registered = true;
             status.last_error_message = None;
         })?;
+        // Re-registering cleared every shortcut, including a live Escape key.
+        self.sync_cancel_key();
         Ok(self.status())
     }
 
@@ -625,9 +747,12 @@ impl QuickDictationController {
                     language,
                 } => {
                     let translation = self.translation.clone();
-                    let context = vocabulary::build_asr_prompt(&terms)
-                        .map(|p| p.text)
-                        .unwrap_or_default();
+                    // R2T2 puts its context into the system message, and the
+                    // English vocabulary instruction makes it answer German
+                    // dictation in English (German short clips: 30.5 % WER with
+                    // it, 3.4 % without; docs/asr-benchmark.md). Vocabulary still
+                    // applies through the correction after transcription.
+                    let context = String::new();
                     LiveHandle::R2t2(crate::r2t2::start(
                         session.id.clone(),
                         tap,
@@ -753,6 +878,19 @@ impl QuickDictationController {
                     return;
                 }
                 eprintln!("[dictation] finish worker failed: {error:?}");
+                // Silence is not a failure: say so neutrally instead of an error chip.
+                if error.to_string().contains("TRANSCRIPTION_EMPTY") {
+                    controller.restore_system_volume();
+                    let _ = controller.update_status(|status| {
+                        status.state = QuickDictationState::Idle;
+                    });
+                    let _ = controller.desktop_shell.flash(
+                        OverlayPhase::Notice,
+                        "No speech heard",
+                        NOTICE_CHIP_HOLD,
+                    );
+                    return;
+                }
                 let _ = controller.set_error_owned(error.to_string(), generation);
             }
         });
@@ -1017,9 +1155,13 @@ impl QuickDictationController {
         if output_text.trim().is_empty() {
             self.translation.with_active(&session, || {
                 self.update_status(|status| status.state = QuickDictationState::Idle)?;
-                self.desktop_shell.set_overlay_payload(Default::default())
+                self.desktop_shell
+                    .flash(OverlayPhase::Notice, "No speech heard", NOTICE_CHIP_HOLD)
             })?;
             return Ok(());
+        }
+        if let Ok(mut last) = self.last_output.lock() {
+            *last = Some(output_text.clone());
         }
         self.translation.ensure_active(&session)?;
         if !translated && session.save_history {
@@ -1083,6 +1225,7 @@ impl QuickDictationController {
             }
         };
         let insert_outcome = insert_report.outcome;
+        let insert_outcome_is_pasted = matches!(insert_outcome, InsertionOutcome::Pasted);
 
         if self.poller_generation.load(Ordering::SeqCst) != generation {
             return Ok(());
@@ -1144,6 +1287,12 @@ impl QuickDictationController {
                             fallback_warning
                                 .as_ref()
                                 .map(|_| "Original pasted · translation check failed".to_string())
+                        })
+                        .or_else(|| {
+                            (!settings.serious_mode
+                                && insert_outcome_is_pasted
+                                && is_blah_blah(&output_text))
+                            .then(|| "Very profound. Pasted anyway. 😉".to_string())
                         }),
                     duration_limit_reached: recording.duration_ms as u64
                         >= DICTATION_CAPTURE_LIMIT_MS - 1_000,
@@ -1156,6 +1305,8 @@ impl QuickDictationController {
             &format!("dictation:{}", recording.file_path),
         );
         self.schedule_idle_reset();
+        self.refresh_tray_recents();
+        record_dictation_stats(&self.app, &self.db_path, &output_text, recording.duration_ms);
         Ok(())
     }
 
@@ -1434,14 +1585,18 @@ impl QuickDictationController {
         let revision = self.desktop_shell.overlay_revision();
         let generation = self.poller_generation.load(Ordering::SeqCst);
         let transition = self.state_since_ms.load(Ordering::SeqCst);
-        self.schedule_idle_reset_at(revision, generation, transition);
+        self.schedule_idle_reset_at(revision, generation, transition, RESULT_CHIP_HOLD);
     }
-    fn schedule_idle_reset_at(&self, revision: u64, generation: u64, transition: i64) {
+    fn schedule_idle_reset_at(
+        &self,
+        revision: u64,
+        generation: u64,
+        transition: i64,
+        hold: Duration,
+    ) {
         let controller = self.clone();
         thread::spawn(move || {
-            // Long enough to read the result chip; short enough to feel snappy
-            // and not block subsequent dictations.
-            thread::sleep(Duration::from_millis(1800));
+            thread::sleep(hold);
             if controller.poller_generation.load(Ordering::SeqCst) != generation
                 || controller.state_since_ms.load(Ordering::SeqCst) != transition
             {
@@ -1503,6 +1658,7 @@ impl QuickDictationController {
             .set_overlay_payload(DictationOverlayPayload {
                 phase: OverlayPhase::Failed,
                 audio_level: 0.0,
+                status_text: Some(overlay_reason(&message).into()),
                 ..Default::default()
             })?;
         status.state = QuickDictationState::Error;
@@ -1512,8 +1668,10 @@ impl QuickDictationController {
         let revision = self.desktop_shell.overlay_revision();
         self.app.emit(QUICK_DICTATE_STATUS_EVENT, status.clone())?;
         drop(status);
-        // Auto-hide the error chip too — same path as success outcomes.
-        self.schedule_idle_reset_at(revision, generation, transition);
+        self.sync_cancel_key();
+        // Auto-hide the error chip too — longer than a success, so the reason
+        // can be read.
+        self.schedule_idle_reset_at(revision, generation, transition, ERROR_CHIP_HOLD);
         Ok(())
     }
 
@@ -1528,14 +1686,19 @@ impl QuickDictationController {
                 .map_err(|_| anyhow!("quick dictation status unavailable"))?;
             let previous_state = status.state;
             apply(&mut status);
-            if status.state != previous_state {
+            let changed = status.state != previous_state;
+            if changed {
                 // Stamp every transition so the watchdog can tell how long the
                 // controller has been parked in Listening/Processing.
                 self.state_since_ms.store(now_ms(), Ordering::SeqCst);
             }
-            status.clone()
+            (status.clone(), changed)
         };
+        let (next_status, changed) = next_status;
         self.app.emit(QUICK_DICTATE_STATUS_EVENT, next_status)?;
+        if changed {
+            self.sync_cancel_key();
+        }
         Ok(())
     }
 
@@ -1631,6 +1794,214 @@ impl QuickDictationController {
         // Re-arm the shortcut in case registration was affected.
         let _ = self.sync_shortcut_registration();
         Ok(self.status())
+    }
+
+    /// Registers Escape while a shortcut dictation is listening or
+    /// transcribing, and releases it afterwards so other apps keep their Esc.
+    fn sync_cancel_key(&self) {
+        let controller = self.clone();
+        // Off the caller's thread: shortcut registration hops to the main
+        // thread, and this can be reached from a shortcut handler.
+        thread::spawn(move || {
+            let Ok(_serial) = controller.cancel_key.lock() else {
+                return;
+            };
+            let suspended = controller.is_suspended.lock().map(|value| *value).unwrap_or(true);
+            let active = !suspended
+                && matches!(
+                    controller.status().state,
+                    QuickDictationState::Listening | QuickDictationState::Processing
+                );
+            let shortcuts = controller.app.global_shortcut();
+            let registered = shortcuts.is_registered(CANCEL_SHORTCUT);
+            if active && !registered {
+                let handler = controller.clone();
+                if let Err(error) = shortcuts.on_shortcut(CANCEL_SHORTCUT, move |_app, _shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        let handler = handler.clone();
+                        thread::spawn(move || {
+                            if let Err(error) = handler.cancel_active() {
+                                eprintln!("[dictation] cancel failed: {error:#}");
+                            }
+                        });
+                    }
+                }) {
+                    eprintln!("[dictation] Escape cancel unavailable: {error}");
+                }
+            } else if !active && registered {
+                let _ = shortcuts.unregister(CANCEL_SHORTCUT);
+            }
+        });
+    }
+
+    /// Cancels a listening or transcribing shortcut dictation. Nothing is
+    /// pasted, and the overlay confirms it.
+    pub fn cancel_active(&self) -> Result<()> {
+        if !matches!(
+            self.status().state,
+            QuickDictationState::Listening | QuickDictationState::Processing
+        ) {
+            return Ok(());
+        }
+        self.translation.cancel();
+        if let Some(live) = self.live.lock().ok().and_then(|mut live| live.take()) {
+            live.handle.cancel();
+        }
+        if let Some(early) = self.early.lock().ok().and_then(|mut early| early.take()) {
+            early.cancel();
+        }
+        // Supersede the poller and any finishing worker for this session.
+        self.poller_generation.fetch_add(1, Ordering::SeqCst);
+        let _ = self.recording_controller.cancel();
+        if let Some(player) = self.sound_player.as_ref().as_ref() {
+            player.finish_capture(false, true);
+        }
+        self.restore_system_volume();
+        if let Ok(mut session) = self.clipboard_only_session.lock() {
+            *session = None;
+        }
+        self.update_status(|status| {
+            status.state = QuickDictationState::Idle;
+            status.last_error_message = None;
+        })?;
+        self.desktop_shell
+            .flash(OverlayPhase::Notice, "Canceled · nothing pasted", NOTICE_CHIP_HOLD)
+    }
+
+    /// Explains a shortcut press that could not start a dictation, unless the
+    /// failure already showed its own error chip.
+    fn explain_rejected_press(&self, error: &anyhow::Error) {
+        let state = self.status().state;
+        if state == QuickDictationState::Error {
+            return;
+        }
+        let reason = overlay_reason(&error.to_string());
+        if state == QuickDictationState::Processing {
+            if let Ok(true) = self.desktop_shell.annotate_processing(reason) {
+                return;
+            }
+        }
+        let _ = self
+            .desktop_shell
+            .flash(OverlayPhase::Notice, reason, NOTICE_CHIP_HOLD);
+    }
+
+    /// The text "Paste last dictation" uses: this session's last dictation,
+    /// otherwise the newest saved one.
+    fn last_dictation_text(&self) -> Option<String> {
+        self.last_output
+            .lock()
+            .ok()
+            .and_then(|last| last.clone())
+            .filter(|text| !text.trim().is_empty())
+            .or_else(|| {
+                storage::recent_quick_dictations(&self.db_path, 1)
+                    .ok()?
+                    .into_iter()
+                    .next()
+                    .map(|(_, text)| text)
+            })
+    }
+
+    /// Pastes the last dictation again into the app in front, for when the
+    /// first paste landed nowhere.
+    pub fn paste_last(&self) -> Result<()> {
+        if matches!(
+            self.status().state,
+            QuickDictationState::Listening | QuickDictationState::Processing
+        ) {
+            return self.desktop_shell.flash(
+                OverlayPhase::Notice,
+                "Finish the current dictation first",
+                NOTICE_CHIP_HOLD,
+            );
+        }
+        let Some(text) = self.last_dictation_text() else {
+            return self
+                .desktop_shell
+                .flash(OverlayPhase::Notice, "Nothing to paste yet", NOTICE_CHIP_HOLD);
+        };
+        let settings = storage::get_settings_from_db_path(&self.db_path)?;
+        crate::insertion::wait_for_modifier_release(Duration::from_millis(1500));
+        let target = detect_frontmost_paste_target();
+        let app = self.app.clone();
+        let (response_tx, response_rx) = mpsc::channel();
+        self.app.run_on_main_thread(move || {
+            let result = crate::insertion::insert_text(
+                &app,
+                &text,
+                settings.insert_behavior,
+                target.as_ref(),
+                || Ok(()),
+            )
+            .map_err(|error| error.to_string());
+            let _ = response_tx.send(result);
+        })?;
+        let report = response_rx
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|_| anyhow!("timed out while pasting the last dictation"))?
+            .map_err(anyhow::Error::msg)?;
+        let (phase, label) = match (report.outcome, report.warning) {
+            (InsertionOutcome::Pasted, _) => (OverlayPhase::Inserted, "Pasted last dictation"),
+            (InsertionOutcome::ClipboardOnly, Some(warning)) => {
+                (OverlayPhase::ClipboardOnly, warning.overlay_label())
+            }
+            (InsertionOutcome::ClipboardOnly, None) => {
+                (OverlayPhase::ClipboardOnly, "Copied last dictation")
+            }
+        };
+        self.desktop_shell.flash(phase, label, RESULT_CHIP_HOLD)
+    }
+
+    pub fn copy_last(&self) -> Result<()> {
+        match self.last_dictation_text() {
+            Some(text) => self.copy_to_clipboard(&text, "Copied last dictation"),
+            None => self
+                .desktop_shell
+                .flash(OverlayPhase::Notice, "Nothing to copy yet", NOTICE_CHIP_HOLD),
+        }
+    }
+
+    /// Copies one entry of the tray's Recent dictations.
+    pub fn copy_recent(&self, id: &str) -> Result<()> {
+        match self.desktop_shell.tray_recent_text(id) {
+            Some(text) => self.copy_to_clipboard(&text, "Copied"),
+            None => Ok(()),
+        }
+    }
+
+    fn copy_to_clipboard(&self, text: &str, label: &str) -> Result<()> {
+        use tauri_plugin_clipboard_manager::ClipboardExt;
+        self.app.clipboard().write_text(text.to_string())?;
+        self.desktop_shell
+            .flash(OverlayPhase::ClipboardOnly, label, RESULT_CHIP_HOLD)
+    }
+
+    /// Updates the tray's Recent dictations from saved history (or, with
+    /// history off, this session's last dictation only).
+    pub fn refresh_tray_recents(&self) {
+        let saved = storage::get_settings_from_db_path(&self.db_path)
+            .map(|settings| settings.save_history)
+            .unwrap_or(false);
+        let mut recents = if saved {
+            storage::recent_quick_dictations(&self.db_path, 5).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        if recents.is_empty() {
+            if let Some(text) = self.last_output.lock().ok().and_then(|last| last.clone()) {
+                recents.push(("last".into(), text));
+            }
+        }
+        self.desktop_shell.set_tray_recents(recents);
+    }
+
+    /// Forgets the in-memory last dictation, e.g. after history was deleted.
+    pub fn forget_last_dictation(&self) {
+        if let Ok(mut last) = self.last_output.lock() {
+            *last = None;
+        }
+        self.refresh_tray_recents();
     }
 
     /// Spawn the single watchdog thread that auto-recovers a dictation stuck in
@@ -1771,20 +2142,54 @@ mod translation_shortcut_tests {
     }
     #[test]
     fn parsed_shortcut_conflicts_ignore_modifier_order() {
-        assert!(shortcut_pair("CmdOrCtrl+Shift+Right", Some("Shift+CmdOrCtrl+Right")).is_err());
+        let error = shortcut_set(&[
+            (ShortcutRole::Dictation, "CmdOrCtrl+Shift+Right"),
+            (ShortcutRole::CycleLanguage, "Shift+CmdOrCtrl+Right"),
+        ])
+        .unwrap_err();
         assert_eq!(
-            shortcut_pair(
-                "CmdOrCtrl+Shift+Space",
-                Some(crate::translation::DEFAULT_SHORTCUT)
-            )
+            error.to_string(),
+            "Dictation and language switching need different shortcuts."
+        );
+        assert!(shortcut_set(&[
+            (ShortcutRole::CycleLanguage, "Ctrl+Alt+V"),
+            (ShortcutRole::PasteLast, "Alt+Ctrl+V"),
+        ])
+        .is_err());
+        assert_eq!(
+            shortcut_set(&[
+                (ShortcutRole::Dictation, "CmdOrCtrl+Shift+Space"),
+                (ShortcutRole::CycleLanguage, crate::translation::DEFAULT_SHORTCUT),
+                (ShortcutRole::PasteLast, crate::settings::DEFAULT_PASTE_LAST_SHORTCUT),
+            ])
             .unwrap()
             .len(),
-            2
+            3
         );
+        assert!(Shortcut::from_str(CANCEL_SHORTCUT).is_ok());
+    }
+    #[test]
+    fn only_blah_blah_blah_earns_the_wink() {
+        assert!(is_blah_blah("Blah blah blah."));
+        assert!(is_blah_blah("bla, bla, bla, blah!"));
+        assert!(!is_blah_blah("blah blah"));
+        assert!(!is_blah_blah("blah blah blah and so on"));
+        assert!(!is_blah_blah(""));
+    }
+    #[test]
+    fn overlay_reasons_are_short_and_specific() {
+        assert_eq!(overlay_reason("TRANSCRIPTION_EMPTY: whisper produced no segments"), "No speech heard");
         assert_eq!(
-            shortcut_pair("CmdOrCtrl+Shift+Space", None).unwrap().len(),
-            1
+            overlay_reason("MODEL_MISSING: no whisper.cpp model is installed for profile balanced"),
+            "No dictation engine · open Blabber"
         );
+        assert_eq!(overlay_reason("No default microphone is available"), "Microphone isn't working");
+        assert_eq!(overlay_reason("Dictation is still transcribing."), "Still on the last one…");
+        assert_eq!(overlay_reason("Another recording is already active."), "Recording in the app");
+        assert_eq!(overlay_reason("something odd"), "Didn't work · open Blabber");
+        for message in ["TRANSCRIPTION_EMPTY", "MODEL_MISSING", "microphone", "translation", "timed out", "x"] {
+            assert!(overlay_reason(message).chars().count() <= 36);
+        }
     }
     #[test]
     fn holding_the_language_key_cycles_only_once() {

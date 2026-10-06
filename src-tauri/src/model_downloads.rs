@@ -70,10 +70,16 @@ pub enum ModelOrigin {
     Custom,
 }
 
-/// Whisper downloads no longer offered: Qwen3-ASR and the live pair are more
-/// accurate on the reference corpus (docs/asr-benchmark.md). Installed copies
-/// keep working and can be deleted.
-const RETIRED_DOWNLOAD_IDS: &[&str] = &["ggml-small-bin", "ggml-medium-bin", "ggml-large-v3-turbo-bin"];
+/// Downloads no longer offered; installed copies keep working and can be
+/// deleted. On the reference corpus (docs/asr-benchmark.md) Qwen3-ASR and the
+/// live pair beat these Whisper models, and the live pair beats R2T2 on
+/// accuracy, latency, memory and mixed-language dictation.
+const RETIRED_DOWNLOAD_IDS: &[&str] = &[
+    "ggml-small-bin",
+    "ggml-medium-bin",
+    "ggml-large-v3-turbo-bin",
+    crate::r2t2::MODEL_ID,
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -193,6 +199,8 @@ impl ModelDownloadManager {
                 ))
             }
         }
+
+        ensure_disk_space(&spec, &self.models_dir)?;
 
         let mut active = self
             .active_download
@@ -952,7 +960,7 @@ fn downloadable_specs() -> Vec<DownloadableModelSpec> {
         live_pair_spec(),
         DownloadableModelSpec {
             id: crate::r2t2::MODEL_ID, engine:"audio.cpp-r2t2", model_name:crate::r2t2::MODEL_NAME,
-            description:"Experimental local live preview for shortcut dictation in German and English. Paste once after stopping; up to five minutes. Separate NetEase model terms apply.",
+            description:"Experimental local live preview for shortcut dictation in German and English. Paste once after stopping; up to five minutes. Writes each dictation in one language: it translates speech in another language, so it is not suited to mixed-language dictation. Separate NetEase model terms apply.",
             requirements:Some("Apple Silicon · macOS 14+ · Metal · approximately 5.2 GB inference memory. Live output may lag behind speech."),
             size_bytes:crate::r2t2::MODEL_BYTES, profile:ModelProfile::Accurate,
             layout:InstallLayout::Directory { directory_name:crate::r2t2::MODEL_ID },
@@ -1216,6 +1224,62 @@ fn deletion_target(
         return Err(anyhow!("MODEL_PROTECTED: {} cannot be deleted from Blabber.", model.model_name));
     }
     Ok((DeletionTarget::File(path), None))
+}
+
+/// Headroom kept free beyond the model itself, so a download never fills the disk.
+const DOWNLOAD_DISK_HEADROOM_BYTES: u64 = 1_000_000_000;
+
+/// Refuses a download up front when the models volume cannot hold the rest of
+/// it, instead of failing partway with a full disk.
+fn ensure_disk_space(spec: &DownloadableModelSpec, models_dir: &Path) -> Result<()> {
+    if model_is_installed(spec, models_dir) {
+        return Ok(());
+    }
+    let Ok(available) = fs2::available_space(models_dir) else {
+        return Ok(());
+    };
+    let remaining = (spec.size_bytes.max(0) as u64)
+        .saturating_sub(partial_download_bytes(spec, models_dir));
+    let needed = remaining + DOWNLOAD_DISK_HEADROOM_BYTES;
+    if available < needed {
+        return Err(anyhow!(
+            "DISK_SPACE_LOW: {} needs about {} of free disk space, but only {} is available. Free up space and try again.",
+            spec.model_name,
+            format_gigabytes(needed),
+            format_gigabytes(available),
+        ));
+    }
+    Ok(())
+}
+
+/// Bytes a previous, interrupted download already left on disk.
+fn partial_download_bytes(spec: &DownloadableModelSpec, models_dir: &Path) -> u64 {
+    match spec.layout {
+        InstallLayout::File { file_name } => fs::metadata(models_dir.join(format!("{file_name}.part")))
+            .map(|metadata| metadata.len())
+            .unwrap_or(0),
+        InstallLayout::Directory { directory_name } => {
+            directory_size(&models_dir.join(format!(".{directory_name}.part")))
+        }
+    }
+}
+
+fn directory_size(path: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| match entry.file_type() {
+            Ok(kind) if kind.is_dir() => directory_size(&entry.path()),
+            Ok(_) => entry.metadata().map(|metadata| metadata.len()).unwrap_or(0),
+            Err(_) => 0,
+        })
+        .sum()
+}
+
+fn format_gigabytes(bytes: u64) -> String {
+    format!("{:.1} GB", bytes as f64 / 1_000_000_000.0)
 }
 
 fn model_is_installed(spec: &DownloadableModelSpec, models_dir: &Path) -> bool {

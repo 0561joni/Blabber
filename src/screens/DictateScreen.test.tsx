@@ -29,6 +29,9 @@ const props = () => ({
   quickDictationStatus: null,
   readiness: {
     hasModel: true,
+    shortcutModelReady: true,
+    microphone: "granted" as const,
+    firstRunCompleted: true,
     shortcutRegistered: true,
     autoPasteEnabled: true,
     accessibilityRequired: true,
@@ -168,6 +171,25 @@ describe("Dictation workspace", () => {
     ).toHaveProperty("disabled", false);
     fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
     expect(current.onResolveReadiness).toHaveBeenCalledWith("accessibility");
+  });
+  it("asks for a shortcut engine and microphone access when they are missing", () => {
+    const current = props();
+    render(
+      <DictateScreen
+        {...current}
+        readiness={{
+          ...current.readiness,
+          hasModel: true,
+          shortcutModelReady: false,
+          microphone: "denied",
+        }}
+      />,
+    );
+    expect(screen.getByText(/None of your installed models can run shortcut dictation/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Choose an engine" }));
+    expect(current.onResolveReadiness).toHaveBeenCalledWith("engine");
+    fireEvent.click(screen.getByRole("button", { name: "Open System Settings" }));
+    expect(current.onResolveReadiness).toHaveBeenCalledWith("microphone");
   });
   it("retains copied words and permission guidance after the result flash expires", async () => {
     const current = props();

@@ -1,4 +1,6 @@
+import { describeError } from "../lib/formatting";
 import { useState, type FormEvent } from "react";
+import { usePlayful } from "../lib/appearance";
 import type {
   CreateVocabularyTermInput,
   UpdateVocabularyTermInput,
@@ -33,6 +35,7 @@ export function VocabularyScreen({
   onUpdateVocabularyTerm,
   onDeleteVocabularyTerm,
 }: VocabularyScreenProps) {
+  const playful = usePlayful();
   const [query, setQuery] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -82,9 +85,7 @@ export function VocabularyScreen({
       setSavedMessage("Term added");
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to create vocabulary term.",
+        describeError(error, "Failed to create vocabulary term."),
       );
     } finally {
       setIsSaving(false);
@@ -119,9 +120,7 @@ export function VocabularyScreen({
       setSavedMessage("Changes saved");
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to update vocabulary term.",
+        describeError(error, "Failed to update vocabulary term."),
       );
     } finally {
       setIsSaving(false);
@@ -138,9 +137,7 @@ export function VocabularyScreen({
       if (editingId === termId) cancelEdit();
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to delete vocabulary term.",
+        describeError(error, "Failed to delete vocabulary term."),
       );
     } finally {
       setIsSaving(false);
@@ -286,10 +283,11 @@ export function VocabularyScreen({
             </div>
           ) : (
             <div className="vocabulary-empty-state">
-              <strong>No custom terms yet</strong>
+              <strong>{playful ? "Teach me your weird words" : "No custom terms yet"}</strong>
               <p className="muted">
-                Add a name or phrase above when Blabber needs help spelling it
-                consistently.
+                {playful
+                  ? "Names, brands, jargon: add them above and Blabber spells them right. No judgment, even for “Kubernetes”."
+                  : "Add a name or phrase above when Blabber needs help spelling it consistently."}
               </p>
             </div>
           )}

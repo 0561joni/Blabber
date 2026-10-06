@@ -2,11 +2,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { getSettings } from "./api";
 import type { AppSettings } from "../types/domain";
 
-type Preferences = Pick<AppSettings, "appearance" | "motionPreference">;
+type Preferences = Pick<AppSettings, "appearance" | "motionPreference"> & {
+  seriousMode?: boolean;
+};
 const CACHE_KEY = "blabber-appearance";
 let preferences: Preferences = {
   appearance: "system",
   motionPreference: "system",
+  seriousMode: false,
 };
 const subscribers = new Set<() => void>();
 
@@ -14,6 +17,7 @@ export function applyAppearance(next: Preferences) {
   preferences = {
     appearance: next.appearance ?? "system",
     motionPreference: next.motionPreference ?? "system",
+    seriousMode: next.seriousMode ?? false,
   };
   const dark =
     preferences.appearance === "dark" ||
@@ -57,6 +61,21 @@ export function useReducedMotion() {
     };
   }, []);
   return reduced;
+}
+
+/** False in Serious mode: no Blabbermeter, playful lines or easter eggs.
+ * Shared by every window through the same cache as the theme. */
+export function usePlayful() {
+  const [playful, setPlayful] = useState(!preferences.seriousMode);
+  useEffect(() => {
+    const update = () => setPlayful(!preferences.seriousMode);
+    subscribers.add(update);
+    update();
+    return () => {
+      subscribers.delete(update);
+    };
+  }, []);
+  return playful;
 }
 
 export function AppearanceProvider({ children }: { children: ReactNode }) {

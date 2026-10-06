@@ -7,7 +7,7 @@ export const settingsFixture: AppSettings = {
   defaultMode: "quick_dictate",
   shortcut: "CmdOrCtrl+Shift+Space",
   translationEnabled: false,
-  translationCycleShortcut: "CmdOrCtrl+Shift+Right",
+  translationCycleShortcut: "Ctrl+Alt+L",
   translationModelId: "translategemma-12b-q6-k",
   shortcutMode: "push_to_talk",
   languageMode: "auto",
@@ -31,6 +31,8 @@ export const settingsFixture: AppSettings = {
   r2t2IdleCache: "one_minute",
   livePairChunkMs: 560,
   livePairKeepLoaded: true,
+  pasteLastShortcut: "Ctrl+Alt+V",
+  seriousMode: false,
 };
 export const resultFixture: TranscriptResult = {
   jobId: "result-1",

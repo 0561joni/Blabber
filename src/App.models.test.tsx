@@ -82,8 +82,8 @@ describe("Model installation in the workspace", () => {
     render(<App />);
     await waitFor(() => expect(mocks.listInstalledModels).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
-    fireEvent.click(screen.getByRole("button", { name: /Download models/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
+    fireEvent.click(screen.getByRole("button", { name: /Download engines/ }));
     await screen.findByRole("button", { name: /Download R2T2/ });
     await waitFor(() => expect(mocks.listeners.size).toBe(2));
 
@@ -96,21 +96,21 @@ describe("Model installation in the workspace", () => {
     expect(screen.queryByRole("button", { name: /Download R2T2/ })).toBeNull();
     expect(screen.getByText("Installed")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Shortcut Dictation model" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dictation engine" }));
     fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: /R2T2/ }));
     await waitFor(() => expect(mocks.updateSettings).toHaveBeenCalledWith({
       shortcutDictationSelectedModelId: r2t2.id,
       shortcutDictationModelProfile: "accurate",
     }));
-    expect(screen.getByRole("button", { name: "Quick Dictate model" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "File Transcription model" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Record button engine" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "File engine" })).toHaveProperty("disabled", true);
   });
 
   it("updates the installed picker even if the settings refresh fails", async () => {
     render(<App />);
     await waitFor(() => expect(mocks.listInstalledModels).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
     await waitFor(() => expect(mocks.listeners.size).toBe(2));
     mocks.getSettings.mockRejectedValue(new Error("Settings temporarily unavailable"));
     mocks.listInstalledModels.mockResolvedValue([installedR2t2]);
@@ -118,7 +118,7 @@ describe("Model installation in the workspace", () => {
       for (const listener of mocks.listeners) listener(completion);
     });
     expect(screen.getByRole("alert").textContent).toContain("Settings temporarily unavailable");
-    fireEvent.click(screen.getByRole("button", { name: "Shortcut Dictation model" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dictation engine" }));
     expect(within(screen.getByRole("listbox")).getByRole("option", { name: /R2T2/ })).toBeTruthy();
   });
 
@@ -126,7 +126,7 @@ describe("Model installation in the workspace", () => {
     render(<App />);
     await waitFor(() => expect(mocks.listInstalledModels).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+    fireEvent.click(screen.getByRole("button", { name: "Engines" }));
     await waitFor(() => expect(mocks.listeners.size).toBe(2));
 
     let finishOlderRead!: (models: InstalledModel[]) => void;
@@ -143,7 +143,7 @@ describe("Model installation in the workspace", () => {
       finishOlderRead([]);
     });
     await waitFor(() => expect(mocks.listInstalledModels).toHaveBeenCalledTimes(2));
-    fireEvent.click(screen.getByRole("button", { name: "Shortcut Dictation model" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dictation engine" }));
     expect(within(screen.getByRole("listbox")).getByRole("option", { name: /R2T2/ })).toBeTruthy();
   });
 });

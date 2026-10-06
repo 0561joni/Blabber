@@ -52,6 +52,12 @@ unsafe extern "C" {
 }
 
 #[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGEventSourceFlagsState(state_id: i32) -> u64;
+}
+
+#[cfg(target_os = "macos")]
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     fn CFRelease(cf: *const c_void);
@@ -73,8 +79,8 @@ pub enum InsertionWarning {
 impl InsertionWarning {
     pub fn message(self) -> &'static str {
         match self {
-            Self::AccessibilityRequired => "Text copied. Auto-paste needs Accessibility access for this Blabber app. Use Grant access, then enable Blabber in System Settings. If it is already enabled, remove the old entry and add the current Blabber app again.",
-            Self::PasteUnavailable => "Text copied, but Blabber could not paste into the target app. Use the paste shortcut to insert it.",
+            Self::AccessibilityRequired => "Text copied. To paste automatically, use Grant access and allow Blabber under Privacy & Security → Accessibility. Already allowed? Remove Blabber there and add it again.",
+            Self::PasteUnavailable => "Text copied, but Blabber couldn't paste it into the app. Paste it yourself.",
         }
     }
 
@@ -307,6 +313,29 @@ fn restore_macos_clipboard_after_paste(
     // app) while the paste was in flight.
     if let Err(error) = snapshot.restore_if_unchanged(dictated_clipboard_change_count) {
         eprintln!("failed to restore clipboard after auto-paste: {error:#}");
+    }
+}
+
+/// Waits until no modifier key is held (or `timeout` passes), so a paste
+/// triggered from a shortcut does not combine with the shortcut's modifiers.
+pub fn wait_for_modifier_release(timeout: Duration) {
+    #[cfg(target_os = "macos")]
+    {
+        // kCGEventSourceStateCombinedSessionState; Shift, Control, Option, Command.
+        const COMBINED_SESSION_STATE: i32 = 0;
+        const MODIFIERS: u64 = (1 << 17) | (1 << 18) | (1 << 19) | (1 << 20);
+        let started = std::time::Instant::now();
+        while started.elapsed() < timeout {
+            if unsafe { CGEventSourceFlagsState(COMBINED_SESSION_STATE) } & MODIFIERS == 0 {
+                return;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // No portable modifier query; give the user a moment to let go.
+        thread::sleep(timeout.min(Duration::from_millis(250)));
     }
 }
 

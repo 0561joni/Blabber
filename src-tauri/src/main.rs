@@ -22,6 +22,7 @@ mod model_downloads;
 mod model_metadata;
 mod native_asr;
 mod output_format;
+mod permissions;
 mod platform;
 mod qwen_asr;
 mod r2t2;
@@ -266,7 +267,8 @@ fn update_settings(
     let sync_shortcut = patch.shortcut.is_some()
         || patch.shortcut_mode.is_some()
         || patch.translation_enabled.is_some()
-        || patch.translation_cycle_shortcut.is_some();
+        || patch.translation_cycle_shortcut.is_some()
+        || patch.paste_last_shortcut.is_some();
     if state.translation.snapshot().busy && (sync_shortcut || patch.translation_model_id.is_some())
     {
         return Err(
@@ -282,9 +284,13 @@ fn update_settings(
         return Err("Unsupported translation model.".into());
     }
     let diarization_change = patch.file_diarization_enabled;
+    let history_change = patch.save_history.is_some();
     let translation_change = patch.translation_enabled;
     let settings =
         storage::update_settings(state.inner(), patch).map_err(|error| error.to_string())?;
+    if history_change {
+        state.dictation_controller.refresh_tray_recents();
+    }
     let integration_result = (|| -> Result<(), String> {
         if sync_autostart {
             autostart::sync_launch_at_login(&app, settings.launch_at_login_enabled)
@@ -343,6 +349,8 @@ fn update_settings(
                 r2t2_idle_cache: Some(previous.r2t2_idle_cache),
                 live_pair_chunk_ms: Some(previous.live_pair_chunk_ms),
                 live_pair_keep_loaded: Some(previous.live_pair_keep_loaded),
+                paste_last_shortcut: Some(previous.paste_last_shortcut.clone()),
+                serious_mode: Some(previous.serious_mode),
             },
         )
         .map_err(|rollback| format!("{error}; could not restore previous settings: {rollback}"))?;
@@ -399,12 +407,17 @@ fn delete_transcript(
     state: tauri::State<'_, AppState>,
     transcript_id: String,
 ) -> Result<(), String> {
-    storage::delete_transcript(state.inner(), &transcript_id).map_err(|error| error.to_string())
+    storage::delete_transcript(state.inner(), &transcript_id).map_err(|error| error.to_string())?;
+    state.dictation_controller.refresh_tray_recents();
+    Ok(())
 }
 
 #[tauri::command]
 fn delete_all_transcripts(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    storage::delete_all_transcripts(state.inner()).map_err(|error| error.to_string())
+    storage::delete_all_transcripts(state.inner()).map_err(|error| error.to_string())?;
+    // Deleting all history also forgets the in-memory last dictation.
+    state.dictation_controller.forget_last_dictation();
+    Ok(())
 }
 
 #[tauri::command]
@@ -816,6 +829,7 @@ fn get_dictation_overlay_status(
 
 #[tauri::command]
 async fn preview_transcription(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     request: TranscriptionPreviewRequest,
 ) -> Result<TranscriptionPreviewResponse, String> {
@@ -936,6 +950,14 @@ async fn preview_transcription(
                 let _ = app_state
                     .desktop_shell
                     .set_overlay_payload(Default::default());
+                if request.source_kind == asr::PreviewSourceKind::QuickDictate && error.is_none() {
+                    let duration = corrected
+                        .segments
+                        .last()
+                        .map(|segment| segment.end_ms)
+                        .unwrap_or(0);
+                    dictation::record_dictation_stats(&app, &app_state.db_path, &corrected.plain_text, duration);
+                }
                 TranscriptionPreviewResponse {
                     dictation_output,
                     source_kind: request.source_kind,
@@ -1077,7 +1099,7 @@ async fn start_recording_session(
         }
         if shutdown::is_shutting_down() {
             let _ = state.recording_controller.cancel();
-            return Err("APP_SHUTTING_DOWN: Blabber wird beendet.".into());
+            return Err("APP_SHUTTING_DOWN: Blabber is quitting.".into());
         }
         if let Ok(status) = &result {
             if session.is_some() {
@@ -1237,6 +1259,10 @@ fn reset_quick_dictation(
 #[serde(rename_all = "camelCase")]
 struct DictationReadiness {
     has_model: bool,
+    // The saved shortcut model is installed and can run shortcut dictation.
+    shortcut_model_ready: bool,
+    microphone: permissions::MicrophonePermission,
+    first_run_completed: bool,
     translation_ready: bool,
     shortcut_registered: bool,
     auto_paste_enabled: bool,
@@ -1262,6 +1288,14 @@ fn get_dictation_readiness(
             == translation::OutputMode::Original
             || state.translation.ready().is_ok(),
         has_model: !models.is_empty(),
+        shortcut_model_ready: storage::selection_usable(
+            &models,
+            settings.shortcut_dictation_selected_model_id.as_deref(),
+            model_metadata::ModelUseContext::ShortcutDictation,
+        ),
+        microphone: permissions::microphone_permission(),
+        first_run_completed: storage::first_run_completed(state.inner())
+            .map_err(|error| error.to_string())?,
         shortcut_registered: status.is_registered,
         auto_paste_enabled: auto_paste,
         accessibility_required: auto_paste && cfg!(target_os = "macos"),
@@ -1272,6 +1306,43 @@ fn get_dictation_readiness(
 #[tauri::command]
 fn open_accessibility_settings() {
     insertion::open_accessibility_settings();
+}
+
+#[tauri::command]
+fn get_dictation_stats(state: tauri::State<'_, AppState>) -> Result<storage::DictationStats, String> {
+    storage::dictation_stats(&state.db_path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn reset_dictation_stats(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<storage::DictationStats, String> {
+    storage::reset_dictation_stats(&state.db_path).map_err(|error| error.to_string())?;
+    let stats = storage::dictation_stats(&state.db_path).map_err(|error| error.to_string())?;
+    let _ = app.emit(dictation::DICTATION_STATS_EVENT, &stats);
+    Ok(stats)
+}
+
+#[tauri::command]
+fn request_microphone_access() -> permissions::MicrophonePermission {
+    permissions::request_microphone_permission()
+}
+
+#[tauri::command]
+fn open_microphone_settings() {
+    permissions::open_microphone_settings();
+}
+
+#[tauri::command]
+fn complete_first_run(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    storage::mark_first_run_completed(state.inner()).map_err(|error| error.to_string())
+}
+
+/// Free space on the volume holding the models folder, for download planning.
+#[tauri::command]
+fn get_models_free_space(state: tauri::State<'_, AppState>) -> Option<u64> {
+    fs2::available_space(&state.models_dir).ok()
 }
 
 #[tauri::command]
@@ -1388,6 +1459,7 @@ fn main() {
                         #[cfg(target_os = "linux")]
                         ipc::start_ipc_listener(app_state.dictation_controller.clone());
 
+                        app_state.dictation_controller.refresh_tray_recents();
                         if app_handle.manage(app_state) {
                             startup.advance(&app_handle, StartupPhase::Workspace);
                         } else {
@@ -1520,6 +1592,12 @@ fn main() {
             reset_quick_dictation,
             get_dictation_readiness,
             open_accessibility_settings,
+            request_microphone_access,
+            open_microphone_settings,
+            get_dictation_stats,
+            reset_dictation_stats,
+            complete_first_run,
+            get_models_free_space,
             suspend_shortcut_capture,
             resume_shortcut_capture,
             list_vocabulary_terms,

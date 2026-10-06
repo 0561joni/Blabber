@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tauri::menu::MenuBuilder;
+use tauri::image::Image;
+use tauri::menu::{Menu, MenuBuilder, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, Window};
 
@@ -27,6 +28,8 @@ pub enum OverlayPhase {
     Inserted,
     ClipboardOnly,
     Failed,
+    /// A neutral, short-lived message such as "No speech heard" or "Canceled".
+    Notice,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -184,8 +187,20 @@ pub struct DesktopShellController {
     app: AppHandle,
     overlay_payload: Arc<Mutex<DictationOverlayPayload>>,
     tray_close_explained: Arc<AtomicBool>,
-    _tray: Arc<TrayIcon>,
+    tray: Arc<TrayIcon>,
+    tray_activity: Arc<Mutex<TrayActivity>>,
+    /// (transcript id or "last", text) behind the tray's Recent dictations.
+    tray_recents: Arc<Mutex<Vec<(String, String)>>>,
     overlay_dispatch_pending: Arc<AtomicBool>,
+}
+
+/// What the menu-bar icon shows: a red dot while listening, an amber dot
+/// while transcribing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrayActivity {
+    Idle,
+    Listening,
+    Working,
 }
 
 impl DesktopShellController {
@@ -196,9 +211,102 @@ impl DesktopShellController {
             app: app.clone(),
             overlay_payload: Arc::new(Mutex::new(DictationOverlayPayload::default())),
             tray_close_explained: Arc::new(AtomicBool::new(false)),
-            _tray: tray,
+            tray,
+            tray_activity: Arc::new(Mutex::new(TrayActivity::Idle)),
+            tray_recents: Default::default(),
             overlay_dispatch_pending: Default::default(),
         })
+    }
+
+    /// Shows a short result or notice chip, then hides it unless something
+    /// newer replaced it in the meantime.
+    pub fn flash(&self, phase: OverlayPhase, text: &str, hold: std::time::Duration) -> Result<()> {
+        self.set_overlay_payload(DictationOverlayPayload {
+            phase,
+            status_text: Some(text.into()),
+            ..Default::default()
+        })?;
+        let revision = self.overlay_revision();
+        let shell = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(hold);
+            let _ = shell.set_overlay_if_revision(revision, DictationOverlayPayload::default());
+        });
+        Ok(())
+    }
+
+    /// Replaces the status line of a running transcription, e.g. to explain a
+    /// shortcut press that arrived while Blabber was still busy.
+    pub fn annotate_processing(&self, text: &str) -> Result<bool> {
+        let mut current = self
+            .overlay_payload
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Overlay unavailable"))?;
+        if current.phase != OverlayPhase::Processing {
+            return Ok(false);
+        }
+        current.status_text = Some(text.into());
+        current.revision = current.revision.wrapping_add(1);
+        let payload = current.clone();
+        drop(current);
+        self.dispatch_overlay(payload)?;
+        Ok(true)
+    }
+
+    /// Rebuilds the tray menu with the latest dictations (newest first).
+    pub fn set_tray_recents(&self, recents: Vec<(String, String)>) {
+        if let Ok(mut current) = self.tray_recents.lock() {
+            if *current == recents {
+                return;
+            }
+            *current = recents.clone();
+        }
+        match build_tray_menu(&self.app, &recents) {
+            Ok(menu) => {
+                let _ = self.tray.set_menu(Some(menu));
+            }
+            Err(error) => eprintln!("[tray] menu rebuild failed: {error:#}"),
+        }
+    }
+
+    pub fn tray_recent_text(&self, id: &str) -> Option<String> {
+        self.tray_recents
+            .lock()
+            .ok()?
+            .iter()
+            .find(|(recent_id, _)| recent_id == id)
+            .map(|(_, text)| text.clone())
+    }
+
+    fn sync_tray_activity(&self, phase: OverlayPhase) {
+        let next = match phase {
+            OverlayPhase::Listening => TrayActivity::Listening,
+            OverlayPhase::Processing => TrayActivity::Working,
+            _ => TrayActivity::Idle,
+        };
+        let Ok(mut current) = self.tray_activity.lock() else {
+            return;
+        };
+        if *current == next {
+            return;
+        }
+        *current = next;
+        drop(current);
+        let base = self.app.default_window_icon().cloned();
+        let icon = match (next, base) {
+            (TrayActivity::Idle, base) => base,
+            (TrayActivity::Listening, Some(base)) => Some(icon_with_dot(&base, [226, 54, 54])),
+            (TrayActivity::Working, Some(base)) => Some(icon_with_dot(&base, [232, 160, 32])),
+            (_, None) => None,
+        };
+        if let Some(icon) = icon {
+            let _ = self.tray.set_icon(Some(icon));
+        }
+        let _ = self.tray.set_tooltip(Some(match next {
+            TrayActivity::Idle => "Blabber",
+            TrayActivity::Listening => "Blabber · Listening · Esc cancels",
+            TrayActivity::Working => "Blabber · Transcribing · Esc cancels",
+        }));
     }
 
     pub fn overlay_payload(&self) -> DictationOverlayPayload {
@@ -467,11 +575,13 @@ impl DesktopShellController {
                 | OverlayPhase::Processing
                 | OverlayPhase::Inserted
                 | OverlayPhase::ClipboardOnly
-                | OverlayPhase::Failed => {
+                | OverlayPhase::Failed
+                | OverlayPhase::Notice => {
                     let _ = window.show();
                 }
             }
         }
+        self.sync_tray_activity(payload.phase);
 
         self.app.emit(OVERLAY_EVENT, payload)?;
         Ok(())
@@ -572,11 +682,74 @@ fn position_overlay_window_with_width(window: &tauri::WebviewWindow, width: f64)
     Ok(())
 }
 
-fn build_tray_icon(app: &AppHandle) -> Result<TrayIcon> {
-    let menu = MenuBuilder::new(app)
+fn build_tray_menu(app: &AppHandle, recents: &[(String, String)]) -> Result<Menu<tauri::Wry>> {
+    let mut recent_menu = SubmenuBuilder::new(app, "Recent dictations");
+    if recents.is_empty() {
+        recent_menu = recent_menu.item(
+            &tauri::menu::MenuItemBuilder::with_id("recent-none", "Nothing yet")
+                .enabled(false)
+                .build(app)?,
+        );
+    }
+    for (id, text) in recents {
+        recent_menu = recent_menu.text(format!("recent:{id}"), menu_preview(text));
+    }
+    MenuBuilder::new(app)
+        .text("paste-last", "Paste last dictation")
+        .text("copy-last", "Copy last dictation")
+        .item(&recent_menu.build()?)
+        .separator()
         .text("show", "Open Blabber")
         .text("quit", "Quit Blabber")
-        .build()?;
+        .build()
+        .map_err(Into::into)
+}
+
+/// One line of a dictation for a menu: about 40 characters, whitespace folded.
+fn menu_preview(text: &str) -> String {
+    let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut preview: String = folded.chars().take(40).collect();
+    if folded.chars().count() > 40 {
+        preview = preview.trim_end().to_string() + "…";
+    }
+    preview
+}
+
+/// The app icon with a status dot in its lower-right corner.
+fn icon_with_dot(base: &Image<'_>, color: [u8; 3]) -> Image<'static> {
+    let (width, height) = (base.width(), base.height());
+    let mut rgba = base.rgba().to_vec();
+    let size = width.min(height) as f32;
+    let radius = size * 0.2;
+    let ring = (size * 0.05).max(1.0);
+    let (cx, cy) = (width as f32 - radius - ring, height as f32 - radius - ring);
+    for y in 0..height {
+        for x in 0..width {
+            let distance = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
+            let pixel = ((y * width + x) * 4) as usize;
+            if distance <= radius {
+                rgba[pixel..pixel + 4].copy_from_slice(&[color[0], color[1], color[2], 255]);
+            } else if distance <= radius + ring {
+                rgba[pixel..pixel + 4].copy_from_slice(&[255, 255, 255, 255]);
+            }
+        }
+    }
+    Image::new_owned(rgba, width, height)
+}
+
+fn with_dictation_controller(
+    app: &AppHandle,
+    action: impl FnOnce(crate::dictation::QuickDictationController) + Send + 'static,
+) {
+    if let Some(state) = app.try_state::<crate::app_state::AppState>() {
+        let controller = state.dictation_controller.clone();
+        // Pasting waits for focus and keys; never block the menu's main thread.
+        std::thread::spawn(move || action(controller));
+    }
+}
+
+fn build_tray_icon(app: &AppHandle) -> Result<TrayIcon> {
+    let menu = build_tray_menu(app, &[])?;
 
     let default_icon = app.default_window_icon().cloned();
     let mut builder = TrayIconBuilder::with_id("blabber-tray")
@@ -588,7 +761,26 @@ fn build_tray_icon(app: &AppHandle) -> Result<TrayIcon> {
                 let _ = show_main_window(app);
             }
             "quit" => crate::shutdown::request_exit(app, crate::shutdown::ExitAction::Quit),
-            _ => {}
+            "paste-last" => with_dictation_controller(app, |controller| {
+                if let Err(error) = controller.paste_last() {
+                    eprintln!("[tray] paste last failed: {error:#}");
+                }
+            }),
+            "copy-last" => with_dictation_controller(app, |controller| {
+                if let Err(error) = controller.copy_last() {
+                    eprintln!("[tray] copy last failed: {error:#}");
+                }
+            }),
+            id => {
+                if let Some(recent) = id.strip_prefix("recent:") {
+                    let recent = recent.to_string();
+                    with_dictation_controller(app, move |controller| {
+                        if let Err(error) = controller.copy_recent(&recent) {
+                            eprintln!("[tray] copy recent failed: {error:#}");
+                        }
+                    });
+                }
+            }
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
@@ -696,6 +888,25 @@ mod tests {
         let json = serde_json::to_value(&state).unwrap();
         assert_eq!(json["tentativeText"], "");
         assert!(json.get("streamTextFinal").is_none());
+    }
+
+    #[test]
+    fn menu_preview_folds_whitespace_and_shortens() {
+        assert_eq!(menu_preview("  Hello\n world "), "Hello world");
+        let long = "word ".repeat(20);
+        let preview = menu_preview(&long);
+        assert!(preview.ends_with('…'));
+        assert!(preview.chars().count() <= 41);
+    }
+
+    #[test]
+    fn status_dot_keeps_size_and_paints_the_corner() {
+        let base = Image::new_owned(vec![0; 32 * 32 * 4], 32, 32);
+        let dotted = icon_with_dot(&base, [226, 54, 54]);
+        assert_eq!((dotted.width(), dotted.height()), (32, 32));
+        let corner = ((24 * 32 + 24) * 4) as usize;
+        assert_eq!(&dotted.rgba()[corner..corner + 4], &[226, 54, 54, 255]);
+        assert_eq!(&dotted.rgba()[0..4], &[0, 0, 0, 0]);
     }
 
     #[test]

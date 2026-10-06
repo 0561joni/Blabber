@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -8,6 +9,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import type { VocabularyTerm } from "../types/domain";
 import { VocabularyScreen } from "./VocabularyScreen";
+import { applyAppearance } from "../lib/appearance";
 
 const customTerm: VocabularyTerm = {
   id: "term-1",
@@ -213,7 +215,10 @@ describe("VocabularyScreen", () => {
         onDeleteVocabularyTerm={onDeleteVocabularyTerm}
       />,
     );
+    expect(screen.getByText("Teach me your weird words")).toBeTruthy();
+    act(() => applyAppearance({ appearance: "system", motionPreference: "system", seriousMode: true }));
     expect(screen.getByText("No custom terms yet")).toBeTruthy();
+    act(() => applyAppearance({ appearance: "system", motionPreference: "system", seriousMode: false }));
 
     rerender(
       <VocabularyScreen

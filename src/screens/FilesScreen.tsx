@@ -10,7 +10,7 @@ import { AppIcon } from "../components/IconButton";
 import { TranscriptReader } from "../components/TranscriptReader";
 import { copyTextToClipboard } from "../lib/api";
 import { copyReview } from "../lib/reviewApi";
-import { formatBytes, formatDuration, formatListDuration } from "../lib/formatting";
+import { readableError, formatBytes, formatDuration, formatListDuration } from "../lib/formatting";
 import type { FileQueueItem } from "../types/domain";
 
 export const isFileWorking = (stage: FileQueueItem["stage"]) =>
@@ -82,7 +82,7 @@ export function FilesScreen(props: Props) {
       <PageHeader title="Transcribe files">
         {props.speakerMode ? (
           props.onOpenSpeakerSettings ? (
-            <Button variant="ghost" onClick={props.onOpenSpeakerSettings} title="Change in Settings → Models">
+            <Button variant="ghost" onClick={props.onOpenSpeakerSettings} title="Change in Settings → Engines">
               <span role="status">{props.speakerMode}</span>
             </Button>
           ) : (
@@ -189,7 +189,7 @@ export function FilesScreen(props: Props) {
                       </span>
                       {item.stage === "failed" && item.errorMessage ? (
                         <p className="error-text queue-item-note" role="alert">
-                          {item.errorMessage}
+                          {readableError(item.errorMessage)}
                         </p>
                       ) : null}
                       {item.stage === "canceled" ? (

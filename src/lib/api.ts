@@ -3,6 +3,8 @@ import type {
   AppSettings,
   CreateVocabularyTermInput,
   DictationReadiness,
+  DictationStats,
+  MicrophonePermission,
   DownloadableModel,
   FileTranscriptionRequest,
   FileTranscriptionStatusEvent,
@@ -37,7 +39,7 @@ const mockSettings: AppSettings = {
   defaultMode: "quick_dictate",
   shortcut: "CmdOrCtrl+Shift+Space",
   translationEnabled: false,
-  translationCycleShortcut: "CmdOrCtrl+Shift+Right",
+  translationCycleShortcut: "Ctrl+Alt+L",
   translationModelId: "translategemma-12b-q6-k",
   shortcutMode: "push_to_talk",
   languageMode: "auto",
@@ -61,7 +63,21 @@ const mockSettings: AppSettings = {
   r2t2IdleCache: "one_minute",
   livePairChunkMs: 560,
   livePairKeepLoaded: true,
+  pasteLastShortcut: "Ctrl+Alt+V",
+  seriousMode: false,
 };
+
+// Browser preview: add ?first-run to the URL to simulate a fresh install.
+const mockSetup = (() => {
+  const freshInstall =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).has("first-run");
+  return {
+    freshInstall,
+    firstRunCompleted: !freshInstall,
+    microphone: (freshInstall ? "not_determined" : "granted") as MicrophonePermission,
+  };
+})();
 
 const mockTranscripts: TranscriptSummary[] = [];
 const mockModels: InstalledModel[] = [
@@ -107,6 +123,29 @@ const mockModels: InstalledModel[] = [
   },
 ];
 const mockDownloadableModels: DownloadableModel[] = [
+  {
+    id: "live-pair",
+    engine: "fluidaudio-live-pair",
+    modelName: "Live pair · Nemotron + Parakeet",
+    description: "Experimental shortcut dictation with live text while you speak.",
+    sizeBytes: 1_381_000_000,
+    profile: "fast",
+    availability: "available",
+    availabilityReason: null,
+    installed: false,
+    requirements: "Apple Silicon · macOS 14+ · about 1.4 GB of memory while loaded",
+    artifactCount: 6,
+    capability: "asr",
+    capabilities: {
+      supportedContexts: ["shortcut_dictation"],
+      nativeDiarization: false,
+      timestampedSegments: false,
+      contextSupport: true,
+      languageControl: "automatic_and_fixed",
+      maximumAudioDurationMs: 300_000,
+      streamingTranscription: true,
+    },
+  },
   { id: "translategemma-12b-q6-k", engine: "llama.cpp-translation", modelName: "TranslateGemma 12B Q6_K",
     description: "Local French and Argentinian Spanish translation", sizeBytes: 9660827392, profile: "accurate",
     availability: "unsupported_platform", availabilityReason: "Use the Apple Silicon desktop app for local translation.",
@@ -257,6 +296,16 @@ const mockDownloadableModels: DownloadableModel[] = [
     capability: "diarization",
   },
 ];
+if (mockSetup.freshInstall) {
+  mockModels.length = 0;
+  mockDownloadableModels.forEach((model) => {
+    model.installed = false;
+  });
+  mockSettings.shortcutDictationSelectedModelId = null;
+  mockSettings.quickDictateSelectedModelId = null;
+  mockSettings.fileTranscribeSelectedModelId = null;
+}
+
 const mockModelDownloadListeners = new Set<
   (status: ModelDownloadStatus) => void
 >();
@@ -1100,7 +1149,7 @@ export async function startFileTranscription(
           processedMs: null,
           totalMs: null,
           etaSeconds: null,
-          statusText: "Preparing audio and estimating workload...",
+          statusText: "Preparing audio and estimating workload…",
           result: null,
           errorMessage: null,
           startedAtMs: Date.now(),
@@ -1132,7 +1181,7 @@ export async function startFileTranscription(
           processedMs: 8400,
           totalMs: 8400,
           etaSeconds: 0,
-          statusText: "Saving transcript to local history...",
+          statusText: "Saving to the Library…",
           result: null,
           errorMessage: null,
           startedAtMs: Date.now(),
@@ -1349,15 +1398,93 @@ export async function resetQuickDictation(): Promise<QuickDictationStatusRespons
  * Accessibility). Drives the Home readiness checklist. */
 export async function getDictationReadiness(): Promise<DictationReadiness> {
   if (!isTauriRuntime()) {
+    const shortcutModel = mockModels.find(
+      (model) => model.id === mockSettings.shortcutDictationSelectedModelId,
+    );
     return {
-      hasModel: true,
+      hasModel: mockModels.length > 0,
+      shortcutModelReady: Boolean(
+        shortcutModel &&
+          (!shortcutModel.capabilities ||
+            shortcutModel.capabilities.supportedContexts.includes("shortcut_dictation")),
+      ),
+      microphone: mockSetup.microphone,
+      firstRunCompleted: mockSetup.firstRunCompleted,
       shortcutRegistered: true,
       autoPasteEnabled: true,
-      accessibilityRequired: false,
-      accessibilityGranted: true,
+      accessibilityRequired: mockSetup.freshInstall,
+      accessibilityGranted: !mockSetup.freshInstall,
     };
   }
   return invoke<DictationReadiness>("get_dictation_readiness");
+}
+
+let mockStats: DictationStats = {
+  todayWords: 312,
+  todayDictations: 9,
+  totalWords: 18_420,
+  totalDictations: 611,
+  totalDurationMs: 7_800_000,
+  streakDays: 6,
+};
+const mockStatsListeners = new Set<(stats: DictationStats) => void>();
+
+export async function getDictationStats(): Promise<DictationStats> {
+  if (!isTauriRuntime()) return mockSetup.freshInstall ? { ...mockStats, todayWords: 0, todayDictations: 0, totalWords: 0, totalDictations: 0, totalDurationMs: 0, streakDays: 0 } : mockStats;
+  return invoke<DictationStats>("get_dictation_stats");
+}
+
+export async function resetDictationStats(): Promise<DictationStats> {
+  if (!isTauriRuntime()) {
+    mockStats = { todayWords: 0, todayDictations: 0, totalWords: 0, totalDictations: 0, totalDurationMs: 0, streakDays: 0 };
+    mockStatsListeners.forEach((listener) => listener(mockStats));
+    return mockStats;
+  }
+  return invoke<DictationStats>("reset_dictation_stats");
+}
+
+/** Fires after every finished dictation with the new Blabbermeter totals. */
+export async function listenDictationStats(
+  handler: (stats: DictationStats) => void,
+): Promise<() => void> {
+  if (!isTauriRuntime()) {
+    mockStatsListeners.add(handler);
+    return () => {
+      mockStatsListeners.delete(handler);
+    };
+  }
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<DictationStats>("dictation-stats", (event) => handler(event.payload));
+}
+
+/** Shows the system microphone prompt if the user has not decided yet. */
+export async function requestMicrophoneAccess(): Promise<MicrophonePermission> {
+  if (!isTauriRuntime()) {
+    mockSetup.microphone = "granted";
+    return mockSetup.microphone;
+  }
+  return invoke<MicrophonePermission>("request_microphone_access");
+}
+
+/** Opens the OS pane where a denied microphone permission can be changed. */
+export async function openMicrophoneSettings(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return invoke<void>("open_microphone_settings");
+}
+
+/** Records that the first-run setup was finished or skipped. */
+export async function completeFirstRun(): Promise<void> {
+  if (!isTauriRuntime()) {
+    mockSetup.firstRunCompleted = true;
+    return;
+  }
+  return invoke<void>("complete_first_run");
+}
+
+/** Free bytes on the volume that holds the models folder, if known. */
+export async function getModelsFreeSpace(): Promise<number | null> {
+  if (!isTauriRuntime()) return 48_000_000_000;
+  return invoke<number | null>("get_models_free_space");
 }
 
 /** Open the OS pane where the user grants Accessibility access (macOS). */

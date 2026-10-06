@@ -42,78 +42,86 @@ interface CatalogEntry {
   technicalNames: string[];
 }
 
+// Ratings are relative, spread over 1–5 in half steps (0 means "not rated"),
+// from Blabber's benchmark of 55 real recordings (German, English, French,
+// mixed; one speaker, M3 Pro; docs/asr-benchmark.md):
+// - accuracy: linear in word error rate, best model 5, worst 1;
+// - speed: linear in log(typical wait for a ~10 s dictation), fastest 5,
+//   slowest 1. Dictation models use the measured wait after release;
+//   file-only models use real-time factor × 10 s.
+// Re-run the benchmark and recompute these when models change.
 const MODEL_CATALOG: Record<string, CatalogEntry> = {
   "live-pair": {
-    friendlyName: "Live pair · Experimental", speed: 5, accuracy: 4,
-    description: "Shortcut dictation with text appearing while you speak. On release, a second model rereads the whole recording and its text is pasted, usually within a second. Both models stay loaded on the Neural Engine.",
+    friendlyName: "Live dictation · Experimental", speed: 5, accuracy: 4,
+    description: "Words appear while you speak. When you let go, a second pass rereads the whole recording and the text is pasted almost instantly. The most accurate dictation engine in Blabber's tests for German and for mixing German and English. Works with the dictation shortcut only.",
     technicalDetails: "Nemotron 3.5 ASR Streaming 0.6B (live) + Parakeet TDT 0.6B v3 (final) · CoreML · about 1.4 GB memory while loaded · five-minute limit",
-    recommendedFor: [], technicalNames: ["Live pair · Nemotron + Parakeet"],
+    recommendedFor: ["shortcut_dictation"], technicalNames: ["Live pair · Nemotron + Parakeet"],
   },
   "confucius4-r2t2-q8-0": {
-    friendlyName: "R2T2 · Experimental", speed: 4.5, accuracy: 4,
-    description: "Local live preview for German and English shortcut dictation. Text is pasted once after you stop. Acceptance testing is still in progress.",
+    friendlyName: "R2T2 · Experimental", speed: 4, accuracy: 3.5,
+    description: "Live preview for shortcut dictation, pasted about half a second after you stop. Accurate for German or English alone, but it writes each dictation in one language and translates when you switch languages. No longer offered for download.",
     technicalDetails: "Confucius4-R2T2 · Q8_0 GGUF · Metal · five-minute limit · separate NetEase model license",
     recommendedFor: [], technicalNames: ["R2T2 Q8 · Experimental"],
   },
   "qwen3-asr-1.7b-bf16": {
-    friendlyName: "Qwen ASR",
+    friendlyName: "Qwen",
     speed: 2.5,
-    accuracy: 4.5,
-    description: "Top accuracy in German, English and Spanish, and handles switching between them well. Runs on the CPU, so it is slower than Whisper.",
+    accuracy: 4,
+    description: "Top accuracy in German, English and French, and handles switching between languages well. A short dictation takes about 2.5 seconds after you stop.",
     technicalDetails: "Qwen3-ASR 1.7B · BF16 · CPU inference",
     recommendedFor: ["quick_dictate", "file_transcription"],
     technicalNames: ["Qwen3-ASR-1.7B", "qwen3-asr-1.7b-bf16"],
   },
   "moss-transcribe-diarize-0.9b-f16": {
-    friendlyName: "MOSS Transcribe + Diarize",
-    speed: 2,
+    friendlyName: "MOSS with speakers",
+    speed: 1,
     accuracy: 4,
-    description: "Long recordings with speaker labels, timestamps, sound events and vocabulary hotwords. Runs on the CPU at around twice real time, too slow for dictation.",
+    description: "Long recordings with speaker labels, timestamps and sound events, and it uses your vocabulary. Accurate, but takes about as long as the recording itself, so it suits files rather than dictation.",
     technicalDetails: "MOSS Transcribe-Diarize 0.9B · F16 GGUF · isolated CPU worker",
     recommendedFor: [],
     technicalNames: ["MOSS Transcribe + Diarize 0.9B F16"],
   },
   "vibevoice-asr-8bit-mlx": {
-    friendlyName: "VibeVoice ASR",
-    speed: 1,
+    friendlyName: "VibeVoice",
+    speed: 1.5,
     accuracy: 5,
-    description: "The most accurate model for mixed-language audio, with speaker labels, timestamps and vocabulary context for up to 60 minutes. Slow; best for files.",
+    description: "The most accurate engine in Blabber's tests, also for mixed-language audio, with speaker labels and your vocabulary, for recordings up to 60 minutes. Transcribes about twice as fast as real time but needs about 14 GB of memory, so it is for files only.",
     technicalDetails: "VibeVoice-ASR · 8-bit MLX · Apple Silicon",
     recommendedFor: ["file_transcription"],
     technicalNames: ["VibeVoice-ASR 8-bit MLX"],
   },
   "ggml-large-v3-turbo-q5_0-bin": {
     friendlyName: "Whisper Turbo Compact",
-    speed: 5,
-    accuracy: 3,
-    description: "The smallest, fastest Turbo. Slightly less accurate than Whisper Turbo and also weak when you switch languages.",
+    speed: 2.5,
+    accuracy: 1.5,
+    description: "The smallest download and a dependable fallback for almost any language. Less accurate than Qwen or Live dictation, and weak when you switch languages.",
     technicalDetails: "Whisper large-v3-turbo · Q5_0 quantized · whisper.cpp",
     recommendedFor: [],
     technicalNames: ["ggml-large-v3-turbo-q5_0.bin"],
   },
   "ggml-large-v3-turbo-bin": {
     friendlyName: "Whisper Turbo",
-    speed: 4.5,
-    accuracy: 3.5,
-    description: "Very fast and accurate for single-language dictation. Tends to drop or translate words when you switch languages mid-recording.",
+    speed: 2.5,
+    accuracy: 2,
+    description: "Solid for single-language dictation. Tends to drop or translate words when you switch languages mid-recording.",
     technicalDetails: "Whisper large-v3-turbo · F16 · whisper.cpp",
     recommendedFor: [],
     technicalNames: ["ggml-large-v3-turbo.bin"],
   },
   "ggml-medium-bin": {
     friendlyName: "Whisper Medium",
-    speed: 4,
-    accuracy: 3.5,
-    description: "The best Whisper model when you mix languages, and still fast enough for everyday dictation.",
+    speed: 3,
+    accuracy: 1,
+    description: "Good on short single-language dictation, but less accurate on long recordings and weak when you switch languages.",
     technicalDetails: "Whisper medium · F16 · whisper.cpp",
-    recommendedFor: ["shortcut_dictation"],
+    recommendedFor: [],
     technicalNames: ["ggml-medium.bin"],
   },
   "ggml-small-bin": {
     friendlyName: "Whisper Small",
-    speed: 5,
-    accuracy: 2,
-    description: "Tiny and very fast, but noticeably less accurate, especially in German.",
+    speed: 4,
+    accuracy: 1.5,
+    description: "Small and usually fast, but noticeably less accurate, and occasionally slow on short clips.",
     technicalDetails: "Whisper small · F16 · whisper.cpp",
     recommendedFor: [],
     technicalNames: ["ggml-small.bin"],
@@ -222,12 +230,29 @@ export function formatModelSize(sizeBytes: number) {
 export function recommendationLabel(context: ModelPickerContext) {
   switch (context) {
     case "shortcut_dictation":
-      return "Shortcut Dictation";
+      return "the dictation shortcut";
     case "quick_dictate":
-      return "Quick Dictate";
+      return "the record button";
     case "file_transcription":
-      return "File Transcription";
+      return "files";
   }
+}
+
+const WORKFLOW_LABELS: Record<ModelPickerContext, string> = {
+  shortcut_dictation: "Shortcut",
+  quick_dictate: "Record button",
+  file_transcription: "Files",
+};
+
+/** "Shortcut · Record button · Files": where an engine can be used. Engines
+ * without capability data run everywhere. */
+export function formatWorkflows(capabilities: ModelCapabilities | undefined) {
+  const contexts: ModelPickerContext[] = capabilities?.supportedContexts ?? [
+    "shortcut_dictation",
+    "quick_dictate",
+    "file_transcription",
+  ];
+  return contexts.map((context) => WORKFLOW_LABELS[context]).join(" · ");
 }
 
 function ratingsForProfile(profile: ModelProfile) {

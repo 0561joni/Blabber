@@ -1,3 +1,4 @@
+import { applyAppearance } from "./lib/appearance";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StartupStatus } from "./types/domain";
@@ -51,9 +52,13 @@ describe("SplashApp", () => {
     render(<SplashApp />);
 
     expect(await screen.findByText("Opening your library")).toBeTruthy();
+    // Playful by default; the headline still says what is happening.
+    expect(screen.getByText("Dusting off your words")).toBeTruthy();
+    act(() => applyAppearance({ appearance: "system", motionPreference: "system", seriousMode: true }));
     expect(
       screen.getByText("Loading transcripts, settings, and vocabulary"),
     ).toBeTruthy();
+    act(() => applyAppearance({ appearance: "system", motionPreference: "system", seriousMode: false }));
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
       "4",
     );

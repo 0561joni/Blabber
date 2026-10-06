@@ -1,5 +1,7 @@
 // Both models stay loaded across sessions. A session only resets streaming
-// state, so a shortcut press never pays a model load.
+// state, so a shortcut press never pays a model load. Nemotron loads first;
+// Parakeet loads in the background, so live text can start while the
+// final-pass model is still compiling (about 16 s on a cold CoreML cache).
 import CoreML
 import FluidAudio
 import Foundation
@@ -45,11 +47,15 @@ struct Session {
 final class Engine {
     private var nemotron: StreamingNemotronMultilingualAsrManager?
     private var parakeet: AsrManager?
+    /// The background Parakeet load started by the latest `load`.
+    private var parakeetLoad: Task<AsrManager, Error>?
     private var chunkSamples = 0
     private var promptLanguages: Set<String> = []
     private var session: Session?
 
-    var loaded: Bool { nemotron != nil && parakeet != nil }
+    /// Ready to stream. The final-pass model may still be loading.
+    var loaded: Bool { nemotron != nil }
+    var finalLoaded: Bool { parakeet != nil }
 
     // MARK: Control requests
 
@@ -72,16 +78,11 @@ final class Engine {
             throw WorkerError.session("FLUID_MODEL_MISSING", "missing \(name)")
         }
         do {
-            let models = try AsrModels.loadLocal(
-                from: parakeetURL, version: .v3, encoderPrecision: .int8V2)
-            let parakeet = AsrManager(config: .default)
-            try await parakeet.loadModels(models)
             let nemotron = StreamingNemotronMultilingualAsrManager()
             try await nemotron.loadModels(from: nemotronURL)
             let config = await nemotron.config
             self.chunkSamples = config.chunkSamples
             self.promptLanguages = Set(config.promptDictionary.keys)
-            self.parakeet = parakeet
             self.nemotron = nemotron
         } catch let error as WorkerError {
             throw error
@@ -89,14 +90,55 @@ final class Engine {
             await unload()
             throw WorkerError.session("FLUID_LOAD_FAILED", "\(error)")
         }
-        return ["loadMs": milliseconds(since: began), "chunkMs": chunkSamples * 1000 / sampleRate]
+        startParakeetLoad(from: parakeetURL)
+        return [
+            "loadMs": milliseconds(since: began), "chunkMs": chunkSamples * 1000 / sampleRate,
+            "finalLoaded": finalLoaded,
+        ]
     }
 
-    /// One second of silence through both models, so the first dictation pays
-    /// no first-prediction cost.
+    /// Loads and warms Parakeet off the main actor (`loadLocal` compiles
+    /// synchronously), while sessions already stream with Nemotron.
+    private func startParakeetLoad(from url: URL) {
+        let task = Task.detached(priority: .userInitiated) { () throws -> AsrManager in
+            let models = try AsrModels.loadLocal(from: url, version: .v3, encoderPrecision: .int8V2)
+            let manager = AsrManager(config: .default)
+            try await manager.loadModels(models)
+            var state = TdtDecoderState.make()
+            _ = try await manager.transcribe(
+                [Float](repeating: 0, count: sampleRate), decoderState: &state, language: nil)
+            return manager
+        }
+        parakeetLoad = task
+        Task { @MainActor in
+            do {
+                let manager = try await task.value
+                if parakeetLoad == task { parakeet = manager } else { await manager.cleanup() }
+            } catch {
+                if parakeetLoad == task {
+                    FileHandle.standardError.write(Data("FLUID_FINAL_LOAD_FAILED\n".utf8))
+                }
+            }
+        }
+    }
+
+    /// The final-pass model, waiting for its background load when a dictation
+    /// ends before it is ready.
+    private func finalModel() async throws -> AsrManager {
+        if let parakeet { return parakeet }
+        guard let task = parakeetLoad else {
+            throw WorkerError.session("FLUID_NOT_LOADED", "final model is not loading")
+        }
+        let manager = try await task.value
+        if parakeetLoad == task { parakeet = manager }
+        return manager
+    }
+
+    /// One second of silence through Nemotron, so the first dictation pays no
+    /// first-prediction cost. Parakeet warms itself after its background load.
     func warmup() async throws -> [String: Any] {
         session = nil
-        guard let nemotron, let parakeet else {
+        guard let nemotron else {
             throw WorkerError.session("FLUID_NOT_LOADED", "warmup before load")
         }
         let began = DispatchTime.now().uptimeNanoseconds
@@ -107,21 +149,22 @@ final class Engine {
             _ = try await nemotron.process(samples: silence)
             _ = try await nemotron.finish()
             await nemotron.reset()
-            var state = TdtDecoderState.make()
-            _ = try await parakeet.transcribe(silence, decoderState: &state, language: nil)
         } catch {
             throw WorkerError.session("FLUID_LOAD_FAILED", "warmup: \(error)")
         }
-        return ["warmupMs": milliseconds(since: began)]
+        return ["warmupMs": milliseconds(since: began), "finalLoaded": finalLoaded]
     }
 
     func ping() -> [String: Any] {
         session = nil
-        return ["loaded": loaded]
+        return ["loaded": loaded, "finalLoaded": finalLoaded]
     }
 
     func unload() async {
         session = nil
+        // A load still in flight is abandoned; its result is cleaned up on arrival.
+        parakeetLoad?.cancel()
+        parakeetLoad = nil
         if let nemotron { await nemotron.cleanup() }
         if let parakeet { await parakeet.cleanup() }
         nemotron = nil
@@ -206,7 +249,7 @@ final class Engine {
         guard try request.integer("expectedSamples") == active.samples.count else {
             throw WorkerError.session("FLUID_SAMPLES_MISMATCH", "finish sample count differs")
         }
-        guard let nemotron, let parakeet else {
+        guard let nemotron else {
             throw WorkerError.session("FLUID_NOT_LOADED", "models were unloaded")
         }
         let audioMs = active.samples.count * 1000 / sampleRate
@@ -230,6 +273,7 @@ final class Engine {
         let finalBegan = DispatchTime.now().uptimeNanoseconds
         var finalText = ""
         var finalError = ""
+        var finalWaitMs = 0.0
         if !active.samples.isEmpty {
             // Parakeet needs at least 0.3 s; pad short presses to one second.
             var audio = active.samples
@@ -238,6 +282,9 @@ final class Engine {
             }
             let hint = Language(rawValue: String(language.prefix(2)))
             do {
+                let waitBegan = DispatchTime.now().uptimeNanoseconds
+                let parakeet = try await finalModel()
+                finalWaitMs = milliseconds(since: waitBegan)
                 var state = TdtDecoderState.make()
                 finalText = try await parakeet.transcribe(audio, decoderState: &state, language: hint).text
                     .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -251,6 +298,7 @@ final class Engine {
             "streamError": streamError, "finalError": finalError, "ackSample": active.samples.count,
             "timings": [
                 "audioMs": audioMs, "flushMs": flushMs, "finalMs": milliseconds(since: finalBegan),
+                "finalWaitMs": finalWaitMs,
             ],
         ]
     }

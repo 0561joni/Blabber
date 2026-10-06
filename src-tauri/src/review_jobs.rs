@@ -273,7 +273,7 @@ impl ReviewJobController {
             bail!("JOB_ALREADY_RUNNING: Initial speaker identification is still running for this transcript.");
         }
         let package_path = crate::model_downloads::installed_diarization_package_path(&self.models_dir)
-            .ok_or_else(|| anyhow!("MODEL_UNAVAILABLE: Download the speaker identification model in Settings → Models."))?;
+            .ok_or_else(|| anyhow!("MODEL_UNAVAILABLE: Download the speaker identification model in Settings → Engines."))?;
         let mut jobs = self
             .jobs
             .lock()

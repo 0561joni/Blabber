@@ -162,13 +162,13 @@ pub(crate) fn config_for(
     settings: &crate::settings::AppSettings,
 ) -> Result<Config> {
     if !platform_supported() {
-        bail!("LIVE_PAIR_SETUP: The live pair requires Apple Silicon and macOS 14 or newer.");
+        bail!("LIVE_PAIR_SETUP: Live dictation requires Apple Silicon and macOS 14 or newer.");
     }
     let helper = helper_path(app).ok_or_else(|| {
         anyhow!("LIVE_PAIR_SETUP: The signed live-pair helper is missing. Reinstall Blabber.")
     })?;
     if !crate::model_downloads::live_pair_installed(models_dir) {
-        bail!("LIVE_PAIR_SETUP: Download or repair the live pair in Settings → Models.");
+        bail!("LIVE_PAIR_SETUP: Download or repair Live dictation in Settings → Engines.");
     }
     if !crate::settings::LIVE_PAIR_CHUNKS_MS.contains(&settings.live_pair_chunk_ms) {
         bail!("LIVE_PAIR_SETUP: Choose a live preview chunk of 560 or 1120 ms.");
@@ -198,7 +198,7 @@ pub(crate) fn source_language(settings: &crate::settings::AppSettings) -> Result
         .unwrap_or_default();
     match code.as_str() {
         "de" | "en" | "es" | "fr" | "it" | "pt" => Ok(code),
-        _ => bail!("LIVE_PAIR_SETUP: Choose automatic, German, English, Spanish, French, Italian or Portuguese as the source language for the live pair."),
+        _ => bail!("LIVE_PAIR_SETUP: Live dictation doesn't support this language. Choose Automatic or one of its languages under Settings → Dictation → Language you speak."),
     }
 }
 
@@ -254,6 +254,8 @@ struct Timings {
     audio_ms: f64,
     flush_ms: f64,
     final_ms: f64,
+    /// Time the final pass waited for Parakeet's background load.
+    final_wait_ms: f64,
 }
 
 fn wire_code(code: &str) -> &str {
@@ -1218,10 +1220,11 @@ fn stream(
         .map(|stop| stop.elapsed().as_millis())
         .unwrap_or(0);
     eprintln!(
-        "[live-pair] complete audio_ms={:.0} release_to_text_ms={finalization} flush_ms={:.0} final_ms={:.0} load_ms={load_ms} peak_lag_ms={} stream_error={} final_error={}",
+        "[live-pair] complete audio_ms={:.0} release_to_text_ms={finalization} flush_ms={:.0} final_ms={:.0} final_wait_ms={:.0} load_ms={load_ms} peak_lag_ms={} stream_error={} final_error={}",
         done.timings.audio_ms,
         done.timings.flush_ms,
         done.timings.final_ms,
+        done.timings.final_wait_ms,
         state.maximum_lag * 1000 / 16000,
         if done.stream_error.is_empty() { "-" } else { wire_code(&done.stream_error) },
         if done.final_error.is_empty() { "-" } else { wire_code(&done.final_error) },
@@ -1321,7 +1324,7 @@ impl HeadlessLivePair {
         paced: bool,
     ) -> Result<crate::r2t2::HeadlessRun> {
         if samples.len() > crate::r2t2::MAX_SAMPLES {
-            bail!("LIVE_PAIR_LIMIT: The live pair accepts at most 300 seconds of audio.");
+            bail!("LIVE_PAIR_LIMIT: Live dictation accepts at most five minutes of audio.");
         }
         self.sessions += 1;
         let id = format!("bench-{}", self.sessions);

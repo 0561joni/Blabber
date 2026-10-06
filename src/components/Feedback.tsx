@@ -1,3 +1,4 @@
+import { describeError } from "../lib/formatting";
 import {
   useEffect,
   useRef,
@@ -74,7 +75,7 @@ export function ActionButton({
             setState(success ? "success" : "idle");
           } catch (reason) {
             setError(
-              reason instanceof Error ? reason.message : "Please try again.",
+              describeError(reason, "Please try again."),
             );
             setState("error");
           } finally {
@@ -100,8 +101,6 @@ export function PageHeader({
   description,
   children,
 }: {
-  /** @deprecated Kept so existing callers compile; no longer rendered. */
-  eyebrow?: string;
   title: string;
   description?: string;
   children?: ReactNode;

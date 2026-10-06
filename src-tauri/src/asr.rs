@@ -270,7 +270,7 @@ impl LocalTranscriptionEngine {
             return Err(anyhow!("MODEL_CONTEXT_UNSUPPORTED: R2T2 requires live shortcut dictation. It cannot run as a batch transcription model."));
         }
         if request.selected_model_id.as_deref() == Some(crate::live_pair::MODEL_ID) {
-            return Err(anyhow!("MODEL_CONTEXT_UNSUPPORTED: The live pair requires live shortcut dictation. It cannot run as a batch transcription model."));
+            return Err(anyhow!("MODEL_CONTEXT_UNSUPPORTED: Live dictation only works with the dictation shortcut. Choose another engine for the record button or files."));
         }
         let model = self.resolve_model(request.selected_model_id.as_deref(), request.profile)?;
         if model.capabilities.streaming_transcription {

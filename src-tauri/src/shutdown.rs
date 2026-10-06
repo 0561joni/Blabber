@@ -11,6 +11,9 @@ use tauri_plugin_dialog::{
 
 use crate::app_state::AppState;
 
+/// Confirms quitting while work is running; it stops that work.
+const QUIT_BUTTON: &str = "Stop and quit";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
     Running,
@@ -56,7 +59,7 @@ impl Lifecycle {
     fn work(self: &Arc<Self>, transcription: bool) -> Result<WorkGuard> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if matches!(state.phase, Phase::Stopping | Phase::Ready) {
-            return Err(anyhow!("APP_SHUTTING_DOWN: Blabber wird beendet."));
+            return Err(anyhow!("APP_SHUTTING_DOWN: Blabber is quitting."));
         }
         state.active += 1;
         state.transcriptions += usize::from(transcription);
@@ -149,7 +152,7 @@ pub fn is_shutting_down() -> bool {
 }
 pub fn ensure_running() -> Result<()> {
     if is_shutting_down() {
-        Err(anyhow!("TRANSCRIPTION_CANCELED: Blabber wird beendet."))
+        Err(anyhow!("TRANSCRIPTION_CANCELED: Blabber is quitting."))
     } else {
         Ok(())
     }
@@ -201,12 +204,12 @@ pub fn request_exit(app: &AppHandle, action: ExitAction) {
         Decision::Confirm => {
             let app = app.clone();
             let _ = crate::desktop_shell::show_main_window(&app);
-            app.dialog().message("Eine Aufnahme oder Transkription läuft noch. Beim Beenden wird sie abgebrochen. Bereits gespeicherte Transkripte bleiben erhalten.")
-                .title("Blabber beenden?")
+            app.dialog().message("A recording or transcription is still running. Quitting stops it. Transcripts that are already saved stay in your Library.")
+                .title("Quit Blabber?")
                 .kind(MessageDialogKind::Warning)
-                    .buttons(MessageDialogButtons::OkCancelCustom("Abbrechen und beenden".into(), "Weiterarbeiten".into()))
+                    .buttons(MessageDialogButtons::OkCancelCustom(QUIT_BUTTON.into(), "Keep working".into()))
                 .show_with_result(move |result| {
-                    let quit = matches!(result, MessageDialogResult::Custom(ref label) if label == "Abbrechen und beenden");
+                    let quit = matches!(result, MessageDialogResult::Custom(ref label) if label == QUIT_BUTTON);
                     if lifecycle().confirm(quit) { start_shutdown(app, action); }
                 });
         }

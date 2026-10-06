@@ -31,6 +31,12 @@ bundles the FluidAudio licence and `manifest.json`. CoreML compiles each model
 on first load (about 30 s, once per macOS build) and caches the result in
 `~/Library/Caches/blabber-fluid-worker/`.
 
+Nemotron loads first, so live text can start before Parakeet is ready.
+Parakeet then loads and warms up in the background while you speak. A
+dictation that ends before Parakeet is ready waits for it (`finalWaitMs`). On
+a cold cache this shows live words after about 12 s instead of about 23 s. On a
+warm cache both models load in about 0.2 s, so nothing changes.
+
 ## Models and fixtures
 
 The app downloads the models from Settings → Models → Live pair. Every file is
@@ -76,9 +82,9 @@ any unfinished dictation session.
 
 | Request | Fields | Response |
 |---|---|---|
-| `load` | `nemotronPath`, `parakeetPath` (local directories; never downloads) | `ready{loadMs, chunkMs}` |
-| `warmup` | — | `warm{warmupMs}` (1 s of silence through both models) |
-| `ping` | — | `pong{loaded}` |
+| `load` | `nemotronPath`, `parakeetPath` (local directories; never downloads) | `ready{loadMs, chunkMs, finalLoaded}` once Nemotron is loaded; Parakeet keeps loading in the background |
+| `warmup` | — | `warm{warmupMs, finalLoaded}` (1 s of silence through Nemotron; Parakeet warms itself after its load) |
+| `ping` | — | `pong{loaded, finalLoaded}` |
 | `unload` | — | `unloaded` (process stays alive) |
 
 A dictation session starts at sequence 0, and each following request increments
@@ -88,7 +94,7 @@ it by one.
 |---|---|---|
 | `start` | `language` (`auto`, `de`, `en`, …), `chunkMs` (must match the loaded tier) | `started{language}` |
 | `audio` | `startSample` (must equal the acknowledged count), `samples` (finite, [-1, 1], 16 kHz mono) | `progress{committedText, tentativeText, ackSample, streamError}` |
-| `finish` | `expectedSamples` | `final{streamText, finalText, language, streamError, finalError, ackSample, timings{audioMs, flushMs, finalMs}}` |
+| `finish` | `expectedSamples` | `final{streamText, finalText, language, streamError, finalError, ackSample, timings{audioMs, flushMs, finalMs, finalWaitMs}}` (waits for Parakeet if it is still loading) |
 | `cancel`, `reset` | — | `canceled` (idempotent) |
 
 **Preview text:** `committedText` only ever grows. `tentativeText` is the last,

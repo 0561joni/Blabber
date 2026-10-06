@@ -161,6 +161,14 @@ impl AppState {
                 notices.push("Whisper Tiny was retired; saved model choices were updated and managed Tiny files were removed.".to_string());
             }
         }
+        if storage::move_legacy_translation_shortcut(&state)? {
+            if let Ok(mut notices) = state.startup_notices.lock() {
+                notices.push(format!(
+                    "The language shortcut is now {} because Cmd-Shift-Right selects text in other apps. Change it in Settings → Dictation.",
+                    if cfg!(target_os = "macos") { "Control-Option-L" } else { "Ctrl+Alt+L" }
+                ));
+            }
+        }
         if let Some(notice) = migrate_windows_qwen_selection(&state, &engine_models, &app_data_dir)?
         {
             if let Ok(mut notices) = state.startup_notices.lock() {

@@ -33,7 +33,7 @@ describe("ShutdownBoundary", () => {
     const button = screen.getByRole("button", { name: "Start recording" });
     act(() => event?.());
     const dialog = screen.getByRole("dialog", {
-      name: "Blabber wird beendet …",
+      name: "Quitting Blabber…",
     });
     expect(document.activeElement).toBe(dialog);
     expect(button.isConnected).toBe(true);

@@ -289,8 +289,8 @@ describe("HistoryScreen transcript export", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete Meeting" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete all history" }));
-    expect(screen.getByText("Delete the entire history?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete all transcripts" }));
+    expect(screen.getByText("Delete everything in the Library?")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Yes, delete everything" }),
     ).toBeTruthy();
@@ -357,7 +357,7 @@ describe("HistoryScreen transcript export", () => {
 
     expect(await screen.findByText("Speaker 1?")).toBeTruthy();
     expect(
-      screen.getByText("Speaker clustering: Automatic · threshold 1.10"),
+      screen.getByText("Speakers identified by Blabber · number of speakers detected automatically"),
     ).toBeTruthy();
   });
 
@@ -372,9 +372,9 @@ describe("HistoryScreen transcript export", () => {
     renderHistory();
 
     expect(
-      await screen.findByText("Built into MOSS Transcribe + Diarize"),
+      await screen.findByText("Built into MOSS with speakers"),
     ).toBeTruthy();
-    expect(screen.queryByText(/Speaker clustering/)).toBeNull();
+    expect(screen.queryByText(/Speakers identified by Blabber/)).toBeNull();
   });
 
   it("opens an Apple-style export menu with every format", () => {

@@ -124,6 +124,18 @@ pub struct AppSettings {
     /// Keep the live-pair models resident while Blabber runs.
     #[serde(default = "default_true")]
     pub live_pair_keep_loaded: bool,
+    /// Global shortcut that pastes the last dictation again.
+    #[serde(default = "default_paste_last_shortcut")]
+    pub paste_last_shortcut: String,
+    /// Turns off Blabber's playful copy, the Blabbermeter and easter eggs.
+    #[serde(default)]
+    pub serious_mode: bool,
+}
+
+/// Control-Option-V: paste the last dictation again.
+pub const DEFAULT_PASTE_LAST_SHORTCUT: &str = "Ctrl+Alt+V";
+fn default_paste_last_shortcut() -> String {
+    DEFAULT_PASTE_LAST_SHORTCUT.into()
 }
 
 pub const LIVE_PAIR_CHUNKS_MS: [u32; 2] = [560, 1120];
@@ -164,4 +176,6 @@ pub struct SettingsPatch {
     pub r2t2_idle_cache: Option<IdleCachePolicy>,
     pub live_pair_chunk_ms: Option<u32>,
     pub live_pair_keep_loaded: Option<bool>,
+    pub paste_last_shortcut: Option<String>,
+    pub serious_mode: Option<bool>,
 }

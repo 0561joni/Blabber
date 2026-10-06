@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { formatShortcutForDisplay } from "../lib/formatting";
+import { describeError, formatShortcutForDisplay, readableError } from "../lib/formatting";
 import { ActionButton, Button, PageHeader } from "../components/Feedback";
 import { IconButton } from "../components/IconButton";
 import {
@@ -9,10 +9,13 @@ import {
 } from "../components/ModelPicker";
 import {
   formatModelSize,
+  formatWorkflows,
+  getFriendlyModelName,
   getModelPresentation,
 } from "../lib/modelPresentation";
 import {
   previewFeedbackSound,
+  resetDictationStats,
   cancelModelDownload,
   cancelRecordingSession,
   deleteModel,
@@ -64,6 +67,22 @@ interface SettingsScreenProps {
 }
 
 const DEFAULT_SHORTCUT = "CmdOrCtrl+Shift+Space";
+/** Control-Option-L; matches translation::DEFAULT_SHORTCUT in the backend. */
+const DEFAULT_LANGUAGE_SHORTCUT = "Ctrl+Alt+L";
+/** Control-Option-V; matches settings::DEFAULT_PASTE_LAST_SHORTCUT in the backend. */
+const DEFAULT_PASTE_LAST_SHORTCUT = "Ctrl+Alt+V";
+
+type CaptureField = "shortcut" | "translationCycleShortcut" | "pasteLastShortcut";
+
+/** Languages every dictation engine accepts as a fixed choice (Live dictation's list). */
+const SPOKEN_LANGUAGES: Array<[string, string]> = [
+  ["de", "German"],
+  ["en", "English"],
+  ["fr", "French"],
+  ["es", "Spanish"],
+  ["it", "Italian"],
+  ["pt", "Portuguese"],
+];
 
 export function SettingsScreen({
   initialSection = "general",
@@ -80,6 +99,7 @@ export function SettingsScreen({
   const [isSaving, setIsSaving] = useState(false);
   const [isOpeningModelsFolder, setIsOpeningModelsFolder] = useState(false);
   const [isDownloadsExpanded, setIsDownloadsExpanded] = useState(false);
+  const [isRecordEngineExpanded, setIsRecordEngineExpanded] = useState(false);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
   const [isRescanningModels, setIsRescanningModels] = useState(false);
@@ -94,7 +114,7 @@ export function SettingsScreen({
   const [platformInfo, setPlatformInfo] = useState<PlatformInfo | null>(null);
   const [livePairStatus, setLivePairStatus] = useState<LivePairStatus | null>(null);
   const [isCapturingShortcut, setIsCapturingShortcut] = useState(false);
-  const [capturingField, setCapturingField] = useState<"shortcut" | "translationCycleShortcut">("shortcut");
+  const [capturingField, setCapturingField] = useState<CaptureField>("shortcut");
   const [isTestingMicrophone, setIsTestingMicrophone] = useState(false);
   const [microphoneTestLevel, setMicrophoneTestLevel] = useState(0);
   const [microphoneTestMessage, setMicrophoneTestMessage] = useState<
@@ -192,18 +212,15 @@ export function SettingsScreen({
       ]);
       const failed = results.find((result) => result.status === "rejected");
       if (!disposed && failed?.status === "rejected") {
-        const detail = failed.reason instanceof Error
-          ? failed.reason.message
-          : String(failed.reason);
         setErrorMessage(
-          `The model was downloaded, but the model list could not be refreshed. ${detail}`,
+          `The engine was downloaded, but the list could not be refreshed. ${describeError(failed.reason)}`,
         );
       }
     };
 
     void refreshCatalog().catch((error) => {
       if (!disposed) {
-        setErrorMessage(error instanceof Error ? error.message : "Failed to read available models.");
+        setErrorMessage(describeError(error, "Failed to read available models."));
       }
     });
     // Subscribe before taking the snapshot. A slower snapshot must never
@@ -224,7 +241,7 @@ export function SettingsScreen({
       );
     }).catch((error) => {
       if (!disposed) {
-        setErrorMessage(error instanceof Error ? error.message : "Failed to follow model downloads.");
+        setErrorMessage(describeError(error, "Failed to follow model downloads."));
       }
     });
 
@@ -266,7 +283,7 @@ export function SettingsScreen({
       setSavedField(key);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to save settings.",
+        describeError(error, "Failed to save settings."),
       );
     } finally {
       setIsSaving(false);
@@ -297,7 +314,7 @@ export function SettingsScreen({
         return;
       }
 
-      const shortcut = acceleratorFromKeyboardEvent(event);
+      const shortcut = acceleratorFromKeyboardEvent(event, platform === "macos");
       if (!shortcut) {
         return;
       }
@@ -317,7 +334,7 @@ export function SettingsScreen({
     window.addEventListener("keydown", handleShortcutCapture, true);
     return () =>
       window.removeEventListener("keydown", handleShortcutCapture, true);
-  }, [isCapturingShortcut, settings?.shortcut, capturingField]);
+  }, [isCapturingShortcut, settings?.shortcut, capturingField, platform]);
 
   useEffect(() => {
     if (!isTestingMicrophone) {
@@ -359,7 +376,7 @@ export function SettingsScreen({
   if (!settings) {
     return (
       <section className="screen">
-        <div className="glass-panel">Loading settings...</div>
+        <div className="glass-panel">Loading settings…</div>
       </section>
     );
   }
@@ -391,10 +408,10 @@ export function SettingsScreen({
     platform,
   );
   const shortcutHint = isMacOS
-    ? "Use ⌘, ⌃, ⌥, or ⇧ with another key. Fn/Globe is not supported as a global shortcut on this Tauri path."
+    ? "Combine ⌘, ⌃, ⌥ or ⇧ with another key. The Fn/Globe key can't be used."
     : isWindows
-      ? "Use Ctrl, Alt, or Shift with another key. The Windows key is not supported as a global shortcut on this Tauri path."
-      : "Use Cmd, Ctrl, Alt, or Shift with another key. Fn/Globe is not supported as a global shortcut on this Tauri path.";
+      ? "Combine Ctrl, Alt or Shift with another key. The Windows key can't be used."
+      : "Combine Ctrl, Alt or Shift with another key.";
   const selectedInputDeviceKnown =
     !settings.preferredInputDevice ||
     inputDevices.some((device) => device.id === settings.preferredInputDevice);
@@ -417,6 +434,23 @@ export function SettingsScreen({
   const translationModel = downloadableModels.find((model) => model.capability === "translation");
   const livePairInstalled = installedModels.some((model) => model.id === LIVE_PAIR_ID);
   const livePairSelected = settings.shortcutDictationSelectedModelId === LIVE_PAIR_ID;
+  const dictationEngine = installedModels.find(
+    (model) => model.id === settings.shortcutDictationSelectedModelId,
+  );
+  const recordEngine = installedModels.find(
+    (model) => model.id === settings.quickDictateSelectedModelId,
+  );
+  // The record button normally follows the dictation engine; its own picker
+  // only shows when they differ or when the user asks for it.
+  const recordEngineDiffers = Boolean(
+    recordEngine && dictationEngine && recordEngine.id !== dictationEngine.id,
+  );
+  const showRecordEngine = isRecordEngineExpanded || !recordEngine;
+  const recordEngineSummary = !recordEngine
+    ? "Choose an engine for the record button"
+    : recordEngineDiffers
+      ? `Uses ${getFriendlyModelName(recordEngine)}`
+      : "Uses the dictation engine";
   const r2t2Installed = installedModels.some((model) => model.id === R2T2_ID);
   const translationDownload = translationModel ? modelDownloadStatuses[translationModel.id] : undefined;
   const diarizationReady = diarizationModel?.installed === true;
@@ -433,7 +467,7 @@ export function SettingsScreen({
       ? null
       : Math.round(diarizationStatus?.progressPercent ?? 0);
 
-  async function beginShortcutCapture(field: "shortcut" | "translationCycleShortcut" = "shortcut") {
+  async function beginShortcutCapture(field: CaptureField = "shortcut") {
     setCapturingField(field);
     setErrorMessage(null);
     try {
@@ -441,9 +475,7 @@ export function SettingsScreen({
       setIsCapturingShortcut(true);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to start shortcut capture.",
+        describeError(error, "Failed to start shortcut capture."),
       );
     }
   }
@@ -454,9 +486,7 @@ export function SettingsScreen({
       await resumeShortcutCapture();
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to restore the active shortcut.",
+        describeError(error, "Failed to restore the active shortcut."),
       );
     }
   }
@@ -474,7 +504,7 @@ export function SettingsScreen({
         // Preserve the save error as the primary message.
       }
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to save settings.",
+        describeError(error, "Failed to save settings."),
       );
     } finally {
       setIsSaving(false);
@@ -501,7 +531,7 @@ export function SettingsScreen({
       );
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to save settings.",
+        describeError(error, "Failed to save settings."),
       );
     } finally {
       setIsSaving(false);
@@ -509,12 +539,18 @@ export function SettingsScreen({
     }
   }
 
-  async function handleShortcutDictationModelChange(modelId: string) {
+  async function handleDictationEngineChange(modelId: string) {
     const selectedModel =
       installedModels.find((model) => model.id === modelId) ?? null;
     if (!selectedModel) {
       return;
     }
+    // The record button follows the dictation engine unless the user gave it
+    // its own engine, or this engine cannot run it (e.g. Live dictation).
+    const recordFollows =
+      (!recordEngine || recordEngine.id === dictationEngine?.id) &&
+      (!selectedModel.capabilities ||
+        selectedModel.capabilities.supportedContexts.includes("quick_dictate"));
 
     setIsSaving(true);
     setErrorMessage(null);
@@ -523,12 +559,18 @@ export function SettingsScreen({
         {
           shortcutDictationSelectedModelId: selectedModel.id,
           shortcutDictationModelProfile: selectedModel.profile,
+          ...(recordFollows
+            ? {
+                quickDictateSelectedModelId: selectedModel.id,
+                quickDictateModelProfile: selectedModel.profile,
+              }
+            : {}),
         },
         "shortcutDictationSelectedModelId",
       );
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to save settings.",
+        describeError(error, "Failed to save settings."),
       );
     } finally {
       setIsSaving(false);
@@ -555,8 +597,26 @@ export function SettingsScreen({
       );
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to save settings.",
+        describeError(error, "Failed to save settings."),
       );
+    } finally {
+      setIsSaving(false);
+      setSavingField(null);
+    }
+  }
+
+  async function handleLanguageChange(value: string) {
+    setIsSaving(true);
+    setErrorMessage(null);
+    try {
+      await persist(
+        value === "auto"
+          ? { languageMode: "auto", fixedLanguage: null }
+          : { languageMode: "fixed", fixedLanguage: value },
+        "languageMode",
+      );
+    } catch (error) {
+      setErrorMessage(describeError(error, "Failed to save settings."));
     } finally {
       setIsSaving(false);
       setSavingField(null);
@@ -570,9 +630,7 @@ export function SettingsScreen({
       await openModelsFolder();
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to open the models folder.",
+        describeError(error, "Failed to open the models folder."),
       );
     } finally {
       setIsOpeningModelsFolder(false);
@@ -585,9 +643,7 @@ export function SettingsScreen({
       await startModelDownload(modelId);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to download the selected model.",
+        describeError(error, "Failed to download the selected model."),
       );
     }
   }
@@ -619,7 +675,7 @@ export function SettingsScreen({
       await refreshModelLists();
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to delete the model.",
+        describeError(error, "Failed to delete the model."),
       );
     } finally {
       setDeletingModelId(null);
@@ -635,7 +691,7 @@ export function SettingsScreen({
       await refreshModelLists();
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to rescan the models folder.",
+        describeError(error, "Failed to rescan the models folder."),
       );
     } finally {
       setIsRescanningModels(false);
@@ -666,9 +722,7 @@ export function SettingsScreen({
       await cancelModelDownload(modelId);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to cancel the model download.",
+        describeError(error, "Failed to cancel the model download."),
       );
     }
   }
@@ -701,20 +755,18 @@ export function SettingsScreen({
     }
 
     setMicrophoneTestLevel(0);
-    setMicrophoneTestMessage("Starting microphone test...");
+    setMicrophoneTestMessage("Starting microphone test…");
     try {
       await startRecordingSession(false);
       setIsTestingMicrophone(true);
       setMicrophoneTestMessage(
-        "Speak into the microphone. This test uses the selected input device and does not save audio.",
+        "Speak now. Nothing is recorded or saved.",
       );
     } catch (error) {
       setIsTestingMicrophone(false);
       setMicrophoneTestLevel(0);
       setMicrophoneTestMessage(
-        error instanceof Error
-          ? error.message
-          : "Failed to start the microphone test.",
+        describeError(error, "Failed to start the microphone test."),
       );
     }
   }
@@ -735,7 +787,6 @@ export function SettingsScreen({
   return (
     <section className="screen settings-screen">
       <PageHeader
-        eyebrow="MAKE IT YOURS"
         title="Settings"
         description="A few thoughtful adjustments. A smoother day."
       />
@@ -743,8 +794,8 @@ export function SettingsScreen({
         {(
           [
             ["general", "General"],
-            ["audio", "Audio & shortcuts"],
-            ["models", "Models"],
+            ["audio", "Dictation"],
+            ["models", "Engines"],
             ["appearance", "Appearance & feedback"],
             ["advanced", "Advanced"],
           ] as const
@@ -836,15 +887,15 @@ export function SettingsScreen({
             </div>
             <div className="setting-row">
               <div className="setting-copy">
-                <p className="setting-title">Save transcripts to history</p>
+                <p className="setting-title">Save transcripts to the Library</p>
                 <p className="muted">
-                  Keep finished dictation and file transcripts in local history.
+                  Keep finished dictations and file transcripts on this computer.
                 </p>
               </div>
               <div className="setting-control">
                 <button
                   disabled={isSaving}
-                  aria-label="Save transcripts to history"
+                  aria-label="Save transcripts to the Library"
                   type="button"
                   className={
                     settings.saveHistory
@@ -859,7 +910,7 @@ export function SettingsScreen({
                   <span className="switch-thumb" />
                 </button>
                 <span className="setting-state">
-                  {settings.saveHistory ? "Enabled by default" : "Disabled"}
+                  {settings.saveHistory ? "On" : "Off"}
                 </span>
               </div>
               {fieldFeedback("saveHistory")}
@@ -870,11 +921,11 @@ export function SettingsScreen({
       <section
         className="settings-section"
         hidden={group !== "audio"}
-        aria-label="Audio & shortcuts"
+        aria-label="Dictation"
       >
         <div className="settings-section-heading">
-          <h2>Audio & shortcuts</h2>
-          <p className="muted">Choose your microphone and how you dictate.</p>
+          <h2>Dictation</h2>
+          <p className="muted">Your microphone, the shortcut, and what happens with your words.</p>
         </div>
         <div className="settings-grid">
           <article className="glass-subtle settings-card">
@@ -935,7 +986,7 @@ export function SettingsScreen({
                 </div>
                 <p className="muted microphone-test-copy">
                   {microphoneTestMessage ??
-                    "Run a live test before using the shortcut. If the meter stays flat while you speak, Blabber is not receiving signal from the selected microphone."}
+                    "Speak and watch the meter. If it stays flat, Blabber can't hear this microphone."}
                 </p>
                 <IconButton
                   icon={isTestingMicrophone ? "stop" : "microphoneActive"}
@@ -957,8 +1008,8 @@ export function SettingsScreen({
               <span>Shortcut</span>
               <div className="shortcut-field">
                 <div className="shortcut-display">
-                  {isCapturingShortcut
-                    ? "Listening for shortcut... Press Esc to cancel."
+                  {isCapturingShortcut && capturingField === "shortcut"
+                    ? "Listening for shortcut… Press Esc to cancel."
                     : displayedShortcut}
                 </div>
                 <div className="shortcut-actions">
@@ -1020,6 +1071,25 @@ export function SettingsScreen({
               </select>
             </label>
             {fieldFeedback("shortcutMode")}
+          </article>
+          <article className="settings-card">
+            <label className="field-stack">
+              <span>Language you speak</span>
+              <select
+                value={settings.languageMode === "fixed" && settings.fixedLanguage ? settings.fixedLanguage : "auto"}
+                disabled={isSaving}
+                onChange={(event) => void handleLanguageChange(event.target.value)}
+              >
+                <option value="auto">Automatic (recommended)</option>
+                {SPOKEN_LANGUAGES.map(([code, name]) => (
+                  <option key={code} value={code}>{name}</option>
+                ))}
+              </select>
+            </label>
+            <p className="muted">
+              Automatic also follows you when you switch languages mid-sentence. Pick one if short dictations come out in the wrong language. MOSS and VibeVoice always detect the language themselves.
+            </p>
+            {fieldFeedback("languageMode")}
           </article>
           <article className="settings-card settings-card-wide">
             <div className="setting-row">
@@ -1098,6 +1168,97 @@ export function SettingsScreen({
               </div>
             ) : null}
           </article>
+          <article className="glass-subtle settings-card settings-card-wide" aria-label="Paste last dictation">
+            <div className="field-stack">
+              <span>Paste last dictation</span>
+              <div className="shortcut-field">
+                <span className="shortcut-display">
+                  {isCapturingShortcut && capturingField === "pasteLastShortcut"
+                    ? "Press a shortcut… Esc to cancel"
+                    : formatShortcutForDisplay(settings.pasteLastShortcut ?? DEFAULT_PASTE_LAST_SHORTCUT, platform)}
+                </span>
+                <ActionButton
+                  disabled={isCapturingShortcut || isSaving}
+                  action={() => beginShortcutCapture("pasteLastShortcut")}
+                >
+                  Set paste-last shortcut
+                </ActionButton>
+                {isCapturingShortcut && capturingField === "pasteLastShortcut" ? (
+                  <ActionButton action={cancelShortcutCapture}>Cancel capture</ActionButton>
+                ) : (settings.pasteLastShortcut ?? DEFAULT_PASTE_LAST_SHORTCUT) !== DEFAULT_PASTE_LAST_SHORTCUT ? (
+                  <IconButton
+                    icon="reset"
+                    label="Reset paste-last shortcut to default"
+                    disabled={isSaving || isCapturingShortcut}
+                    onClick={() => void handleChange("pasteLastShortcut", DEFAULT_PASTE_LAST_SHORTCUT)}
+                  />
+                ) : null}
+              </div>
+              <p className="muted">
+                Pastes your last dictation again where your cursor is, for when the first paste landed in the wrong place. The menu-bar icon also has it, plus your recent dictations. Press Esc while dictating to cancel.
+              </p>
+            </div>
+            {fieldFeedback("pasteLastShortcut")}
+          </article>
+          <article className="glass-subtle settings-card settings-card-wide" aria-label="Translation">
+            <h3>Translate while you dictate <span className="muted">· Preview</span></h3>
+            <p>Dictate in German or English, and Blabber pastes French or Argentinian Spanish.</p>
+            <p className="muted">
+              Needs a {formatModelSize(translationModel?.sizeBytes ?? 9_660_827_392)} download and an Apple Silicon Mac with 18 GB of memory or more. Everything stays on this computer.
+            </p>
+            <div className="setting-row">
+              <div className="setting-copy">
+                <p className="setting-title">Enable translation</p>
+              </div>
+              <div className="setting-control">
+                <button
+                  disabled={isSaving || !translationModel?.installed || translationModel.availability !== "available"}
+                  aria-label="Enable translation"
+                  type="button"
+                  className={settings.translationEnabled ? "switch-button is-on" : "switch-button"}
+                  aria-pressed={settings.translationEnabled ?? false}
+                  onClick={() => void handleChange("translationEnabled", !settings.translationEnabled)}
+                >
+                  <span className="switch-thumb" />
+                </button>
+              </div>
+              {fieldFeedback("translationEnabled")}
+            </div>
+            <div className="translation-download-actions">
+              {translationDownload?.state === "downloading" ? <>
+                <p role="status">Downloading the translation engine · {Math.round(translationDownload.progressPercent ?? 0)}%</p>
+                <ActionButton action={() => cancelModelDownload(translationModel!.id).then(() => undefined)}>Cancel download</ActionButton>
+              </> : <ActionButton disabled={!translationModel || translationModel.availability !== "available" || Object.values(modelDownloadStatuses).some((status) => status.state === "downloading")}
+                action={() => startModelDownload(translationModel!.id).then(() => undefined)}>
+                {translationModel?.installed ? "Check and repair" : "Download translation engine"}
+              </ActionButton>}
+              {translationModel?.installed && translationDownload?.state !== "downloading"
+                ? deleteControl(translationModel, "the translation engine")
+                : null}
+            </div>
+            {translationDownload?.errorMessage ? <p role="alert" className="warning-text">{readableError(translationDownload.errorMessage)}</p> : null}
+            {translationModel?.availabilityReason ? <p className="muted">{translationModel.availabilityReason}</p> : null}
+            <div className="field-stack">
+              <span>Language shortcut</span>
+              <div className="shortcut-field">
+                <span className="shortcut-display">{isCapturingShortcut && capturingField === "translationCycleShortcut" ? "Press a shortcut… Esc to cancel" : formatShortcutForDisplay(settings.translationCycleShortcut ?? DEFAULT_LANGUAGE_SHORTCUT, platform)}</span>
+                <ActionButton disabled={isCapturingShortcut || isSaving} action={() => beginShortcutCapture("translationCycleShortcut")}>Set language shortcut</ActionButton>
+                {isCapturingShortcut && capturingField === "translationCycleShortcut" ? (
+                  <ActionButton action={cancelShortcutCapture}>Cancel capture</ActionButton>
+                ) : settings.translationCycleShortcut !== DEFAULT_LANGUAGE_SHORTCUT ? (
+                  <IconButton
+                    icon="reset"
+                    label="Reset language shortcut to default"
+                    disabled={isSaving || isCapturingShortcut}
+                    onClick={() => void handleChange("translationCycleShortcut", DEFAULT_LANGUAGE_SHORTCUT)}
+                  />
+                ) : null}
+              </div>
+              <p className="muted">Switches Original → Français → Español (AR) between dictations. While translation is on, this key combination belongs to Blabber in every app.</p>
+            </div>
+            {fieldFeedback("translationCycleShortcut")}
+            <p className="muted">Uses Google&apos;s TranslateGemma (converted by mradermacher), subject to the <a href="https://ai.google.dev/gemma/terms" target="_blank" rel="noreferrer">Gemma terms</a> and <a href="https://ai.google.dev/gemma/prohibited_use_policy" target="_blank" rel="noreferrer">use restrictions</a>. <a href="https://huggingface.co/google/translategemma-12b-it" target="_blank" rel="noreferrer">Model information</a></p>
+          </article>
           {platformInfo && !platformInfo.globalShortcutSupported ? (
             <article className="settings-card">
               <p className="warning-text">
@@ -1111,183 +1272,84 @@ export function SettingsScreen({
       <section
         className="settings-section"
         hidden={group !== "models"}
-        aria-label="Models"
+        aria-label="Engines"
       >
         <div className="settings-section-heading">
-          <h2>Models</h2>
+          <h2>Engines</h2>
           <p className="muted">
-            Choose the right balance of speed and accuracy.
+            The speech engines that turn your voice into text. All of them run on this computer.
           </p>
         </div>
         <div className="settings-grid">
-          <article className="glass-subtle settings-card settings-card-wide" aria-label="Local translation">
-            <h3>Local translation <span className="muted">· Preview</span></h3>
-            <p>Dictate in German or English. Paste in French or Argentinian Spanish.</p>
-            <p className="muted">TranslateGemma 12B Q6_K · 9.66 GB download · Apple Silicon · 18 GB RAM recommended. Models load one at a time to conserve memory.</p>
-            <div className="setting-row">
-              <div className="setting-copy">
-                <p className="setting-title">Enable local translation</p>
-              </div>
-              <div className="setting-control">
-                <button
-                  disabled={isSaving || !translationModel?.installed || translationModel.availability !== "available"}
-                  aria-label="Enable local translation"
-                  type="button"
-                  className={settings.translationEnabled ? "switch-button is-on" : "switch-button"}
-                  aria-pressed={settings.translationEnabled ?? false}
-                  onClick={() => void handleChange("translationEnabled", !settings.translationEnabled)}
-                >
-                  <span className="switch-thumb" />
-                </button>
-              </div>
-              {fieldFeedback("translationEnabled")}
-            </div>
-            <div className="translation-download-actions">
-              {translationDownload?.state === "downloading" ? <>
-                <p role="status">Downloading translation model · {Math.round(translationDownload.progressPercent ?? 0)}%</p>
-                <ActionButton action={() => cancelModelDownload(translationModel!.id).then(() => undefined)}>Cancel download</ActionButton>
-              </> : <ActionButton disabled={!translationModel || translationModel.availability !== "available" || Object.values(modelDownloadStatuses).some((status) => status.state === "downloading")}
-                action={() => startModelDownload(translationModel!.id).then(() => undefined)}>
-                {translationModel?.installed ? "Verify / repair model" : "Download translation model"}
-              </ActionButton>}
-              {translationModel?.installed && translationDownload?.state !== "downloading"
-                ? deleteControl(translationModel, "the translation model")
-                : null}
-            </div>
-            {translationDownload?.errorMessage ? <p role="alert" className="warning-text">{translationDownload.errorMessage}</p> : null}
-            {translationModel?.availabilityReason ? <p className="muted">{translationModel.availabilityReason}</p> : null}
-            <div className="field-stack">
-              <span>Change output language</span>
-              <div className="shortcut-field">
-                <span className="shortcut-display">{isCapturingShortcut && capturingField === "translationCycleShortcut" ? "Press a shortcut… Esc to cancel" : formatShortcutForDisplay(settings.translationCycleShortcut ?? "CmdOrCtrl+Shift+Right", platform)}</span>
-                <ActionButton disabled={isCapturingShortcut || isSaving} action={() => beginShortcutCapture("translationCycleShortcut")}>Set language shortcut</ActionButton>
-                {isCapturingShortcut && capturingField === "translationCycleShortcut" ? <ActionButton action={cancelShortcutCapture}>Cancel capture</ActionButton> : null}
-              </div>
-              <p className="muted">Original → Français → Español (AR). Starts in Original. The shortcut is reserved globally, including in text fields, while translation is enabled.</p>
-            </div>
-            {fieldFeedback("translationCycleShortcut")}
-            <p className="muted">Model by Google, Q6_K conversion by mradermacher. Downloading and using this model is subject to the <a href="https://ai.google.dev/gemma/terms" target="_blank" rel="noreferrer">Gemma terms</a> and <a href="https://ai.google.dev/gemma/prohibited_use_policy" target="_blank" rel="noreferrer">use restrictions</a>. <a href="https://huggingface.co/google/translategemma-12b-it" target="_blank" rel="noreferrer">Model information</a></p>
-          </article>
-          <article className="glass-subtle settings-card">
+          <article className="glass-subtle settings-card settings-card-wide" aria-label="Dictation engine">
             <div className="field-stack">
               <ModelPicker
-                label="Shortcut Dictation model"
+                label="Dictation engine"
                 value={settings.shortcutDictationSelectedModelId ?? ""}
                 models={installedModels}
                 context="shortcut_dictation"
                 disabled={isSaving}
-                onChange={handleShortcutDictationModelChange}
+                onChange={handleDictationEngineChange}
               />
+              <p className="muted">Used for the dictation shortcut and, when it can, the record button on the Dictate screen.</p>
             </div>
             {fieldFeedback("shortcutDictationSelectedModelId")}
-          </article>
-          {livePairInstalled || r2t2Installed ? (
-            <article className="glass-subtle settings-card settings-card-wide" aria-label="Live dictation">
-              <h3>Live dictation <span className="muted">· Experimental</span></h3>
-              {livePairInstalled ? <>
-                <p className="muted" role="status">
-                  Live pair: {LIVE_PAIR_STATE_LABELS[livePairStatus?.state ?? "off"]}
-                  {livePairStatus?.state === "ready" && livePairStatus.loadMs != null
-                    ? ` · loaded in ${(livePairStatus.loadMs / 1000).toFixed(1)} s`
-                    : ""}
-                  {" · about 1.4 GB of memory while loaded"}
-                </p>
-                {livePairStatus?.message ? (
-                  <p className={livePairStatus.state === "error" ? "warning-text" : "muted"}>{livePairStatus.message}</p>
-                ) : null}
-                <label className="field-stack">
-                  <span>Live preview step</span>
-                  <select
-                    value={settings.livePairChunkMs ?? 560}
+            <div className="record-engine">
+              <button
+                type="button"
+                className="downloads-accordion-button record-engine-toggle"
+                aria-expanded={showRecordEngine}
+                onClick={() => setIsRecordEngineExpanded((current) => !current)}
+              >
+                <span className="downloads-accordion-copy">
+                  <span>Record button</span>
+                  <span className="muted">{recordEngineSummary}</span>
+                </span>
+                <span className={showRecordEngine ? "downloads-chevron is-open" : "downloads-chevron"}>
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="m6 8 4 4 4-4" />
+                  </svg>
+                </span>
+              </button>
+              {showRecordEngine ? (
+                <div className="field-stack">
+                  <ModelPicker
+                    label="Record button engine"
+                    value={settings.quickDictateSelectedModelId ?? ""}
+                    models={installedModels}
+                    context="quick_dictate"
                     disabled={isSaving}
-                    onChange={(event) =>
-                      void handleChange("livePairChunkMs", Number(event.target.value) as AppSettings["livePairChunkMs"])
-                    }
-                  >
-                    <option value={560}>560 ms · words appear sooner</option>
-                    <option value={1120}>1120 ms · steadier German preview</option>
-                  </select>
-                </label>
-                {fieldFeedback("livePairChunkMs")}
-                <div className="setting-row">
-                  <div className="setting-copy">
-                    <p className="setting-title">Keep live-pair models loaded</p>
-                    <p className="muted">
-                      Ready the moment you press the shortcut. When off, the models load on each press and are released after a minute.
-                    </p>
-                  </div>
-                  <div className="setting-control">
-                    <button
-                      disabled={isSaving}
-                      aria-label="Keep live-pair models loaded"
-                      type="button"
-                      className={settings.livePairKeepLoaded ? "switch-button is-on" : "switch-button"}
-                      aria-pressed={settings.livePairKeepLoaded}
-                      onClick={() => void handleChange("livePairKeepLoaded", !settings.livePairKeepLoaded)}
-                    >
-                      <span className="switch-thumb" />
-                    </button>
-                    <span className="setting-state">{settings.livePairKeepLoaded ? "Loaded" : "On demand"}</span>
-                  </div>
-                  {fieldFeedback("livePairKeepLoaded")}
+                    onChange={handleQuickDictateModelChange}
+                  />
+                  {fieldFeedback("quickDictateSelectedModelId")}
                 </div>
-                {livePairSelected && !settings.launchAtLoginEnabled ? (
-                  <div className="setting-row">
-                    <p className="muted">
-                      Tip: launch Blabber at login so the live pair is loaded before your first dictation.
-                    </p>
-                    <ActionButton
-                      disabled={isSaving}
-                      action={() => handleChange("launchAtLoginEnabled", true)}
-                    >
-                      Launch at login
-                    </ActionButton>
-                  </div>
-                ) : null}
-              </> : null}
-              {r2t2Installed ? <>
-                <label className="field-stack">
-                  <span>Keep R2T2 loaded after dictation</span>
-                  <select
-                    value={settings.r2t2IdleCache ?? "one_minute"}
-                    disabled={isSaving}
-                    onChange={(event) =>
-                      void handleChange("r2t2IdleCache", event.target.value as AppSettings["r2t2IdleCache"])
-                    }
-                  >
-                    <option value="one_minute">1 minute</option>
-                    <option value="fifteen_minutes">15 minutes</option>
-                    <option value="until_memory_pressure">Until memory runs low</option>
-                  </select>
-                </label>
-                <p className="muted">A second dictation within this time starts without loading. Translation and model changes always release it.</p>
-                {fieldFeedback("r2t2IdleCache")}
-              </> : null}
-            </article>
-          ) : null}
-          <article className="glass-subtle settings-card">
-            <div className="field-stack">
-              <ModelPicker
-                label="Quick Dictate model"
-                value={settings.quickDictateSelectedModelId ?? ""}
-                models={installedModels}
-                context="quick_dictate"
-                disabled={isSaving}
-                onChange={handleQuickDictateModelChange}
-              />
+              ) : null}
             </div>
-            {fieldFeedback("quickDictateSelectedModelId")}
+            {livePairSelected && !settings.launchAtLoginEnabled ? (
+              <div className="setting-row">
+                <p className="muted">
+                  Tip: launch Blabber at login so Live dictation is ready before your first dictation.
+                </p>
+                <ActionButton
+                  disabled={isSaving}
+                  action={() => handleChange("launchAtLoginEnabled", true)}
+                >
+                  Launch at login
+                </ActionButton>
+              </div>
+            ) : null}
           </article>
-          <article className="glass-subtle settings-card">
+          <article className="glass-subtle settings-card settings-card-wide" aria-label="File engine">
             <div className="field-stack">
               <ModelPicker
-                label="File Transcription model"
+                label="File engine"
                 value={settings.fileTranscribeSelectedModelId ?? ""}
                 models={installedModels}
                 context="file_transcription"
                 disabled={isSaving}
                 onChange={handleFileTranscribeModelChange}
               />
+              <p className="muted">Used for audio and video files. Accuracy matters more than speed here.</p>
             </div>
             {fieldFeedback("fileTranscribeSelectedModelId")}
           </article>
@@ -1300,7 +1362,7 @@ export function SettingsScreen({
                 onClick={() => setIsDownloadsExpanded((current) => !current)}
               >
                 <div className="downloads-accordion-copy">
-                  <span>Download models</span>
+                  <span>Download engines</span>
                   <p className="muted">
                     {formatDownloadSummary(
                       speechModels.filter((model) => (model.origin ?? "catalog") === "catalog"),
@@ -1358,9 +1420,15 @@ export function SettingsScreen({
                       >
                         <div className="downloadable-model-copy">
                           <div className="downloadable-model-heading">
-                            <ModelSummary presentation={presentation} />
+                            <ModelSummary
+                              presentation={presentation}
+                              recommendation={presentation.recommendedFor.length > 0 ? "Recommended" : null}
+                            />
                             <ModelInfoButton model={model} />
                           </div>
+                          <p className="downloadable-model-meta">
+                            {formatModelSize(model.sizeBytes)} · Works for: {formatWorkflows(model.capabilities)}
+                          </p>
                           {model.availabilityReason ? (
                             <p className="downloadable-model-meta">
                               {model.availabilityReason}
@@ -1398,7 +1466,7 @@ export function SettingsScreen({
                               <div className="model-download-progress-meta">
                                 <span>
                                   {downloadStatus.progressPercent === null
-                                    ? "Downloading..."
+                                    ? "Downloading…"
                                     : `${Math.round(downloadStatus.progressPercent)}%`}
                                 </span>
                                 {progressLabel ? (
@@ -1416,7 +1484,7 @@ export function SettingsScreen({
                           {downloadStatus?.state === "failed" &&
                           downloadStatus.errorMessage ? (
                             <p className="error-text model-download-error">
-                              {downloadStatus.errorMessage}
+                              {readableError(downloadStatus.errorMessage)}
                             </p>
                           ) : null}
                         </div>
@@ -1484,12 +1552,10 @@ export function SettingsScreen({
           </article>
           <article className="glass-subtle settings-card settings-card-wide">
             <div className="field-stack">
-              <span>
-                Identify speakers for models without built-in speakers
-              </span>
+              <span>Who said what</span>
               <p className="muted" style={{ margin: 0 }}>
-                Runs a local post-process after Whisper or Qwen. MOSS and
-                VibeVoice preserve their built-in speaker labels automatically.
+                Labels the speakers in transcribed files. MOSS and VibeVoice
+                label speakers on their own and don&apos;t need this.
               </p>
               <div className="settings-option-list">
                 <div className="setting-row">
@@ -1586,7 +1652,7 @@ export function SettingsScreen({
                 diarizationStatus?.state === "failed" ? (
                   <div className="setting-row">
                     <p className="error-text model-download-error">
-                      {diarizationStatus.errorMessage ??
+                      {(diarizationStatus.errorMessage && readableError(diarizationStatus.errorMessage)) ??
                         "The speaker model download failed."}
                     </p>
                     <IconButton
@@ -1696,7 +1762,7 @@ export function SettingsScreen({
               </div>
               {fieldFeedback("soundsEnabled")}
             </div>
-            <div className="sound-preview-row">
+            <div className="sound-preview-row" aria-label="Preview sounds">
               {(["start", "stop", "complete", "error"] as const).map((cue) => (
                 <ActionButton
                   key={cue}
@@ -1707,6 +1773,42 @@ export function SettingsScreen({
                   Preview {cue}
                 </ActionButton>
               ))}
+            </div>
+          </article>
+          <article className="settings-card settings-card-wide" aria-label="Personality">
+            <div className="setting-row">
+              <div className="setting-copy">
+                <p className="setting-title">Serious mode</p>
+                <p className="muted">
+                  Turns off the Blabbermeter, playful messages and easter eggs.
+                  Blabber never jokes about errors either way.
+                </p>
+              </div>
+              <div className="setting-control">
+                <button
+                  disabled={isSaving}
+                  aria-label="Serious mode"
+                  type="button"
+                  className={settings.seriousMode ? "switch-button is-on" : "switch-button"}
+                  aria-pressed={settings.seriousMode ?? false}
+                  onClick={() => void handleChange("seriousMode", !settings.seriousMode)}
+                >
+                  <span className="switch-thumb" />
+                </button>
+                <span className="setting-state">{settings.seriousMode ? "On" : "Off"}</span>
+              </div>
+              {fieldFeedback("seriousMode")}
+            </div>
+            <div className="setting-row">
+              <div className="setting-copy">
+                <p className="setting-title">Blabbermeter</p>
+                <p className="muted">
+                  Counts words, speaking time and streaks on this computer. It stores numbers only, never what you said.
+                </p>
+              </div>
+              <ActionButton action={() => resetDictationStats()} success="Reset">
+                Reset Blabbermeter
+              </ActionButton>
             </div>
           </article>
         </div>
@@ -1754,6 +1856,78 @@ export function SettingsScreen({
               </div>
             </div>
           </article>
+          {livePairInstalled || r2t2Installed ? (
+            <article className="glass-subtle settings-card settings-card-wide" aria-label="Live dictation tuning">
+              <h3>Live dictation tuning <span className="muted">· Experimental</span></h3>
+              {livePairInstalled ? <>
+                <p className="muted" role="status">
+                  Live dictation: {LIVE_PAIR_STATE_LABELS[livePairStatus?.state ?? "off"]}
+                  {livePairStatus?.state === "ready" && livePairStatus.loadMs != null
+                    ? ` · loaded in ${(livePairStatus.loadMs / 1000).toFixed(1)} s`
+                    : ""}
+                  {" · about 1.4 GB of memory while loaded"}
+                </p>
+                {livePairStatus?.message ? (
+                  <p className={livePairStatus.state === "error" ? "warning-text" : "muted"}>{livePairStatus.message}</p>
+                ) : null}
+                <label className="field-stack">
+                  <span>Live preview</span>
+                  <select
+                    value={settings.livePairChunkMs ?? 560}
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      void handleChange("livePairChunkMs", Number(event.target.value) as AppSettings["livePairChunkMs"])
+                    }
+                  >
+                    <option value={560}>Faster · words appear sooner</option>
+                    <option value={1120}>Steadier · calmer preview, better for German</option>
+                  </select>
+                </label>
+                {fieldFeedback("livePairChunkMs")}
+                <div className="setting-row">
+                  <div className="setting-copy">
+                    <p className="setting-title">Keep Live dictation loaded</p>
+                    <p className="muted">
+                      Ready the moment you press the shortcut. When off, the models load on each press and are released after a minute.
+                    </p>
+                  </div>
+                  <div className="setting-control">
+                    <button
+                      disabled={isSaving}
+                      aria-label="Keep Live dictation loaded"
+                      type="button"
+                      className={settings.livePairKeepLoaded ? "switch-button is-on" : "switch-button"}
+                      aria-pressed={settings.livePairKeepLoaded}
+                      onClick={() => void handleChange("livePairKeepLoaded", !settings.livePairKeepLoaded)}
+                    >
+                      <span className="switch-thumb" />
+                    </button>
+                    <span className="setting-state">{settings.livePairKeepLoaded ? "Loaded" : "On demand"}</span>
+                  </div>
+                  {fieldFeedback("livePairKeepLoaded")}
+                </div>
+              </> : null}
+              {r2t2Installed ? <>
+                <label className="field-stack">
+                  <span>Keep R2T2 loaded after dictation</span>
+                  <select
+                    value={settings.r2t2IdleCache ?? "one_minute"}
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      void handleChange("r2t2IdleCache", event.target.value as AppSettings["r2t2IdleCache"])
+                    }
+                  >
+                    <option value="one_minute">1 minute</option>
+                    <option value="fifteen_minutes">15 minutes</option>
+                    <option value="until_memory_pressure">Until memory runs low</option>
+                  </select>
+                </label>
+                <p className="muted">A second dictation within this time starts without loading. Translation and model changes always release it.</p>
+                <p className="warning-text">R2T2 writes each dictation in one language. If you switch languages within a dictation, it translates the other parts. For mixed-language dictation, use Live dictation or Qwen.</p>
+                {fieldFeedback("r2t2IdleCache")}
+              </> : null}
+            </article>
+          ) : null}
           {isMacOS || isWindows ? (
             <article className="settings-card settings-card-wide">
               <div className="setting-row">
@@ -1982,6 +2156,7 @@ type CapturedShortcut =
 
 function acceleratorFromKeyboardEvent(
   event: KeyboardEvent,
+  isMacOS: boolean,
 ): CapturedShortcut | null {
   if (
     event.key === "Fn" ||
@@ -1993,7 +2168,7 @@ function acceleratorFromKeyboardEvent(
     return {
       kind: "unsupported",
       message:
-        "Fn/Globe cannot be used as a global shortcut here. Use Cmd, Ctrl, Alt, or Shift with another key.",
+        "The Fn/Globe key can't be used. Combine Cmd, Ctrl, Alt or Shift with another key.",
     };
   }
 
@@ -2003,7 +2178,11 @@ function acceleratorFromKeyboardEvent(
   }
 
   const modifiers: string[] = [];
-  if (event.metaKey || event.ctrlKey) {
+  // On macOS, Control is its own modifier; elsewhere Ctrl is the command key.
+  if (isMacOS) {
+    if (event.metaKey) modifiers.push("CmdOrCtrl");
+    if (event.ctrlKey) modifiers.push("Ctrl");
+  } else if (event.metaKey || event.ctrlKey) {
     modifiers.push("CmdOrCtrl");
   }
   if (event.altKey) {

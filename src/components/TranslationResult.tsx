@@ -1,3 +1,4 @@
+import { readableError } from "../lib/formatting";
 import { useEffect, useState } from "react";
 import { ActionButton } from "./Feedback";
 import { copyTextToClipboard } from "../lib/api";
@@ -22,7 +23,7 @@ export function TranslationResult({ output, onRetry }: {
       {ready ? <ActionButton icon="copy" action={() => copyTextToClipboard(output.outputText!)} success="Copied">Copy translation</ActionButton> : null}
       <ActionButton icon="copy" action={() => copyTextToClipboard(output.sourceText)} success="Copied">Copy original</ActionButton>
     </div>
-    {output.errorMessage ? <p role="alert" className="warning-text">{output.errorMessage}</p> : null}
+    {output.errorMessage ? <p role="alert" className="warning-text">{readableError(output.errorMessage)}</p> : null}
     <p className="transcript-body">{original || !ready ? output.sourceText : output.outputText}</p>
     {!ready && output.status !== "pending" && onRetry ? <ActionButton action={onRetry} success="Translation ready">Retry translation</ActionButton> : null}
     {!ready ? <p className="muted">The original is preserved. No translated text was pasted.</p> : null}

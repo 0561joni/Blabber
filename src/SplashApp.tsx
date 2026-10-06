@@ -6,7 +6,7 @@ import {
   quitApp,
   restartApp,
 } from "./lib/api";
-import { useReducedMotion } from "./lib/appearance";
+import { usePlayful, useReducedMotion } from "./lib/appearance";
 import { AppIcon } from "./components/IconButton";
 import { ActionButton } from "./components/Feedback";
 import type { StartupPhase, StartupStatus } from "./types/domain";
@@ -41,7 +41,18 @@ export const STARTUP_PHASE_COPY: Record<
   },
 };
 
+/** Detail lines in a lighter voice; the headline keeps saying what happens. */
+const PLAYFUL_DETAIL: Record<Exclude<StartupPhase, "ready" | "failed">, string> = {
+  files: "Stretching the vocal cords",
+  models: "Teaching the robots to listen",
+  audio: "Tuning the ears",
+  library: "Dusting off your words",
+  shortcuts: "Polishing the magic keys",
+  workspace: "Clearing its throat",
+};
+
 export function SplashApp() {
+  const playful = usePlayful();
   const [status, setStatus] = useState<StartupStatus>({
     phase: "files",
     step: 1,
@@ -63,7 +74,9 @@ export function SplashApp() {
             headline: "Ready for your words",
             detail: "Your workspace is ready",
           }
-        : STARTUP_PHASE_COPY[status.phase];
+        : playful
+          ? { ...STARTUP_PHASE_COPY[status.phase], detail: PLAYFUL_DETAIL[status.phase] }
+          : STARTUP_PHASE_COPY[status.phase];
 
   useEffect(() => {
     let disposed = false;
@@ -142,7 +155,7 @@ export function SplashApp() {
         <span className="brand-mark">
           <AppIcon name="microphone" />
         </span>
-        <strong>blabber</strong>
+        <strong>Blabber</strong>
       </header>
       <div className="splash-symbol">
         <AppIcon

@@ -51,10 +51,9 @@ export function ShutdownBoundary({ children }: { children: ReactNode }) {
             aria-describedby="shutdown-description"
             className="surface modal-panel"
           >
-            <h2 id="shutdown-title">Blabber wird beendet …</h2>
+            <h2 id="shutdown-title">Quitting Blabber…</h2>
             <p id="shutdown-description" role="status">
-              Laufende Arbeit wird gestoppt und der Speicher freigegeben. Das
-              kann einen Moment dauern.
+              Stopping running work and freeing memory. This can take a moment.
             </p>
           </div>
         </div>

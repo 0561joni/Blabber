@@ -1,3 +1,4 @@
+import { Blabbermeter } from "../components/Blabbermeter";
 import { TranslationResult } from "../components/TranslationResult";
 import { OUTPUT_MODES } from "../lib/translationApi";
 import { useEffect, useRef, useState } from "react";
@@ -13,7 +14,7 @@ import {
   formatTimestamp,
 } from "../components/TranscriptReader";
 import { getRecordingInputLevel, copyTextToClipboard } from "../lib/api";
-import {
+import { describeError,
   formatShortcutForDisplay,
   formatPasteShortcutForDisplay,
   formatListDuration,
@@ -30,6 +31,7 @@ import type {
   RecordingStatusResponse,
   TranscriptionPreviewResponse,
   TranscriptSummary,
+  DictationStats,
 } from "../types/domain";
 
 interface Props {
@@ -46,13 +48,16 @@ interface Props {
   quickDictationStatus: QuickDictationStatusResponse | null;
   readiness: DictationReadiness | null;
   isPollingAccessibility: boolean;
-  onResolveReadiness: (item: "model" | "shortcut" | "accessibility") => void;
+  onResolveReadiness: (
+    item: "model" | "engine" | "translation" | "microphone" | "shortcut" | "accessibility",
+  ) => void;
   onStartRecording: () => Promise<void>;
   onStopAndTranscribeRecording: () => Promise<void>;
   onCancelRecording: () => Promise<void>;
   onResetDictation: () => Promise<void>;
   recentDictations?: TranscriptSummary[];
   onOpenTranscript?: (id: string) => void;
+  stats?: DictationStats | null;
 }
 
 export function DictateScreen(props: Props) {
@@ -80,12 +85,13 @@ export function DictateScreen(props: Props) {
   const canStop =
     !quickActive &&
     (recording?.state === "listening" || recording?.state === "paused");
-  const error =
+  const rawError =
     actionError ||
     manual.errorMessage ||
     props.dictationError ||
     (quick?.state === "error" ? quick.lastErrorMessage : null) ||
     preview?.error?.message;
+  const error = rawError ? readableError(rawError) : rawError;
   const shortcut = formatShortcutForDisplay(
     quick?.registeredShortcut ?? settings?.shortcut ?? "",
     props.platform,
@@ -152,9 +158,7 @@ export function DictateScreen(props: Props) {
     } catch (reason) {
       if (sequence === operationSequence.current)
         setActionError(
-          reason instanceof Error
-            ? reason.message
-            : "Could not complete the action.",
+          describeError(reason, "Could not complete the action."),
         );
     } finally {
       if (sequence === operationSequence.current) {
@@ -173,6 +177,11 @@ export function DictateScreen(props: Props) {
   }
 
   const holdOrPress = settings?.shortcutMode === "toggle" ? "Press" : "Hold";
+  // `=== false` keeps older readiness payloads (without these fields) quiet.
+  const shortcutModelMissing = readiness?.shortcutModelReady === false;
+  const microphoneBlocked = Boolean(
+    readiness?.microphone && readiness.microphone !== "granted",
+  );
   const lastId = quick?.lastTranscriptId ?? null;
   const today = new Date().toDateString();
   const earlier = (props.recentDictations ?? [])
@@ -196,13 +205,13 @@ export function DictateScreen(props: Props) {
               id="dictation-output-language"
               value={props.outputState.outputMode}
               disabled={props.outputState.busy || pending}
-              title={`${formatShortcutForDisplay(settings?.translationCycleShortcut ?? "CmdOrCtrl+Shift+Right", props.platform)} switches language from any app`}
+              title={`${formatShortcutForDisplay(settings?.translationCycleShortcut ?? "Ctrl+Alt+L", props.platform)} switches language from any app`}
               onChange={(event) => void act(() => props.onOutputModeChange?.(event.target.value as OutputMode) ?? Promise.resolve())}
             >
               {OUTPUT_MODES.map((item) => <option key={item.value} value={item.value} disabled={item.value !== "original" && !props.outputState?.ready}>{item.label}</option>)}
             </select>
             {!props.outputState.ready ? (
-              <Button variant="ghost" onClick={() => props.onResolveReadiness("model")}>Set up translation</Button>
+              <Button variant="ghost" onClick={() => props.onResolveReadiness("translation")}>Set up translation</Button>
             ) : props.outputState.outputMode !== "original" ? (
               <span className="output-picker-note">Back to Original after 1 min idle</span>
             ) : null}
@@ -213,17 +222,34 @@ export function DictateScreen(props: Props) {
         <p className="notice-text" role="status">{readableError(props.outputState.errorMessage)}</p>
       ) : null}
       {readiness &&
-      (!readiness.hasModel ||
+      (shortcutModelMissing ||
+        microphoneBlocked ||
         !readiness.shortcutRegistered ||
         (readiness.accessibilityRequired &&
           !readiness.accessibilityGranted)) ? (
         <aside className="setup-panel" aria-label="Dictation setup">
           <strong>Finish setup</strong>
-          {!readiness.hasModel ? (
+          {shortcutModelMissing ? (
             <div className="setup-row">
-              <span>Download a speech model to start transcribing.</span>
-              <Button onClick={() => props.onResolveReadiness("model")}>
-                Download a model
+              <span>
+                {readiness.hasModel
+                  ? "None of your installed models can run shortcut dictation. Choose an engine for it."
+                  : "Download a speech engine to start dictating."}
+              </span>
+              <Button onClick={() => props.onResolveReadiness("engine")}>
+                Choose an engine
+              </Button>
+            </div>
+          ) : null}
+          {microphoneBlocked ? (
+            <div className="setup-row">
+              <span>
+                {readiness.microphone === "not_determined"
+                  ? "Allow microphone access so Blabber can hear you."
+                  : "Microphone access is blocked, so recordings stay silent. Turn on Blabber under Privacy & Security → Microphone."}
+              </span>
+              <Button onClick={() => props.onResolveReadiness("microphone")}>
+                {readiness.microphone === "not_determined" ? "Allow microphone" : "Open System Settings"}
               </Button>
             </div>
           ) : null}
@@ -358,9 +384,9 @@ export function DictateScreen(props: Props) {
             : "Speak normally. Stop when you’re done."
           : processing
             ? props.outputState?.statusText || manual.statusText ||
-              "Transcribing on this Mac."
+              "Transcribing on this computer."
             : shortcut
-              ? <>Or {holdOrPress.toLowerCase()} <ShortcutKeys shortcut={shortcut} /> in any app</>
+              ? <>Or {holdOrPress.toLowerCase()} <ShortcutKeys shortcut={shortcut} /> in any app · Esc cancels</>
               : "Set a shortcut in Settings to dictate from any app."}
       </p>
       {error ? (
@@ -439,8 +465,9 @@ export function DictateScreen(props: Props) {
           </ul>
         </section>
       ) : !hasResult && !error && settings && !settings.saveHistory ? (
-        <p className="muted recent-empty">History is off, so past dictations aren’t kept.</p>
+        <p className="muted recent-empty">Saving to the Library is off, so past dictations aren’t kept.</p>
       ) : null}
+      <Blabbermeter stats={props.stats ?? null} />
     </section>
   );
 }

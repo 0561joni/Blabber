@@ -7,6 +7,11 @@ import { getHealthCheck } from "./lib/api";
 import { formatPasteShortcutForDisplay } from "./lib/formatting";
 import { AppIcon } from "./components/IconButton";
 import { splitLiveTranscript } from "./lib/liveTranscript";
+import { usePlayful } from "./lib/appearance";
+import { LISTENING_LINES, PROCESSING_LINES, pickLine } from "./lib/blabbermeter";
+
+/** Plain progress labels that may be swapped for a playful line. */
+const NEUTRAL_PROGRESS = new Set(["Finishing", "Transcribing"]);
 
 type OverlayPhase =
   | "mode"
@@ -15,7 +20,8 @@ type OverlayPhase =
   | "processing"
   | "inserted"
   | "clipboard_only"
-  | "failed";
+  | "failed"
+  | "notice";
 interface OverlayPayload {
   phase: OverlayPhase;
   audioLevel: number;
@@ -36,6 +42,9 @@ export function OverlayApp() {
     audioLevel: 0,
   });
   const [platform, setPlatform] = useState<string | null>(null);
+  const playful = usePlayful();
+  // A fresh line for each dictation that never changes while it runs.
+  const [lineSeed, setLineSeed] = useState(0);
   const viewport = useRef<HTMLDivElement>(null);
   const [overflow, setOverflow] = useState(false);
   const committed = status.liveText ?? "";
@@ -85,20 +94,35 @@ export function OverlayApp() {
   }, []);
 
   const { phase } = status;
+  const listening = phase === "listening";
+  useEffect(() => {
+    if (listening) setLineSeed((seed) => seed + 1);
+  }, [listening, status.sessionId]);
+  const seed = `${status.sessionId ?? ""}:${lineSeed}`;
+  const playfulListening = playful && !status.streamingState ? pickLine(LISTENING_LINES, seed) : null;
+  const playfulProcessing =
+    playful && !status.streamingState && (!status.statusText || NEUTRAL_PROGRESS.has(status.statusText))
+      ? pickLine(PROCESSING_LINES, seed)
+      : null;
   const label =
     status.streamingState && (phase === "listening" || phase === "processing") ? status.statusText || "Listening" : phase === "mode" ? "Output language" : phase === "listening"
-      ? status.statusText || "Listening"
+      ? status.statusText || playfulListening || "Listening"
       : phase === "processing"
-        ? status.statusText || "Transcribing"
+        ? playfulProcessing || status.statusText || "Transcribing"
         : phase === "inserted"
           ? status.statusText || "Pasted" + (status.durationLimitReached ? " · 5-minute limit" : "")
           : phase === "clipboard_only"
             ? status.statusText || "Copied · " + formatPasteShortcutForDisplay(platform)
             : phase === "failed"
-              ? "Needs attention"
-              : "";
+              ? status.statusText || "Didn't work · open Blabber"
+              : phase === "notice"
+                ? status.statusText || ""
+                : "";
   const result =
-    phase === "inserted" || phase === "clipboard_only" || phase === "failed";
+    phase === "inserted" ||
+    phase === "clipboard_only" ||
+    phase === "failed" ||
+    phase === "notice";
   const level = Math.pow(Math.max(0, Math.min(1, status.audioLevel)), 0.65);
   return (
     <div
@@ -127,10 +151,12 @@ export function OverlayApp() {
                 ? " is-error"
                 : phase === "clipboard_only"
                   ? " is-copied"
-                  : "")
+                  : phase === "notice"
+                    ? " is-notice"
+                    : "")
             }
           >
-            <AppIcon name={phase === "failed" ? "info" : "check"} />
+            <AppIcon name={phase === "failed" || phase === "notice" ? "info" : "check"} />
             {label}
           </span>
         ) : (
@@ -148,6 +174,8 @@ export function OverlayApp() {
               <span className="overlay-phase-label overlay-limit-notice">
                 {status.statusText}
               </span>
+            ) : phase === "listening" && playfulListening ? (
+              <span className="overlay-phase-label">{playfulListening}</span>
             ) : null}
           </>
         )}

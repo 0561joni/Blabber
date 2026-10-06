@@ -19,6 +19,11 @@ import {
   getRecordingStatus,
   getSettings,
   openAccessibilitySettings,
+  openMicrophoneSettings,
+  requestMicrophoneAccess,
+  completeFirstRun,
+  getDictationStats,
+  listenDictationStats,
   listInstalledModels,
   listDownloadableModels,
   listTranscripts,
@@ -48,23 +53,27 @@ import { useReviewJobs } from "./hooks/useReviewJobs";
 import { reviewKey, isReviewJobActive } from "./lib/reviewApi";
 import type { ReviewRef } from "./types/domain";
 import { DictateScreen } from "./screens/DictateScreen";
+import { FirstRunSetup } from "./screens/FirstRunSetup";
 import { FilesScreen, isFileWorking } from "./screens/FilesScreen";
-import { applyAppearance } from "./lib/appearance";
+import { applyAppearance, usePlayful } from "./lib/appearance";
+import { crossedMilestone } from "./lib/blabbermeter";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { VocabularyScreen } from "./screens/VocabularyScreen";
 import { AppIcon, IconButton, type AppIconName } from "./components/IconButton";
-import { formatPasteShortcutForDisplay } from "./lib/formatting";
+import { describeError, formatPasteShortcutForDisplay, readableError } from "./lib/formatting";
 import { useAccessibilityReadinessPolling } from "./hooks/useAccessibilityReadinessPolling";
 import type {
   AppSettings,
   DictationReadiness,
+  DictationStats,
   FileQueueItem,
   FileTranscriptionStatusEvent,
   HealthCheckResponse,
   InstalledModel,
   ManualTranscriptionUiState,
   ModelDownloadStatus,
+  ModelUseContext,
   QuickDictationStatusResponse,
   RecordingStatusResponse,
   SettingsPatch,
@@ -145,6 +154,14 @@ export function App() {
     useState<QuickDictationStatusResponse | null>(null);
   const [dictationError, setDictationError] = useState<string | null>(null);
   const [readiness, setReadiness] = useState<DictationReadiness | null>(null);
+  const [firstRunOpen, setFirstRunOpen] = useState(false);
+  const [dictationStats, setDictationStats] = useState<DictationStats | null>(null);
+  const playful = usePlayful();
+  const playfulRef = useRef(playful);
+  const statsRef = useRef<DictationStats | null>(null);
+  playfulRef.current = playful;
+  const firstRunChecked = useRef(false);
+  const microphonePoll = useRef<number | null>(null);
   const [fileQueueItems, setFileQueueItems] = useState<FileQueueItem[]>([]);
   const [isFileDragActive, setIsFileDragActive] = useState(false);
   const [speakerCountHint, setSpeakerCountHint] = useState<number | null>(null);
@@ -383,7 +400,9 @@ export function App() {
             pushToast({
               kind: "error",
               message: "Dictation failed",
-              hint: nextStatus.lastErrorMessage ?? undefined,
+              hint: nextStatus.lastErrorMessage
+                ? readableError(nextStatus.lastErrorMessage)
+                : undefined,
               durationMs: 0, // persistent until dismissed
             });
             break;
@@ -600,7 +619,7 @@ export function App() {
             status.state === "failed"
               ? "Model download needs attention"
               : "Model installed",
-          hint: status.errorMessage ?? status.modelName,
+          hint: status.errorMessage ? readableError(status.errorMessage) : status.modelName,
           durationMs: status.state === "failed" ? 0 : 4000,
         });
       }
@@ -612,7 +631,7 @@ export function App() {
             message: "Model installed; list refresh needs attention",
             hint: errorMessage(
               error,
-              "Open Settings → Models to refresh the model list.",
+              "Open Settings → Engines to refresh the list.",
             ),
             durationMs: 0,
           });
@@ -679,7 +698,7 @@ export function App() {
     for (const notice of nextHealth.startupNotices) {
       pushToast({
         kind: "info",
-        message: "Model selection updated",
+        message: "Blabber updated a setting",
         hint: notice,
         durationMs: 8000,
       });
@@ -765,8 +784,146 @@ export function App() {
     return refresh;
   }, [refreshReadiness]);
 
+  // Blabbermeter totals, and a toast when a dictation crosses a milestone.
+  useEffect(() => {
+    if (!health) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listenDictationStats((next) => {
+      if (disposed) return;
+      const previous = statsRef.current;
+      const milestone = previous
+        ? crossedMilestone(previous.totalWords, next.totalWords)
+        : null;
+      if (milestone && playfulRef.current) {
+        pushToast({ kind: "success", message: milestone, hint: "Blabbermeter", durationMs: 7000 });
+      }
+      statsRef.current = next;
+      setDictationStats(next);
+    })
+      .then((cleanup) => {
+        if (disposed) cleanup();
+        else unlisten = cleanup;
+      })
+      .catch(() => undefined);
+    void getDictationStats()
+      .then((stats) => {
+        if (disposed || statsRef.current) return;
+        statsRef.current = stats;
+        setDictationStats(stats);
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [health, pushToast]);
+
+  // A fresh install whose shortcut cannot work yet starts with the guided setup.
+  useEffect(() => {
+    if (!readiness || firstRunChecked.current) return;
+    firstRunChecked.current = true;
+    if (readiness.firstRunCompleted === false && readiness.shortcutModelReady === false) {
+      setFirstRunOpen(true);
+    }
+  }, [readiness]);
+
+  // Poll briefly after asking for the microphone, until the user has answered
+  // the prompt or changed the setting in System Settings.
+  const pollMicrophone = useCallback(
+    (done: (state: DictationReadiness["microphone"]) => boolean) => {
+      if (microphonePoll.current !== null) window.clearTimeout(microphonePoll.current);
+      const expiresAt = Date.now() + 120_000;
+      const check = async () => {
+        const next = await refreshReadiness();
+        if ((next && done(next.microphone)) || Date.now() >= expiresAt) {
+          microphonePoll.current = null;
+          return;
+        }
+        microphonePoll.current = window.setTimeout(check, 1000);
+      };
+      microphonePoll.current = window.setTimeout(check, 500);
+    },
+    [refreshReadiness],
+  );
+  useEffect(
+    () => () => {
+      if (microphonePoll.current !== null) window.clearTimeout(microphonePoll.current);
+    },
+    [],
+  );
+
+  const handleRequestMicrophone = useCallback(async () => {
+    const state = await requestMicrophoneAccess();
+    if (state === "not_determined") pollMicrophone((next) => next !== "not_determined");
+    else void refreshReadiness();
+  }, [pollMicrophone, refreshReadiness]);
+
+  const handleOpenMicrophoneSettings = useCallback(async () => {
+    await openMicrophoneSettings();
+    pollMicrophone((next) => next === "granted");
+  }, [pollMicrophone]);
+
+  const handleResolveAccessibility = useCallback(async () => {
+    if (isPollingAccessibility) {
+      await refreshReadiness();
+      return;
+    }
+    await openAccessibilitySettings();
+    startAccessibilityPolling();
+  }, [isPollingAccessibility, refreshReadiness, startAccessibilityPolling]);
+
+  /** Makes a first-run engine the shortcut model, and the in-app and file
+   * model too when those have nothing usable yet. */
+  const handleUseFirstRunModel = useCallback(async (modelId: string) => {
+    const [models, current] = await Promise.all([listInstalledModels(), getSettings()]);
+    setInstalledModels(models);
+    const model = models.find((entry) => entry.id === modelId);
+    if (!model) throw new Error("The engine is not installed yet.");
+    const runs = (candidate: InstalledModel | undefined, context: ModelUseContext) =>
+      Boolean(
+        candidate &&
+          (!candidate.capabilities || candidate.capabilities.supportedContexts.includes(context)),
+      );
+    const usable = (id: string | null, context: ModelUseContext) =>
+      runs(models.find((entry) => entry.id === id), context);
+    const patch: SettingsPatch = {
+      shortcutDictationSelectedModelId: model.id,
+      shortcutDictationModelProfile: model.profile,
+    };
+    if (runs(model, "quick_dictate") && !usable(current.quickDictateSelectedModelId, "quick_dictate")) {
+      patch.quickDictateSelectedModelId = model.id;
+      patch.quickDictateModelProfile = model.profile;
+    }
+    if (
+      runs(model, "file_transcription") &&
+      !usable(current.fileTranscribeSelectedModelId, "file_transcription")
+    ) {
+      patch.fileTranscribeSelectedModelId = model.id;
+      patch.fileTranscribeModelProfile = model.profile;
+    }
+    await saveSettings(patch);
+  }, []);
+
+  const closeFirstRun = useCallback(async () => {
+    await completeFirstRun();
+    setFirstRunOpen(false);
+    void refreshReadiness();
+  }, [refreshReadiness]);
+
   const handleResolveReadiness = useCallback(
-    async (item: "model" | "shortcut" | "accessibility") => {
+    async (
+      item: "model" | "engine" | "translation" | "microphone" | "shortcut" | "accessibility",
+    ) => {
+      if (item === "engine") {
+        setFirstRunOpen(true);
+        return;
+      }
+      if (item === "microphone") {
+        if (readiness?.microphone === "not_determined") await handleRequestMicrophone();
+        else await handleOpenMicrophoneSettings();
+        return;
+      }
       if (item === "accessibility") {
         if (isPollingAccessibility) {
           await refreshReadiness();
@@ -777,9 +934,17 @@ export function App() {
         return;
       }
       setSettingsSection(item === "model" ? "models" : "audio");
+      // "translation" and "shortcut" both live in Settings → Dictation.
       setScreen("settings");
     },
-    [isPollingAccessibility, refreshReadiness, startAccessibilityPolling],
+    [
+      handleOpenMicrophoneSettings,
+      handleRequestMicrophone,
+      isPollingAccessibility,
+      readiness?.microphone,
+      refreshReadiness,
+      startAccessibilityPolling,
+    ],
   );
 
   async function removeTranscript(transcriptId: string) {
@@ -823,7 +988,7 @@ export function App() {
     setPreview(null);
     setManualTranscriptionState({
       stage: "processing",
-      statusText: "Finishing your recording...",
+      statusText: "Finishing your recording…",
       startedAt,
       errorMessage: null,
     });
@@ -843,7 +1008,7 @@ export function App() {
       if (generation !== manualGeneration.current) return;
       setManualTranscriptionState({
         stage: "processing",
-        statusText: "Transcribing your recording locally...",
+        statusText: "Transcribing your recording locally…",
         startedAt,
         errorMessage: null,
       });
@@ -1007,7 +1172,7 @@ export function App() {
       pushToast({
         kind: "error",
         message: "A speech model is needed",
-        hint: "Open Settings → Models to download a model for file transcription.",
+        hint: "Open Settings → Engines to download an engine for files.",
         durationMs: 0,
       });
       return;
@@ -1131,6 +1296,25 @@ export function App() {
   return (
     <div className="app-scene">
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      {firstRunOpen ? (
+        <FirstRunSetup
+          platform={health?.platform ?? null}
+          settings={settings}
+          readiness={readiness}
+          quickStatus={quickDictationStatus}
+          isPollingAccessibility={isPollingAccessibility}
+          onUseModel={handleUseFirstRunModel}
+          onRequestMicrophone={handleRequestMicrophone}
+          onOpenMicrophoneSettings={handleOpenMicrophoneSettings}
+          onResolveAccessibility={handleResolveAccessibility}
+          onOpenShortcutSettings={async () => {
+            await closeFirstRun();
+            setSettingsSection("audio");
+            setScreen("settings");
+          }}
+          onFinish={closeFirstRun}
+        />
+      ) : null}
       {trayClosePrompt ? (
         <TrayClosePrompt
           payload={trayClosePrompt}
@@ -1306,6 +1490,7 @@ export function App() {
                   onResolveReadiness={handleResolveReadiness}
                   onStartRecording={beginManualRecording}
                   recentDictations={settings?.saveHistory ? transcripts : []}
+                  stats={dictationStats}
                   onOpenTranscript={(id) => openReview({ kind: "saved", id }, "Dictate")}
                   onStopAndTranscribeRecording={stopAndPreviewManualRecording}
                   onCancelRecording={cancelManualRecording}
@@ -1549,13 +1734,7 @@ function ToastChip({
 }
 
 function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string" && error.trim().length > 0) {
-    return error;
-  }
-  return fallback;
+  return describeError(error, fallback);
 }
 
 function createQueuedFileItem(

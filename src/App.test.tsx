@@ -38,6 +38,9 @@ import { App } from "./App";
 
 const accessMissing: DictationReadiness = {
   hasModel: true,
+  shortcutModelReady: true,
+  microphone: "granted",
+  firstRunCompleted: true,
   shortcutRegistered: true,
   autoPasteEnabled: true,
   accessibilityRequired: true,
@@ -109,5 +112,29 @@ describe("App readiness lifecycle", () => {
         "true",
       );
     });
+  });
+  it("opens the guided setup on a fresh install whose shortcut cannot work yet", async () => {
+    apiMocks.getDictationReadiness.mockResolvedValue({
+      ...accessMissing,
+      hasModel: false,
+      shortcutModelReady: false,
+      firstRunCompleted: false,
+    });
+    render(<App />);
+    expect(
+      await screen.findByRole("dialog", { name: "Choose your engine" }),
+    ).toBeTruthy();
+  });
+
+  it("does not show the guided setup once it was completed or dictation works", async () => {
+    apiMocks.getDictationReadiness.mockResolvedValue({
+      ...accessMissing,
+      firstRunCompleted: false,
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(apiMocks.getDictationReadiness).toHaveBeenCalledTimes(1),
+    );
+    expect(screen.queryByRole("dialog", { name: "Choose your engine" })).toBeNull();
   });
 });

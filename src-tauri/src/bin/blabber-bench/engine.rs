@@ -444,8 +444,10 @@ fn run_r2t2(job: &ChildJob, helper: &Path, model: &Path) -> Result<()> {
         warm_ms: job.measure_load.then(|| ms(load)),
         per_transcription: false,
     });
-    streaming_loop(job, true, |clip, mode, samples, paced| {
-        worker.transcribe(samples, r2t2_language(job, clip), mode.prompt.as_deref().unwrap_or(""), paced)
+    // Like the app (dictation.rs), R2T2 gets no vocabulary context: in its
+    // system message the English instruction makes it translate German.
+    streaming_loop(job, false, |clip, _, samples, paced| {
+        worker.transcribe(samples, r2t2_language(job, clip), "", paced)
     })
 }
 
